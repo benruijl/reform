@@ -9,18 +9,21 @@ impl FuncArg {
             &FuncArg::Fn(Func { name: ref n, args: ref a } ) => {
                 match n.as_str() {
                     "delta_" => {
-
-                    if a.len() == 1 {
-                        match a[0] {
-                            FuncArg::Num(_, 0, _) => FuncArg::Num(true,1,1),
-                            _ =>  FuncArg::Num(true,0,1)
+                        if a.len() == 1 {
+                            match a[0] {
+                                FuncArg::Num(_, 0, _) => FuncArg::Num(true,1,1),
+                                _ =>  FuncArg::Num(true,0,1)
+                            }
+                        } else {
+                            self.clone()
                         }
-                    } else {
-                        self.clone()
+                    },
+                    "nargs_" => {
+                        // get the number of arguments
+                        FuncArg::Num(true, a.len() as u64, 1)
                     }
-                },
-                _ =>
-                    FuncArg::Fn(
+                    _ =>
+                        FuncArg::Fn(
                         Func { name: n.clone(), args: a.iter().map(|x| x.apply_builtin_functions(false)).collect()})
                 }
             },

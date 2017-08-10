@@ -36,7 +36,7 @@ impl FuncArg {
 #[derive(Debug)]
 enum StatementIter<'a> {
 	IdentityStatement(MatchIterator<'a>),
-	//Multiple(Vec<FuncArg>),
+	Multiple(Vec<FuncArg>, bool),
 	Simple(FuncArg, bool), // yield a term once
 	None
 }
@@ -45,10 +45,14 @@ impl<'a> StatementIter<'a> {
 	fn next(&mut self) -> StatementResult<FuncArg> {
 		match *self {
 			StatementIter::IdentityStatement(ref mut id) => id.next(),
-			/*StatementIter::Multiple(ref mut f) => {
-				if f.len() == 0 { return StatementResult::Done; } // FIXME: could also be NotExecuted?
-				StatementResult::Executed(f.pop().unwrap()) // FIXME: pops the last term, this is WRONG!
-            },*/
+			StatementIter::Multiple(ref mut f, m) => {
+				if f.len() == 0 { return StatementResult::Done; }
+				if m {
+					StatementResult::Executed(f.pop().unwrap()) // FIXME: pops the last term, this is WRONG!
+				} else {
+					StatementResult::NotExecuted(f.pop().unwrap())
+				}
+            },
 			StatementIter::Simple(..) => {
 				let mut to_swap = StatementIter::None;
                 mem::swap(self, &mut to_swap); //f switch self to none
@@ -87,11 +91,23 @@ impl Statement {
 	        }
 	      },
 	      Statement::Expand => {
-	      	// FIXME: treat ground level differently
-	      	StatementIter::Simple(input.expand(), false) // FIXME: check if executed
+	      	// FIXME: treat ground level differently in the expand routine
+			// don't generate all terms in one go
+			match input.expand() {
+				FuncArg::SubExpr(f) => {
+					if f.len() == 1 {
+						 StatementIter::Simple(f[0].clone(), false)
+					} else {
+						 StatementIter::Multiple(f, true)
+					}
+				}
+				a => StatementIter::Simple(a, false)
+			}
+
 	      },
 	      Statement::Print => {
 	      	println!("\t+{}", input);
+			println!("\t{:?}", input);
 	      	StatementIter::Simple(input.clone(), false)
 	      },
 	      Statement::Multiply(ref x) => {

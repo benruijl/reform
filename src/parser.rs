@@ -6,8 +6,8 @@ use std::str::FromStr;
 use std::io::prelude::*;
 use std::fs::File;
 
-named!(builtin <String>, do_parse!(f: map_res!(alt_complete!(tag!("dd_") |tag!("delta_") 
-	| tag!("theta_") | tag!("pow_")), std::str::from_utf8) >> (f.to_owned())));
+named!(builtin <String>, do_parse!(f: map_res!(alt_complete!(tag!("dd_") | tag!("delta_") 
+	| tag!("theta_") | tag!("pow_") | tag!("nargs_")), std::str::from_utf8) >> (f.to_owned())));
 
 // varname: alpha + alphanumeric
 named!(varname <String>, do_parse!(
@@ -77,8 +77,6 @@ named!(numrange <FuncArg>, do_parse!(no: numorder >> num: alt_complete!(numberdi
 named!(set <Vec<FuncArg>>, ws!(delimited!(char!('{'), separated_list!(char!(','), alt_complete!(expression | numrange)), char!('}'))));
 named!(wildcard <FuncArg>, do_parse!(name: ws!(varname) >> ws!(tag!("?")) >> r: opt!(set) >> 
     (FuncArg::Wildcard(name, match r { Some(a) => a, None => vec![]}))));
-
-//named!(wildcard <FuncArg>, do_parse!(name: ws!(varname) >> ws!(tag!("?")) >> (FuncArg::Wildcard(name))));
 named!(rangedwildcard <FuncArg>, do_parse!(ws!(tag!("?")) >> name: ws!(varname) >> (FuncArg::VariableArgument(name))));
 
 named!(pub splitarg <Statement>, do_parse!(ws!(tag!("splitarg")) >> name: ws!(varname) >> ws!(tag!(";")) >> ( Statement::SplitArg(name) ) ) );
