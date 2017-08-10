@@ -1,0 +1,8 @@
+[package]
+name = "reform"
+version = "0.1.0"
+authors = ["Ben Ruijl <benruyl@gmail.com>"]
+
+[dependencies]
+nom = "^3.2"
+itertools = "^0.5.8"
