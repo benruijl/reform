@@ -1,8 +1,14 @@
 use std::fmt;
 
 #[derive(Debug)]
+pub struct Program {
+  pub input : Element, // TODO: in future this is a stream of terms
+  pub modules: Vec<Module>
+}
+
+#[derive(Debug)]
 pub struct Module {
-  pub input : FuncArg, // TODO: in future this is a stream of terms
+  pub name: String,
   pub statements : Vec<Statement>
 }
 
@@ -17,22 +23,22 @@ pub enum NumOrder {
 
 // TODO: rename
 #[derive(Debug,Clone,PartialEq,Eq,PartialOrd,Ord)]
-pub enum FuncArg {
+pub enum Element {
     VariableArgument(String), // ?a
-    Wildcard(String,Vec<FuncArg>), // x?{...}
+    Wildcard(String,Vec<Element>), // x?{...}
     Var(String), // x
     NumberRange(bool,u64,u64,NumOrder), // >0, <=-5/2
     Fn(Func), // f(...)
-    Term(Vec<FuncArg>),
-    SubExpr(Vec<FuncArg>),
+    Term(Vec<Element>),
+    SubExpr(Vec<Element>),
     Num(bool,u64,u64), // fraction (true=positive), make sure it is last for sorting
 }
 
-// TODO: move Func into FuncArg?
+// TODO: move Func into Element?
 #[derive(Debug,Clone,Eq,PartialEq,PartialOrd,Ord)]
 pub struct Func {
     pub name: String,
-    pub args: Vec<FuncArg>
+    pub args: Vec<Element>
 }
 
 #[derive(Debug,Clone,Eq,PartialEq,PartialOrd,Ord)]
@@ -42,7 +48,7 @@ pub enum Statement {
 	Repeat(Vec<Statement>),
 	Expand,
 	Print,
-	Multiply(FuncArg),
+	Multiply(Element),
 	// internal commands
 	JumpIfChanged(usize), // jump and pop change flag
 	PushChange // push a new change flag
@@ -58,8 +64,8 @@ pub enum StatementResult<T> {
 #[derive(Debug,Clone,Eq,PartialEq,PartialOrd,Ord)]
 pub struct IdentityStatement {
 	pub mode : IdentityStatementMode, 
-	pub lhs: FuncArg, 
-	pub rhs: FuncArg
+	pub lhs: Element, 
+	pub rhs: Element
 }
 
 
@@ -134,11 +140,11 @@ impl fmt::Display for IdentityStatementMode {
     }
 }
 
-impl fmt::Display for FuncArg {
+impl fmt::Display for Element {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            &FuncArg::VariableArgument(ref name) => write!(f, "?{}",name),
-            &FuncArg::Wildcard(ref name, ref restriction) => {
+            &Element::VariableArgument(ref name) => write!(f, "?{}",name),
+            &Element::Wildcard(ref name, ref restriction) => {
             	if restriction.len() == 0 {
             		write!(f, "{}?", name)
             	} else {
@@ -153,15 +159,15 @@ impl fmt::Display for FuncArg {
 	                write!(f,"}}")
             	}
             },
-            &FuncArg::Var(ref name) => write!(f, "{}", name),
-            &FuncArg::Num(ref pos, ref num, ref den) => {
+            &Element::Var(ref name) => write!(f, "{}", name),
+            &Element::Num(ref pos, ref num, ref den) => {
             	if *den == 1 {
 					write!(f, "{}{}", if *pos { "" } else {"-"}, num)
             	} else {
 					write!(f, "{}{}/{}", if *pos { "" } else {"-"}, num, den)
             	}
             },
-            &FuncArg::NumberRange(ref pos, ref num, ref den, ref rel) => {
+            &Element::NumberRange(ref pos, ref num, ref den, ref rel) => {
             	write!(f, "{}", rel)?;
             	if *den == 1 {
 					write!(f, "{}{}", if *pos { "" } else {"-"}, num)
@@ -169,22 +175,22 @@ impl fmt::Display for FuncArg {
 					write!(f, "{}{}/{}", if *pos { "" } else {"-"}, num, den)
             	}
             },
-            &FuncArg::Fn(ref func) => func.fmt(f),
-            &FuncArg::Term(ref factors) => {
+            &Element::Fn(ref func) => func.fmt(f),
+            &Element::Term(ref factors) => {
                 match factors.first() {
-                	Some(s@&FuncArg::SubExpr(_)) if factors.len() > 1 => write!(f, "({})", s)?,
+                	Some(s@&Element::SubExpr(_)) if factors.len() > 1 => write!(f, "({})", s)?,
                     Some(x) => write!(f, "{}", x)?,
                     None => {},
                 }
                 for t in factors.iter().skip(1) {
                 	match t {
-                		s@&FuncArg::SubExpr(_) => write!(f, "*({})", s)?,
+                		s@&Element::SubExpr(_) => write!(f, "*({})", s)?,
                 		_ => write!(f, "*{}", t)?
                 	}
                 }
                 write!(f,"")
             },
-            &FuncArg::SubExpr(ref terms) => {
+            &Element::SubExpr(ref terms) => {
                 match terms.first() {
                     Some(x) => write!(f, "{}", x)?,
                     None => {},

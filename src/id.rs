@@ -1,23 +1,21 @@
-use structure::{FuncArg,Func,IdentityStatementMode,IdentityStatement,StatementResult};
+use structure::{Element,Func,IdentityStatementMode,IdentityStatement,StatementResult};
 use std;
 use std::fmt;
 use std::mem;
 use itertools;
 use itertools::Itertools;
-use std::env;
-use parser;
 use tools::{Heap,add_terms,is_number_in_range};
 
 pub const MAXMATCH: usize = 1000000; // maximum number of matches
 
 #[derive(Debug,Clone,Eq,PartialEq)]
 enum MatchOpt<'a> {
-    Single(&'a FuncArg),
-    Multiple(&'a [FuncArg])
+    Single(&'a Element),
+    Multiple(&'a [Element])
 }
 
 impl<'a> MatchOpt<'a> {
-    fn to_vec(&self) -> Vec<FuncArg> {
+    fn to_vec(&self) -> Vec<Element> {
         match *self {
             MatchOpt::Single(ref x) => vec![(*x).clone()],
             MatchOpt::Multiple(ref x) => x.iter().map(|y| (*y).clone()).collect()
@@ -47,7 +45,7 @@ impl<'a> fmt::Display for MatchOpt<'a> {
 type MatchObject<'a> = Vec<(&'a String, MatchOpt<'a>)>;
 
 // push something to the match object, keeping track of the old length
-fn push_match<'a>(m : &mut MatchObject<'a>, k: &'a String, v: &'a FuncArg) -> Option<usize> {
+fn push_match<'a>(m : &mut MatchObject<'a>, k: &'a String, v: &'a Element) -> Option<usize> {
     for &(ref rk, ref rv) in m.iter() {
         if **rk == *k {
             match *rv {
@@ -62,7 +60,7 @@ fn push_match<'a>(m : &mut MatchObject<'a>, k: &'a String, v: &'a FuncArg) -> Op
 }
 
 // push something to the match object, keeping track of the old length
-fn push_match_slice<'a>(m : &mut MatchObject<'a>, k: &'a String, v: &'a [FuncArg]) -> Option<usize> {
+fn push_match_slice<'a>(m : &mut MatchObject<'a>, k: &'a String, v: &'a [Element]) -> Option<usize> {
     for &(ref rk, ref rv) in m.iter() {
         if **rk == *k {
             match *rv {
@@ -87,14 +85,14 @@ fn find_match<'a,>(m : &'a MatchObject<'a>, k: &'a String) -> Option<&'a MatchOp
 }
 
 // apply a mapping of wildcards to a function argument
-impl FuncArg {
-    fn apply_map<'a>(&self, m: &MatchObject<'a>) -> Vec<FuncArg> {
+impl Element {
+    fn apply_map<'a>(&self, m: &MatchObject<'a>) -> Vec<Element> {
         match *self {
-            FuncArg::VariableArgument(ref name) => find_match(m, name).unwrap().to_vec(),
-            FuncArg::Wildcard(ref name, ..) => find_match(m, name).unwrap().to_vec(),
-            FuncArg::Fn(ref f) => vec![FuncArg::Fn(f.apply_map(m)).normalize()],
-            FuncArg::Term(ref f) => vec![ FuncArg::Term(f.iter().flat_map(|x| x.apply_map(m)).collect()).normalize()],
-            FuncArg::SubExpr(ref f) => vec![FuncArg::SubExpr(f.iter().flat_map(|x| x.apply_map(m)).collect()).normalize()],
+            Element::VariableArgument(ref name) => find_match(m, name).unwrap().to_vec(),
+            Element::Wildcard(ref name, ..) => find_match(m, name).unwrap().to_vec(),
+            Element::Fn(ref f) => vec![Element::Fn(f.apply_map(m)).normalize()],
+            Element::Term(ref f) => vec![ Element::Term(f.iter().flat_map(|x| x.apply_map(m)).collect()).normalize()],
+            Element::SubExpr(ref f) => vec![Element::SubExpr(f.iter().flat_map(|x| x.apply_map(m)).collect()).normalize()],
             _ => vec![self.clone()]
         }
     }
@@ -108,46 +106,46 @@ impl Func {
 }
 
 #[derive(Debug)]
-enum FuncArgIterSingle<'a> {
+enum ElementIterSingle<'a> {
     FnIter(FuncIterator<'a>), // match function
     Once, // matching without wildcard, ie number vs number
-    OnceMatch(&'a String, &'a FuncArg), // simple match of variable
-    PermIter(&'a [FuncArg], Heap<&'a FuncArg>, SequenceIter<'a>), // term and arg combinations
+    OnceMatch(&'a String, &'a Element), // simple match of variable
+    PermIter(&'a [Element], Heap<&'a Element>, SequenceIter<'a>), // term and arg combinations
     None
 }
 
 
 #[derive(Debug)]
-enum FuncArgIter<'a> {
-    SliceIter(&'a String, usize, &'a [FuncArg]), // slice from 0 to funcarg end
-    SingleArg(&'a [FuncArg], FuncArgIterSingle<'a>), // iters consuming a single argument
+enum ElementIter<'a> {
+    SliceIter(&'a String, usize, &'a [Element]), // slice from 0 to Element end
+    SingleArg(&'a [Element], ElementIterSingle<'a>), // iters consuming a single argument
     None, // no match
 }
 
-impl<'a>  FuncArgIterSingle<'a> {
+impl<'a>  ElementIterSingle<'a> {
     fn next(& mut self, m: &mut MatchObject<'a>) -> Option<usize> {
         match *self {
-            FuncArgIterSingle::None => None,
-            FuncArgIterSingle::Once => {
-                let mut to_swap = FuncArgIterSingle::None;
+            ElementIterSingle::None => None,
+            ElementIterSingle::Once => {
+                let mut to_swap = ElementIterSingle::None;
                 mem::swap(self, &mut to_swap); //f switch self to none
                 match to_swap {
-                    FuncArgIterSingle::Once  => Some(m.len()),
+                    ElementIterSingle::Once  => Some(m.len()),
                     _   => panic!(), // never reached
                 }
             },
-            FuncArgIterSingle::OnceMatch(_,_) => {
-                let mut to_swap = FuncArgIterSingle::None;
+            ElementIterSingle::OnceMatch(_,_) => {
+                let mut to_swap = ElementIterSingle::None;
                 mem::swap(self, &mut to_swap);
                 match to_swap {
-                    FuncArgIterSingle::OnceMatch(name, target)  => {
+                    ElementIterSingle::OnceMatch(name, target)  => {
                         push_match(m, name, &target)
                     },
                     _ => panic!(), // never reached
                 }
             },
-            FuncArgIterSingle::FnIter(ref mut f) => f.next(m),
-            FuncArgIterSingle::PermIter(ref pat, ref mut heap, ref mut termit) => {
+            ElementIterSingle::FnIter(ref mut f) => f.next(m),
+            ElementIterSingle::PermIter(ref pat, ref mut heap, ref mut termit) => {
                 loop {
                     if let Some(x) = termit.next(&heap.data, m) {
                         return Some(x);
@@ -166,11 +164,11 @@ impl<'a>  FuncArgIterSingle<'a> {
 }
 
 
-impl<'a>  FuncArgIter<'a> {
-    fn next(& mut self, m: &mut MatchObject<'a>) -> Option<(&'a [FuncArg], usize)> {
+impl<'a>  ElementIter<'a> {
+    fn next(& mut self, m: &mut MatchObject<'a>) -> Option<(&'a [Element], usize)> {
         match *self {
-            FuncArgIter::None => None,
-            FuncArgIter::SliceIter(name, ref mut index, target) => {
+            ElementIter::None => None,
+            ElementIter::SliceIter(name, ref mut index, target) => {
                 // if the slice is already found, we can immediately compare
                 if *index > target.len() {
                     return None;
@@ -201,72 +199,72 @@ impl<'a>  FuncArgIter<'a> {
                 }
                 None
             }
-            FuncArgIter::SingleArg(rest, ref mut f) => f.next(m).map(move |x| { (rest, x) })
+            ElementIter::SingleArg(rest, ref mut f) => f.next(m).map(move |x| { (rest, x) })
         }
     }
 }
 
 
-impl FuncArg {
+impl Element {
     // create an iterator over a pattern
-    fn to_iter<'a>(&'a self, target: &'a [FuncArg]) -> FuncArgIter<'a> {
+    fn to_iter<'a>(&'a self, target: &'a [Element]) -> ElementIter<'a> {
 
         // go through all possible options (slice sizes) for the variable argument
-        if let &FuncArg::VariableArgument(ref name) = self {
-            return FuncArgIter::SliceIter(name,0,target);
+        if let &Element::VariableArgument(ref name) = self {
+            return ElementIter::SliceIter(name,0,target);
         }
 
         // is the slice non-zero length?
         match target.first() {
-            Some(x) => FuncArgIter::SingleArg(&target[1..], self.to_iter_single(x)),
-            None => FuncArgIter::None
+            Some(x) => ElementIter::SingleArg(&target[1..], self.to_iter_single(x)),
+            None => ElementIter::None
         }
     }
 
     // create an iterator over a pattern
-    fn to_iter_single<'a>(&'a self, target: &'a FuncArg) -> FuncArgIterSingle<'a> {
+    fn to_iter_single<'a>(&'a self, target: &'a Element) -> ElementIterSingle<'a> {
         match (target, self) {
-                (&FuncArg::Var(ref i1), &FuncArg::Var(ref i2)) if i1 == i2 =>
-                             FuncArgIterSingle::Once,
-                (&FuncArg::Num(ref pos1, ref num1, ref den1), &FuncArg::Num(ref pos2, ref num2, ref den2)) 
+                (&Element::Var(ref i1), &Element::Var(ref i2)) if i1 == i2 =>
+                             ElementIterSingle::Once,
+                (&Element::Num(ref pos1, ref num1, ref den1), &Element::Num(ref pos2, ref num2, ref den2)) 
                     if pos1 == pos2 && num1 == num2 && den1 == den2 =>
-                            FuncArgIterSingle::Once,
-                (&FuncArg::Num(ref pos, ref num, ref den), &FuncArg::Wildcard(ref i2, ref rest)) => {
+                            ElementIterSingle::Once,
+                (&Element::Num(ref pos, ref num, ref den), &Element::Wildcard(ref i2, ref rest)) => {
                     if rest.len() == 0 {
-                        return FuncArgIterSingle::OnceMatch(i2, &target)
+                        return ElementIterSingle::OnceMatch(i2, &target)
                     }
 
                     for restriction in rest {
                         match restriction {
-                            &FuncArg::NumberRange(ref pos1, ref num1, ref den1, ref rel) => {
+                            &Element::NumberRange(ref pos1, ref num1, ref den1, ref rel) => {
                                 // see if the number is in the range
                                 if is_number_in_range(*pos,*num,*den,*pos1,*num1,*den1,rel) {
-                                    return FuncArgIterSingle::OnceMatch(i2, &target);
+                                    return ElementIterSingle::OnceMatch(i2, &target);
                                 }
                             }
-                            _ if restriction == target => return FuncArgIterSingle::OnceMatch(i2, &target),
+                            _ if restriction == target => return ElementIterSingle::OnceMatch(i2, &target),
                             _ => {}
                         }
                     }
 
-                    FuncArgIterSingle::None
+                    ElementIterSingle::None
                     
                 },
-                (_, &FuncArg::Wildcard(ref i2, ref rest)) => {
+                (_, &Element::Wildcard(ref i2, ref rest)) => {
                     if rest.len() == 0 || rest.contains(target) {
-                        FuncArgIterSingle::OnceMatch(i2, &target)
+                        ElementIterSingle::OnceMatch(i2, &target)
                     } else {
-                        FuncArgIterSingle::None
+                        ElementIterSingle::None
                     }
                 },
-                (&FuncArg::Fn(ref f1), &FuncArg::Fn(ref f2)) =>
-                            FuncArgIterSingle::FnIter(f2.to_iter(&f1)),
-                (&FuncArg::Term(ref f1), &FuncArg::Term(ref f2)) |
-                (&FuncArg::SubExpr(ref f1), &FuncArg::SubExpr(ref f2)) => {
-                    FuncArgIterSingle::PermIter(f2, Heap::new(f1.iter().map(|x| x).collect::<Vec<_>>()),
+                (&Element::Fn(ref f1), &Element::Fn(ref f2)) =>
+                            ElementIterSingle::FnIter(f2.to_iter(&f1)),
+                (&Element::Term(ref f1), &Element::Term(ref f2)) |
+                (&Element::SubExpr(ref f1), &Element::SubExpr(ref f2)) => {
+                    ElementIterSingle::PermIter(f2, Heap::new(f1.iter().map(|x| x).collect::<Vec<_>>()),
                         SequenceIter::dummy(f2))
                 },
-                _ =>  FuncArgIterSingle::None
+                _ =>  ElementIterSingle::None
         }
     }
 }
@@ -277,7 +275,7 @@ impl Func {
     if self.name != target.name { return FuncIterator { pattern: self, iterators: vec![], matches : vec![] }; }
 
     // shortcut if the number of arguments is wrong
-    let varargcount = self.args.iter().filter(|x| match *x { &FuncArg::VariableArgument {..} => true, _ => false } ).count();
+    let varargcount = self.args.iter().filter(|x| match *x { &Element::VariableArgument {..} => true, _ => false } ).count();
     if self.args.len() - varargcount > target.args.len() { 
         return FuncIterator { pattern: self, iterators: vec![], matches : vec![] }; 
     };
@@ -285,7 +283,7 @@ impl Func {
         return FuncIterator { pattern: self, iterators: vec![], matches : vec![] }; 
     };
 
-    let mut iterator = (0..self.args.len()).map(|_| { FuncArgIter::None }).collect::<Vec<_>>(); // create placeholder iterators
+    let mut iterator = (0..self.args.len()).map(|_| { ElementIter::None }).collect::<Vec<_>>(); // create placeholder iterators
     iterator[0] = self.args[0].to_iter(&target.args); // initialize the first iterator
 
     let matches = vec![(&target.args[..], MAXMATCH); self.args.len()]; // placeholder matches
@@ -298,8 +296,8 @@ impl Func {
 #[derive(Debug)]
 struct FuncIterator<'a> {
     pattern: &'a Func,
-    iterators: Vec<FuncArgIter<'a>>,
-    matches: Vec<(&'a [FuncArg], usize)>, // keep track of stack depth
+    iterators: Vec<ElementIter<'a>>,
+    matches: Vec<(&'a [Element], usize)>, // keep track of stack depth
 }
 
 impl<'a>FuncIterator<'a> {
@@ -362,23 +360,23 @@ impl<'a>FuncIterator<'a> {
 // iterator over a pattern that could occur in any order
 #[derive(Debug)]
 struct SequenceIter<'a> {
-    pattern: &'a [FuncArg], // input term
-    iterators: Vec<FuncArgIterSingle<'a>>,
+    pattern: &'a [Element], // input term
+    iterators: Vec<ElementIterSingle<'a>>,
     matches: Vec<usize>, // keep track of stack depth
 }
 
 impl<'a> SequenceIter<'a> {
-    fn dummy(pattern: &'a [FuncArg]) -> SequenceIter<'a> {
+    fn dummy(pattern: &'a [Element]) -> SequenceIter<'a> {
         SequenceIter { pattern: pattern, iterators: vec![], matches: vec![] }
     }
 
-    fn new(pattern: &'a [FuncArg], first: &'a FuncArg) -> SequenceIter<'a> {
-        let mut its =  (0..pattern.len()).map(|_| { FuncArgIterSingle::None }).collect::<Vec<_>>();
+    fn new(pattern: &'a [Element], first: &'a Element) -> SequenceIter<'a> {
+        let mut its =  (0..pattern.len()).map(|_| { ElementIterSingle::None }).collect::<Vec<_>>();
         its[0] = pattern[0].to_iter_single(first);
         SequenceIter { pattern: pattern, iterators: its, matches: vec![MAXMATCH; pattern.len()] }
     }
 
-    fn next(&mut self, target: &[&'a FuncArg], m: &mut MatchObject<'a>) -> Option<usize> {
+    fn next(&mut self, target: &[&'a Element], m: &mut MatchObject<'a>) -> Option<usize> {
         if self.iterators.len() == 0 {
             return None;
         }
@@ -422,25 +420,25 @@ impl<'a> SequenceIter<'a> {
 // FIXME: nasty structure
 #[derive(Debug)]
 struct MatchTermIterator<'a> {
-    pattern: &'a [FuncArg],
-    target: &'a [FuncArg],
-    subtarget: Option<Vec<&'a FuncArg>>,
-    remaining: Option<Vec<&'a FuncArg>>,
+    pattern: &'a [Element],
+    target: &'a [Element],
+    subtarget: Option<Vec<&'a Element>>,
+    remaining: Option<Vec<&'a Element>>,
     m : MatchObject<'a>,
-    combinator: itertools::Combinations<std::slice::Iter<'a, FuncArg>>,
-    permutator: FuncArgIterSingle<'a>
+    combinator: itertools::Combinations<std::slice::Iter<'a, Element>>,
+    permutator: ElementIterSingle<'a>
 }
 
 impl<'a> MatchTermIterator<'a> {
-    fn new(pattern: &'a [FuncArg], target: &'a [FuncArg]) -> MatchTermIterator<'a> {
+    fn new(pattern: &'a [Element], target: &'a [Element]) -> MatchTermIterator<'a> {
         let combinator = target.iter().combinations(pattern.len());
 
         MatchTermIterator { pattern: pattern, target: target, subtarget: None, remaining: None, m: vec![],
-        combinator: combinator, permutator: FuncArgIterSingle::None  }
+        combinator: combinator, permutator: ElementIterSingle::None  }
 
     }
 
-    fn next(&mut self) -> Option<(Vec<&'a FuncArg>, MatchObject<'a>)> {
+    fn next(&mut self) -> Option<(Vec<&'a Element>, MatchObject<'a>)> {
         if self.pattern.len() > self.target.len() {
             return None;
         }
@@ -455,7 +453,7 @@ impl<'a> MatchTermIterator<'a> {
             }
             
             if let Some(x) = self.combinator.next() {
-                self.permutator = FuncArgIterSingle::PermIter(self.pattern, Heap::new(x.iter().map(|x| *x).collect::<Vec<_>>()),
+                self.permutator = ElementIterSingle::PermIter(self.pattern, Heap::new(x.iter().map(|x| *x).collect::<Vec<_>>()),
                         SequenceIter::dummy(self.pattern));
 
                 SequenceIter::new(self.pattern, x[0]);
@@ -480,22 +478,22 @@ impl<'a> MatchTermIterator<'a> {
 
 #[derive(Debug)]
 enum MatchKind<'a> {
-    Single(MatchObject<'a>, FuncArgIterSingle<'a>),
-    SinglePat(&'a FuncArg, MatchObject<'a>, FuncArgIterSingle<'a>, &'a [FuncArg], usize),
+    Single(MatchObject<'a>, ElementIterSingle<'a>),
+    SinglePat(&'a Element, MatchObject<'a>, ElementIterSingle<'a>, &'a [Element], usize),
     Many(MatchTermIterator<'a>),
     None
 }
 
 impl<'a> MatchKind<'a> {
-    fn from_funcarg(pattern: &'a FuncArg, target: &'a FuncArg) -> MatchKind<'a> {
+    fn from_element(pattern: &'a Element, target: &'a Element) -> MatchKind<'a> {
         match (pattern, target) {
-            (&FuncArg::Term(ref x), &FuncArg::Term(ref y)) => MatchKind::Many(MatchTermIterator::new(x, y)),
-            (ref a, &FuncArg::Term(ref y)) => MatchKind::SinglePat(a, vec![], FuncArgIterSingle::None, y, 0),
+            (&Element::Term(ref x), &Element::Term(ref y)) => MatchKind::Many(MatchTermIterator::new(x, y)),
+            (ref a, &Element::Term(ref y)) => MatchKind::SinglePat(a, vec![], ElementIterSingle::None, y, 0),
             (a,b) => MatchKind::Single(vec![], a.to_iter_single(b)) 
         }
     }
 
-    fn next(&mut self) -> Option<(Vec<&'a FuncArg>, MatchObject<'a>)> {
+    fn next(&mut self) -> Option<(Vec<&'a Element>, MatchObject<'a>)> {
         match *self {
             MatchKind::Single(ref mut m, ref mut x) => x.next(m).map(|_| { (vec![], m.clone()) }),
             MatchKind::Many(ref mut x) => x.next(),
@@ -520,18 +518,18 @@ impl<'a> MatchKind<'a> {
 #[derive(Debug)]
 pub struct MatchIterator<'a> {
     mode: IdentityStatementMode,
-    rhs: &'a FuncArg,
+    rhs: &'a Element,
     m: MatchObject<'a>,
-    remaining: Vec<&'a FuncArg>,
+    remaining: Vec<&'a Element>,
     it: MatchKind<'a>,
     rhsp: usize, // current rhs index,
     hasmatch: bool,
-    input: &'a FuncArg
+    input: &'a Element
 }
 
 // iterate over the output terms of a match
 impl<'a> MatchIterator<'a> {
-    pub fn next(&mut self) -> StatementResult<FuncArg> {
+    pub fn next(&mut self) -> StatementResult<Element> {
         if self.rhsp == 0 {
             match self.it.next() {
                 Some((ref rem, ref m)) => {
@@ -553,7 +551,7 @@ impl<'a> MatchIterator<'a> {
 
         StatementResult::Executed(
             match self.rhs {
-                &FuncArg::SubExpr(ref x) => {
+                &Element::SubExpr(ref x) => {
                     let r = x[self.rhsp].apply_map(&self.m);
                     self.rhsp += 1;
                     if self.rhsp == x.len() {
@@ -583,9 +581,9 @@ impl<'a> MatchIterator<'a> {
 }
 
 impl IdentityStatement {
-    pub fn to_iter<'a>(&'a self, input: &'a FuncArg) -> MatchIterator<'a> {
+    pub fn to_iter<'a>(&'a self, input: &'a Element) -> MatchIterator<'a> {
         MatchIterator { input: input, hasmatch: false, m: vec![], remaining: vec![], mode: self.mode.clone(), rhs: &self.rhs, rhsp: 0, it:
-            MatchKind::from_funcarg(&self.lhs, input) }
+            MatchKind::from_element(&self.lhs, input) }
         
     }
 }

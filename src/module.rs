@@ -1,18 +1,18 @@
-use structure::{Module,Statement,FuncArg,Func,StatementResult,IdentityStatement};
+use structure::{Module,Statement,Element,Func,StatementResult,IdentityStatement,Program};
 use id::MatchIterator;
 use std::mem;
 
-impl FuncArg {
-	fn expand(&self) -> FuncArg {
+impl Element {
+	fn expand(&self) -> Element {
 		match self {
-			&FuncArg::Fn(Func{ref name, ref args}) => FuncArg::Fn(Func{ name: name.clone(),
+			&Element::Fn(Func{ref name, ref args}) => Element::Fn(Func{ name: name.clone(),
 				args: args.iter().map(|x| x.expand()).collect()}),
-			&FuncArg::Term(ref fs) => {
-				let mut r : Vec<Vec<FuncArg>> = vec![vec![]];
+			&Element::Term(ref fs) => {
+				let mut r : Vec<Vec<Element>> = vec![vec![]];
 
 				for f in fs {
 					match f {
-						&FuncArg::SubExpr(ref s) => {
+						&Element::SubExpr(ref s) => {
 							// use cartesian product function?
 							r = r.iter().flat_map(|x| s.iter().map(|y| { 
 								let mut k = x.clone(); k.push(y.expand()); k } ).collect::<Vec<_>>() ).collect();
@@ -25,9 +25,10 @@ impl FuncArg {
 					}
 				}
 
-				FuncArg::SubExpr(r.iter().map(|x| FuncArg::Term(x.clone())).collect()).normalize()
+				// FIXME: this should not happen for the ground level
+				Element::SubExpr(r.iter().map(|x| Element::Term(x.clone())).collect()).normalize()
 			},
-			&FuncArg::SubExpr(ref f) => FuncArg::SubExpr( f.iter().map(|x| x.expand()).collect()).normalize(),
+			&Element::SubExpr(ref f) => Element::SubExpr( f.iter().map(|x| x.expand()).collect()).normalize(),
 			_ => self.clone()
 		}
 	}
@@ -36,19 +37,19 @@ impl FuncArg {
 #[derive(Debug)]
 enum StatementIter<'a> {
 	IdentityStatement(MatchIterator<'a>),
-	Multiple(Vec<FuncArg>, bool),
-	Simple(FuncArg, bool), // yield a term once
+	Multiple(Vec<Element>, bool),
+	Simple(Element, bool), // yield a term once
 	None
 }
 
 impl<'a> StatementIter<'a> {
-	fn next(&mut self) -> StatementResult<FuncArg> {
+	fn next(&mut self) -> StatementResult<Element> {
 		match *self {
 			StatementIter::IdentityStatement(ref mut id) => id.next(),
 			StatementIter::Multiple(ref mut f, m) => {
 				if f.len() == 0 { return StatementResult::Done; }
 				if m {
-					StatementResult::Executed(f.pop().unwrap()) // FIXME: pops the last term, this is WRONG!
+					StatementResult::Executed(f.pop().unwrap()) // FIXME: pops the last term
 				} else {
 					StatementResult::NotExecuted(f.pop().unwrap())
 				}
@@ -68,22 +69,22 @@ impl<'a> StatementIter<'a> {
 }
 
 impl Statement {
-	fn to_iter<'a>(&'a self, input: &'a FuncArg) -> StatementIter<'a> {
+	fn to_iter<'a>(&'a self, input: &'a Element) -> StatementIter<'a> {
 		match *self {
 	      Statement::IdentityStatement (ref id) => {
 	        StatementIter::IdentityStatement(id.to_iter(input))
 	      },
 	      Statement::SplitArg(ref name) => {
 	        // split function arguments at the ground level
-	        let subs = | n : &String , a: &Vec<FuncArg> |  FuncArg::Fn( Func {name: n.clone(), args: 
-	              a.iter().flat_map( |x| match x { &FuncArg::SubExpr(ref y) => y.clone(), _ => vec![x.clone()] } ).collect()});
+	        let subs = | n : &String , a: &Vec<Element> |  Element::Fn( Func {name: n.clone(), args: 
+	              a.iter().flat_map( |x| match x { &Element::SubExpr(ref y) => y.clone(), _ => vec![x.clone()] } ).collect()});
 
 	        match *input {
 	          // FIXME: check if the splitarg actually executed!
-	          FuncArg::Fn(Func{name: ref n, args: ref a}) if *n == *name => StatementIter::Simple(subs(n, a), false),
-	          FuncArg::Term(ref fs) => {
-	            StatementIter::Simple(FuncArg::Term(fs.iter().map(|f| match f {
-	              &FuncArg::Fn(Func{name: ref n, args: ref a}) if *n == *name => subs(n, a),
+	          Element::Fn(Func{name: ref n, args: ref a}) if *n == *name => StatementIter::Simple(subs(n, a), false),
+	          Element::Term(ref fs) => {
+	            StatementIter::Simple(Element::Term(fs.iter().map(|f| match f {
+	              &Element::Fn(Func{name: ref n, args: ref a}) if *n == *name => subs(n, a),
 	              _ => f.clone()
 	            } ).collect()), false)
 	          }
@@ -94,7 +95,7 @@ impl Statement {
 	      	// FIXME: treat ground level differently in the expand routine
 			// don't generate all terms in one go
 			match input.expand() {
-				FuncArg::SubExpr(f) => {
+				Element::SubExpr(f) => {
 					if f.len() == 1 {
 						 StatementIter::Simple(f[0].clone(), false)
 					} else {
@@ -107,15 +108,14 @@ impl Statement {
 	      },
 	      Statement::Print => {
 	      	println!("\t+{}", input);
-			println!("\t{:?}", input);
 	      	StatementIter::Simple(input.clone(), false)
 	      },
 	      Statement::Multiply(ref x) => {
 	      	let res = match (input, x) {
-	      		(&FuncArg::Term(ref xx), &FuncArg::Term(ref yy)) => { let mut r = xx.clone(); r.extend(yy.clone()); FuncArg::Term(r) },
-				(&FuncArg::Term(ref xx), _) => { let mut r = xx.clone(); r.push(x.clone()); FuncArg::Term(r) },
-				(_, &FuncArg::Term(ref xx)) => { let mut r = xx.clone(); r.push(input.clone()); FuncArg::Term(r) },
-	      		_ => FuncArg::Term(vec![input.clone(), x.clone()])
+	      		(&Element::Term(ref xx), &Element::Term(ref yy)) => { let mut r = xx.clone(); r.extend(yy.clone()); Element::Term(r) },
+				(&Element::Term(ref xx), _) => { let mut r = xx.clone(); r.push(x.clone()); Element::Term(r) },
+				(_, &Element::Term(ref xx)) => { let mut r = xx.clone(); r.push(input.clone()); Element::Term(r) },
+	      		_ => Element::Term(vec![input.clone(), x.clone()])
 	      	}.normalize();
 	      	StatementIter::Simple(res, true)
 	      },
@@ -124,16 +124,18 @@ impl Statement {
 	}
 }
 
-fn do_module_rec(input: &FuncArg, statements: &[Statement], current_index: usize, term_affected: &mut Vec<bool>) {
+fn do_module_rec(input: &Element, statements: &[Statement], current_index: usize, term_affected: &mut Vec<bool>,
+	output: &mut Vec<Element>) {
 	if current_index == statements.len() {
-		return; // done!
+		output.push(input.clone());
+		return;
 	}
 
 	// handle control flow instructions
 	match statements[current_index] {
 		Statement::PushChange => {
 			term_affected.push(false);
-			return do_module_rec(input, statements, current_index + 1, term_affected)
+			return do_module_rec(input, statements, current_index + 1, term_affected, output)
 		},
 		Statement::JumpIfChanged(i) => { // the i should be one after the PushChange
 			let l = term_affected.len();
@@ -142,10 +144,10 @@ fn do_module_rec(input: &FuncArg, statements: &[Statement], current_index: usize
 			if repeat {
 				term_affected[l - 2] = true;
 				term_affected[l - 1] = false;
-				return do_module_rec(input, statements, i, term_affected);
+				return do_module_rec(input, statements, i, term_affected, output);
 			} else {
 				term_affected.pop();
-				return do_module_rec(input, statements, current_index + 1, term_affected);
+				return do_module_rec(input, statements, current_index + 1, term_affected, output);
 			}
 		},
 		_ => {}
@@ -155,10 +157,12 @@ fn do_module_rec(input: &FuncArg, statements: &[Statement], current_index: usize
 	loop {
 		match it.next() { // for every term
 			StatementResult::Executed(ref f) => { 
-				*term_affected.last_mut().unwrap() = true; 
-				do_module_rec(f, statements, current_index + 1, term_affected) 
+				// make a copy that will be modified further in the recursion. FIXME: is this the only way?
+				let mut newtermaff = term_affected.clone();
+				*newtermaff.last_mut().unwrap() = true; 
+				do_module_rec(f, statements, current_index + 1, &mut newtermaff, output);
 			},
-			StatementResult::NotExecuted(ref f) => do_module_rec(f, statements, current_index + 1, term_affected),
+			StatementResult::NotExecuted(ref f) => do_module_rec(f, statements, current_index + 1, term_affected, output),
 			StatementResult::Done => { return; }
 		};
 	}
@@ -215,32 +219,53 @@ impl Module {
 }
 
 // execute the module
-pub fn do_module(module : &mut Module) {
-	module.normalize_module();
-	println!("{}", module);
+pub fn do_program(program : &mut Program) {
+	program.input = program.input.normalize();
 
-	let mut executed = vec![false];
-	match module.input {
-  		FuncArg::SubExpr(ref f) => {
-  			// TODO: paralellize
-  			for x in f.iter() {
-  				do_module_rec(x, &module.statements, 0, &mut executed);
-  			}
+	for module in program.modules.iter_mut() {
+		module.normalize_module();
+		println!("{}", module);
 
-  		},
-  		ref f => { do_module_rec(f, &module.statements, 0, &mut executed); }
-  	}
+		let mut executed = vec![false];
+		let mut output = vec![];
+
+		let inpcount;
+		match program.input {
+	  		Element::SubExpr(ref f) => {
+	  			inpcount = f.len();
+	  			// TODO: paralellize
+	  			for x in f.iter() {
+	  				do_module_rec(x, &module.statements, 0, &mut executed, &mut output);
+	  			}
+
+	  		},
+	  		ref f => { inpcount = 1; do_module_rec(f, &module.statements, 0, &mut executed, &mut output); }
+	  	}
+
+	  	let genterms = output.len();
+	  	program.input = Element::SubExpr(output).normalize();
+	  	let outterms = match program.input {
+	  		Element::SubExpr(ref x) => x.len(),
+	  		_ => 1
+	  	};
+
+        println!("{} -- \t terms in: {}\tgenerated: {}\tterms out: {}", module.name,
+            	inpcount, genterms, outterms);
+
+        // display the terms
+        println!("{}", program.input);
+	}
 }
 
 // execute the module
 /*
 pub fn do_module_it(module : &Module) {
-  let mut curterm = FuncArg::Num(0);// FIXME
+  let mut curterm = Element::Num(0);// FIXME
 
   let mut iterators = (0..module.statements.len() + 1).map(|_| StatementIter::None).collect::<Vec<_>>();
   iterators[0] = StatementIter::Multiple(
   	match module.input {
-  		FuncArg::SubExpr(ref f) => f.clone(),
+  		Element::SubExpr(ref f) => f.clone(),
   		ref f => vec![f.clone()]
   	}
   ); // first entry is all the terms

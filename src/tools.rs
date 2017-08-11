@@ -1,7 +1,8 @@
-use structure::{FuncArg,NumOrder};
+use structure::{Element,NumOrder};
 
 pub const MAXHEAP: usize = 16;
 
+// a modified version of the Heap from the permutohedron crate
 #[derive(Debug)]
 pub struct Heap<T> {
     pub data: Vec<T>,
@@ -118,15 +119,15 @@ pub fn add_one(pos: &mut bool, num: &mut u64, den: &mut u64) {
 	}
 }
 
-pub fn add_terms(dest: &mut FuncArg, to_add: &Vec<&FuncArg>) {
+pub fn add_terms(dest: &mut Element, to_add: &Vec<&Element>) {
     match *dest {
-        FuncArg::SubExpr(ref mut a) => {
+        Element::SubExpr(ref mut a) => {
             for x in a {
                 add_terms(x, to_add);
             }
         },
-        FuncArg::Term(ref mut t) => for x in to_add { t.push((*x).clone()); },
-        ref mut a => {let mut r = vec![a.clone()]; for x in to_add { r.push((*x).clone()); } *a = FuncArg::Term(r); }
+        Element::Term(ref mut t) => for x in to_add { t.push((*x).clone()); },
+        ref mut a => {let mut r = vec![a.clone()]; for x in to_add { r.push((*x).clone()); } *a = Element::Term(r); }
     }
 }
 
