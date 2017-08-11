@@ -119,6 +119,24 @@ impl Statement {
 	      	}.normalize();
 	      	StatementIter::Simple(res, true)
 	      },
+		  // TODO: use visitor pattern? this is almost a copy of splitarg
+	      Statement::Symmetrize(ref name) => {
+	        // sort function arguments at the ground level
+	        let subs = | n : &String , a: &Vec<Element> |  Element::Fn( Func {name: n.clone(), args: 
+	              { let mut b = a.clone(); b.sort(); b } });
+
+	        match *input {
+	          // FIXME: check if the splitarg actually executed!
+	          Element::Fn(Func{name: ref n, args: ref a}) if *n == *name => StatementIter::Simple(subs(n, a), false),
+	          Element::Term(ref fs) => {
+	            StatementIter::Simple(Element::Term(fs.iter().map(|f| match f {
+	              &Element::Fn(Func{name: ref n, args: ref a}) if *n == *name => subs(n, a),
+	              _ => f.clone()
+	            } ).collect()), false)
+	          }
+	          _ => StatementIter::Simple(input.clone(), false)
+	        }
+	      },
 	      _ => unreachable!()
 	    }
 	}
@@ -169,24 +187,6 @@ fn do_module_rec(input: &Element, statements: &[Statement], current_index: usize
 }
 
 impl Module {
-	// flatten the statement structure and use conditional jumps
-	/*fn to_control_flow(statements: &[Statement], start_index: usize) -> Vec<Statement> {
-		let mut newstat = vec![];
-		let mut newindex = start_index;
-		for x in statements.iter() {
-			match x {
-				&Statement::Repeat(ref ss) => {
-					newstat.push(Statement::PushChange);
-					newstat.extend(to_control_flow(ss, newindex + 1));
-					newstat.push(Statement::JumpIfChanged(newindex + 1));
-				},
-				a => newstat.push(a.clone())
-			}
-			newindex = start_index + newstat.len();
-		} 
-		newstat
-	}*/
-
 	// flatten the statement structure and use conditional jumps
 	fn to_control_flow_stat(statements: &[Statement], output: &mut Vec<Statement>) {
 		for x in statements.iter() {

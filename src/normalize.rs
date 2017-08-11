@@ -36,8 +36,8 @@ impl Element {
     // bring a term to canconical form
     pub fn normalize<'a>(&self) -> Element {
         match self {
-            &Element::Num(mut pos, mut num, mut den) => {
-                normalize_fraction(&mut pos, &mut num, &mut den);
+            &Element::Num(pos, mut num, mut den) => {
+                normalize_fraction(&mut num, &mut den);
                 Element::Num(pos, num, den)
             }
             &Element::Wildcard(ref name, ref restriction) => {

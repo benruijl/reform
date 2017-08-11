@@ -80,6 +80,7 @@ named!(wildcard <Element>, do_parse!(name: ws!(varname) >> ws!(tag!("?")) >> r: 
 named!(rangedwildcard <Element>, do_parse!(ws!(tag!("?")) >> name: ws!(varname) >> (Element::VariableArgument(name))));
 
 named!(pub splitarg <Statement>, do_parse!(ws!(tag!("splitarg")) >> name: ws!(varname) >> ws!(tag!(";")) >> ( Statement::SplitArg(name) ) ) );
+named!(pub symmetrize <Statement>, do_parse!(ws!(tag!("symmetrize")) >> name: ws!(varname) >> ws!(tag!(";")) >> ( Statement::Symmetrize(name) ) ) );
 named!(pub print <Statement>, do_parse!(ws!(tag!("print")) >> ws!(tag!(";")) >> ( Statement::Print ) ) );
 named!(pub expand <Statement>, do_parse!(ws!(tag!("expand")) >> ws!(tag!(";")) >> ( Statement::Expand ) ) );
 named!(pub multiply <Statement>, do_parse!(ws!(tag!("multiply")) >> e: ws!(expression) >> ws!(tag!(";")) >> ( Statement::Multiply(e) ) ) );
@@ -133,7 +134,7 @@ named!(blockcomment, ws!(delimited!(tag!("/*"), take_until!("*/"), tag!("*/"))))
 
 named!(statement <Statement>, do_parse!(
     many0!(alt_complete!(blockcomment | comment)) >>
-    id: alt_complete!(repeatblock | repeat | multiply| idstatement | splitarg | expand | print) >>
+    id: alt_complete!(repeatblock | repeat | multiply | symmetrize | idstatement | splitarg | expand | print) >>
     (id)
   )
 );
@@ -153,12 +154,8 @@ named!(program <Program>, do_parse!(
   (Program { input: input, modules : mods }))
 );
 
-pub fn parse_file(filename: &str) -> Program {
-  let mut f = File::open(filename).expect(&format!("Unable to open file {:?}", filename));
-  let mut s  = vec![];
-  f.read_to_end(&mut s).expect("Unable to read file");
-
-  let a = program(&s);
+pub fn parse_string(data: &[u8]) -> Program {
+  let a = program(data);
   if let Some(ref r) = a.remaining_input() {
     if *r != [] {
       panic!("Could not parse file completely at: {}",  str::from_utf8(&r).expect("No utf-8"));
@@ -166,4 +163,11 @@ pub fn parse_file(filename: &str) -> Program {
   }
 
   a.to_result().expect("Module parsing error")
+}
+
+pub fn parse_file(filename: &str) -> Program {
+  let mut f = File::open(filename).expect(&format!("Unable to open file {:?}", filename));
+  let mut s  = vec![];
+  f.read_to_end(&mut s).expect("Unable to read file");
+  parse_string(&s)
 }

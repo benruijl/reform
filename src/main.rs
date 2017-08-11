@@ -8,6 +8,7 @@ mod id;
 mod normalize;
 mod tools;
 mod module;
+mod tests;
 
 fn main() {
   let mut program = parser::parse_file("test.frm");

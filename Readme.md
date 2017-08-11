@@ -108,6 +108,8 @@ sort;
 ````
 will only change `f(4)`.
 
+Fractional numbers are allowed, i.e., `f(x?{>1/2}) will work as intended.
+
 
 Ranged wilcards
 ------
@@ -158,3 +160,16 @@ Note that patterns can be nested without problems. The following is an example
 of a complex pattern:
 
 f(1,2,f(?a,x1?*x2?,?b))
+
+
+Repeat
+---
+A useful statement is repeat, which repeats statements until there is no change anymore.
+For example:
+
+````
+IN = f(5);
+repeat id f(x?{>0}) = x?*f(x?-1);
+id f(0) = 1;
+````
+yields the factorial function 5! = 120.

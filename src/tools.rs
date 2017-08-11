@@ -74,7 +74,7 @@ pub fn lcm(a: u64, b: u64) -> u64 {
 }
 
 // multiple two normalized fractions
-pub fn normalize_fraction(pos: &mut bool, num: &mut u64, den: &mut u64) {
+pub fn normalize_fraction(num: &mut u64, den: &mut u64) {
     let gcd = gcd(*num, *den);
     *num /= gcd;
     *den /= gcd;

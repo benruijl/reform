@@ -49,6 +49,7 @@ pub enum Statement {
 	Expand,
 	Print,
 	Multiply(Element),
+    Symmetrize(String),
 	// internal commands
 	JumpIfChanged(usize), // jump and pop change flag
 	PushChange // push a new change flag
@@ -92,7 +93,8 @@ impl fmt::Display for Statement {
             Statement::SplitArg(ref name) => writeln!(f, "SplitArg {};", name),
             Statement::Expand => writeln!(f, "Expand;"),
             Statement::Print => writeln!(f, "Print;"),
-            Statement::Multiply(ref x) => writeln!(f, "Multiply {}", x),
+            Statement::Multiply(ref x) => writeln!(f, "Multiply {};", x),
+            Statement::Symmetrize(ref x) => writeln!(f, "Symmetrize {};", x),
             Statement::Repeat(ref ss) => {
             	if ss.len() == 1 {
             		write!(f, "repeat {}", ss[0])
