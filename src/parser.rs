@@ -1,5 +1,5 @@
 use structure::{Element,Func,IdentityStatementMode,Statement,Module,IdentityStatement,NumOrder,Program};
-use nom::{digit,alpha,alphanumeric,GetInput};
+use nom::{digit,alpha,alphanumeric,GetInput,ErrorKind};
 use std;
 use std::str;
 use std::str::FromStr;
@@ -79,13 +79,54 @@ named!(wildcard <Element>, do_parse!(name: ws!(varname) >> ws!(tag!("?")) >> r: 
     (Element::Wildcard(name, match r { Some(a) => a, None => vec![]}))));
 named!(rangedwildcard <Element>, do_parse!(ws!(tag!("?")) >> name: ws!(varname) >> (Element::VariableArgument(name))));
 
-named!(pub splitarg <Statement>, do_parse!(ws!(tag!("splitarg")) >> name: ws!(varname) >> ws!(tag!(";")) >> ( Statement::SplitArg(name) ) ) );
-named!(pub symmetrize <Statement>, do_parse!(ws!(tag!("symmetrize")) >> name: ws!(varname) >> ws!(tag!(";")) >> ( Statement::Symmetrize(name) ) ) );
+named!(pub splitarg <Statement>, do_parse!(ws!(tag!("splitarg")) >> name: return_error!(ErrorKind::Custom(2), complete!(ws!(varname))) >> ws!(tag!(";")) >> ( Statement::SplitArg(name) ) ) );
+named!(pub symmetrize <Statement>, do_parse!(ws!(tag!("symmetrize")) >> name: return_error!(ErrorKind::Custom(2), complete!(ws!(varname))) >> complete!(ws!(tag!(";"))) >> ( Statement::Symmetrize(name) ) ) );
 named!(pub print <Statement>, do_parse!(ws!(tag!("print")) >> ws!(tag!(";")) >> ( Statement::Print ) ) );
 named!(pub expand <Statement>, do_parse!(ws!(tag!("expand")) >> ws!(tag!(";")) >> ( Statement::Expand ) ) );
 named!(pub multiply <Statement>, do_parse!(ws!(tag!("multiply")) >> e: ws!(expression) >> ws!(tag!(";")) >> ( Statement::Multiply(e) ) ) );
 named!(pub sort <String>, do_parse!(ws!(tag!("sort")) >> m: opt!(ws!(map_res!(alpha, std::str::from_utf8))) >> ws!(tag!(";")) >> (
   match m { Some(x) => x.to_owned(), None => "sort".to_owned() } ) ) );
+
+named!(ifshort <Statement>, do_parse!(
+    ws!(tag!("if")) >>
+    cond: delimited!(char!('('), preceded!(tag!("match"), exprparen), char!(')') ) >>
+    st: complete!(statement) >>
+   (Statement::IfElse(cond, vec![st], vec![]))
+  )
+);
+
+named!(ifelseshort <Statement>, do_parse!(
+    ws!(tag!("if")) >>
+    cond: delimited!(char!('('), preceded!(tag!("match"), exprparen), char!(')') ) >>
+    st: complete!(statement) >>
+    ws!(tag!("else")) >>
+    ste: complete!(statement) >>
+   (Statement::IfElse(cond, vec![st], vec![ste]))
+  )
+);
+
+named!(ifblock <Statement>, do_parse!(
+    ws!(tag!("if")) >>
+    cond: delimited!(char!('('), preceded!(tag!("match"), exprparen), char!(')') ) >>
+    ws!(tag!(";")) >>
+    sts : many0!(complete!(statement)) >>
+    ws!(tag!("endif;")) >>
+   (Statement::IfElse(cond, sts, vec![]))
+  )
+);
+
+
+named!(ifelseblock <Statement>, do_parse!(
+    ws!(tag!("if")) >>
+    cond: delimited!(char!('('), preceded!(tag!("match"), exprparen), char!(')') ) >>
+    ws!(tag!(";")) >>
+    sts : many0!(complete!(statement)) >>
+    ws!(tag!("else;")) >>
+    nm : many0!(complete!(statement)) >>
+    ws!(tag!("endif;")) >>
+   (Statement::IfElse(cond, sts, nm))
+  )
+);
 
 named!(repeatblock <Statement>, do_parse!(
     ws!(tag!("repeat;")) >>
@@ -134,7 +175,8 @@ named!(blockcomment, ws!(delimited!(tag!("/*"), take_until!("*/"), tag!("*/"))))
 
 named!(statement <Statement>, do_parse!(
     many0!(alt_complete!(blockcomment | comment)) >>
-    id: alt_complete!(repeatblock | repeat | multiply | symmetrize | idstatement | splitarg | expand | print) >>
+    id: alt_complete!(repeatblock | repeat | ifelseblock | ifblock | ifelseshort | ifshort | 
+          multiply | symmetrize | idstatement | splitarg | expand | print) >>
     (id)
   )
 );
@@ -142,7 +184,7 @@ named!(statement <Statement>, do_parse!(
 // FIXME: why so complicated?
 named!(module <Module>, do_parse!(
   ids : complete!(many0!(complete!(statement))) >>
-  name: sort >>
+  name: add_return_error!(ErrorKind::Custom(1), sort) >>
   complete!(many0!(alt_complete!(blockcomment | comment))) >>
   (Module { name: name, statements : ids }))
 );
@@ -156,8 +198,10 @@ named!(program <Program>, do_parse!(
 
 pub fn parse_string(data: &[u8]) -> Program {
   let a = program(data);
+
   if let Some(ref r) = a.remaining_input() {
-    if *r != [] {
+    if r.len() > 0 {
+      // TODO: turn into 'module ended without sort'
       panic!("Could not parse file completely at: {}",  str::from_utf8(&r).expect("No utf-8"));
     }
   }

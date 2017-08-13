@@ -42,7 +42,7 @@ impl<'a> fmt::Display for MatchOpt<'a> {
 }
 
 // map of variables names to a function argument slice
-type MatchObject<'a> = Vec<(&'a String, MatchOpt<'a>)>;
+pub type MatchObject<'a> = Vec<(&'a String, MatchOpt<'a>)>;
 
 // push something to the match object, keeping track of the old length
 fn push_match<'a>(m : &mut MatchObject<'a>, k: &'a String, v: &'a Element) -> Option<usize> {
@@ -465,7 +465,6 @@ impl<'a> MatchTermIterator<'a> {
                         rem.push(y); // FIXME: does this work? we need to check pointers!
                     }
                 }
-                println!("rem {:?}", rem);
                 self.remaining = Some(rem);
                 self.subtarget = Some(x);
 
@@ -477,7 +476,7 @@ impl<'a> MatchTermIterator<'a> {
 }
 
 #[derive(Debug)]
-enum MatchKind<'a> {
+pub enum MatchKind<'a> {
     Single(MatchObject<'a>, ElementIterSingle<'a>),
     SinglePat(&'a Element, MatchObject<'a>, ElementIterSingle<'a>, &'a [Element], usize),
     Many(MatchTermIterator<'a>),
@@ -485,7 +484,7 @@ enum MatchKind<'a> {
 }
 
 impl<'a> MatchKind<'a> {
-    fn from_element(pattern: &'a Element, target: &'a Element) -> MatchKind<'a> {
+    pub fn from_element(pattern: &'a Element, target: &'a Element) -> MatchKind<'a> {
         match (pattern, target) {
             (&Element::Term(ref x), &Element::Term(ref y)) => MatchKind::Many(MatchTermIterator::new(x, y)),
             (ref a, &Element::Term(ref y)) => MatchKind::SinglePat(a, vec![], ElementIterSingle::None, y, 0),
@@ -493,7 +492,7 @@ impl<'a> MatchKind<'a> {
         }
     }
 
-    fn next(&mut self) -> Option<(Vec<&'a Element>, MatchObject<'a>)> {
+    pub fn next(&mut self) -> Option<(Vec<&'a Element>, MatchObject<'a>)> {
         match *self {
             MatchKind::Single(ref mut m, ref mut x) => x.next(m).map(|_| { (vec![], m.clone()) }),
             MatchKind::Many(ref mut x) => x.next(),
@@ -589,10 +588,10 @@ impl IdentityStatement {
 }
 
 fn printmatch<'a>(m: &MatchObject<'a>) {
-    print!("MATCH: [ ");
+    debug!("MATCH: [ ");
 
     for &(ref k, ref v) in m.iter() {
-        print!("{}={};", k,v);
+        debug!("{}={};", k,v);
     }
-    println!("]");
+    debug!("]");
 }

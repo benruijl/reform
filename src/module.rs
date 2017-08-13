@@ -1,5 +1,5 @@
 use structure::{Module,Statement,Element,Func,StatementResult,IdentityStatement,Program};
-use id::MatchIterator;
+use id::{MatchIterator,MatchKind};
 use std::mem;
 
 impl Element {
@@ -168,6 +168,19 @@ fn do_module_rec(input: &Element, statements: &[Statement], current_index: usize
 				return do_module_rec(input, statements, current_index + 1, term_affected, output);
 			}
 		},
+		Statement::Eval(ref cond, i) => { // if statement`
+			// do the match
+			let mut m = MatchKind::from_element(cond, input);
+			if let Some(_) = m.next() {
+				println!("going to {}", current_index + 1);
+				return do_module_rec(input, statements, current_index + 1, term_affected, output);
+			} else {
+				return do_module_rec(input, statements, i, term_affected, output);
+			}
+		},
+		Statement::Jump(i) => {
+			return do_module_rec(input, statements, i, term_affected, output);
+		},
 		_ => {}
 	}
 	
@@ -197,6 +210,21 @@ impl Module {
 					Module::to_control_flow_stat(ss, output);
 					output.push(Statement::JumpIfChanged(pos));
 				},
+				&Statement::IfElse(ref prod, ref m, ref nm) => {
+					let pos = output.len();
+					output.push(Statement::Jump(0)); // note: placeholder 0
+					Module::to_control_flow_stat(m, output);
+					
+					if nm.len() > 0 { // is there an else block?
+						let pos2 = output.len(); // pos after case
+						output.push(Statement::Jump(0)); // placeholder
+						output[pos] = Statement::Eval(prod.clone(), output.len());
+						Module::to_control_flow_stat(nm, output);
+						output[pos2] = Statement::Jump(output.len());
+					} else {
+						output[pos] = Statement::Eval(prod.clone(), output.len());
+					}		
+				},
 				a => output.push(a.clone())
 			}
 		}
@@ -224,7 +252,7 @@ pub fn do_program(program : &mut Program) {
 
 	for module in program.modules.iter_mut() {
 		module.normalize_module();
-		println!("{}", module);
+		debug!("{}", module);
 
 		let mut executed = vec![false];
 		let mut output = vec![];
