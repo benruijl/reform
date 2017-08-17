@@ -1,5 +1,5 @@
 use structure::{Element,Func};
-use tools::{mul_fractions,add_fractions,add_one,normalize_fraction};
+use tools::{mul_fractions,add_fractions,add_one,normalize_fraction,exp_fraction};
 
 impl Element {
     // TODO: return iterator over Elements for ground level?
@@ -48,13 +48,24 @@ impl Element {
                 Element::Wildcard(name.clone(), r)
             },
             &Element::Pow(ref b, ref p) => {
-                // TODO: simplify if the base is a number and the power is too
                 let newb = b.normalize();
                 let mut newp = p.normalize();
 
+                // x^0 = 1
+                if let Element::Num(_, 0, _) = newp {
+                    return Element::Num(true, 1, 1);
+                }
                 // return x if x^1
-                if let Element::Num(true,1,1) = newp {
+                if let Element::Num(true, 1, 1) = newp {
                     return newb;
+                }
+
+                // simplify numbers if exponent is a positive integer
+                if let Element::Num(true, n, 1) = newp {
+                    if let Element::Num(mut pos, mut num, mut den) = newb {
+                        exp_fraction(&mut pos, &mut num, &mut den, n);
+                        return Element::Num(pos, num, den);
+                    }
                 }
 
                 // simplify x^a^b = x^(a*b)

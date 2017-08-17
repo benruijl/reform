@@ -1,4 +1,31 @@
 use structure::{Element, NumOrder};
+use std::ops::{Deref};
+
+// a SliceRef has either a borrowed slice,
+// or a vector of borrowed arguments.
+#[derive(Debug,Clone,Eq,PartialEq)]
+pub enum SliceRef<'a, T: 'a> {
+    BorrowedSlice(&'a [T]),
+    OwnedSlice(Vec<&'a T>)
+}
+
+//impl<'a, T: 'a> Index<usize> for SliceRef<'a, T> {
+//    type Output = T;
+impl<'a, T: 'a> SliceRef<'a, T> {
+    pub fn index(&self, index: usize) -> &'a T {
+        match self {
+            &SliceRef::BorrowedSlice(ref t) => &t[index],
+            &SliceRef::OwnedSlice(ref t) => t[index]
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            &SliceRef::BorrowedSlice(ref t) => t.len(),
+            &SliceRef::OwnedSlice(ref t) => t.len()
+        }
+    }
+}
 
 pub const MAXHEAP: usize = 16;
 
@@ -134,6 +161,16 @@ pub fn add_fractions(
     *den = lcm;
 }
 
+pub fn exp_fraction(pos: &mut bool, num: &mut u64, den: &mut u64, pow: u64) {
+    *pos = *pos | (pow % 2 == 0);
+    let oldnum = *num;
+    let oldden = *den;
+    // FIXME: slow
+    for _ in 1..pow {
+        mul_fractions(pos, num, den, true, oldnum, oldden);
+    }
+}
+
 // add one to an already normalized fraction
 pub fn add_one(pos: &mut bool, num: &mut u64, den: &mut u64) {
     if !*pos && num < den {
@@ -161,6 +198,7 @@ pub fn add_terms(dest: &mut Element, to_add: &Vec<&Element>) {
         }
     }
 }
+
 
 pub fn num_cmp(
     mut pos: bool,

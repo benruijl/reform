@@ -4,7 +4,7 @@ use std::fmt;
 use std::mem;
 use itertools;
 use itertools::Itertools;
-use tools::{Heap,add_terms,is_number_in_range};
+use tools::{SliceRef,Heap,add_terms,is_number_in_range};
 
 pub const MAXMATCH: usize = 1000000; // maximum number of matches
 
@@ -90,8 +90,8 @@ impl Element {
         match *self {
             Element::VariableArgument(ref name) => find_match(m, name).unwrap().to_vec(),
             Element::Wildcard(ref name, ..) => find_match(m, name).unwrap().to_vec(),
-            // FIXME: add pow
-            //Element::Pow(ref b, ref p) => vec![Element::Pow(b.apply_map(m), p.apply_map(m)).normalize()],
+            Element::Pow(ref b, ref p) => vec![Element::Pow(
+                Box::new(b.apply_map(m)[0].clone()), Box::new(p.apply_map(m)[0].clone())).normalize()],
             Element::Fn(ref f) => vec![Element::Fn(f.apply_map(m)).normalize()],
             Element::Term(ref f) => vec![ Element::Term(f.iter().flat_map(|x| x.apply_map(m)).collect()).normalize()],
             Element::SubExpr(ref f) => vec![Element::SubExpr(f.iter().flat_map(|x| x.apply_map(m)).collect()).normalize()],
@@ -112,7 +112,8 @@ pub enum ElementIterSingle<'a> {
     FnIter(FuncIterator<'a>), // match function
     Once, // matching without wildcard, ie number vs number
     OnceMatch(&'a String, &'a Element), // simple match of variable
-    PermIter(&'a [Element], Heap<&'a Element>, SequenceIter<'a>), // term and arg combinations
+    PermIter(&'a [Element], Heap<&'a Element>, SequenceIter<'a>), // term and arg combinations,
+    SeqIt(Vec<&'a Element>, SequenceIter<'a>), // target and iterator
     None
 }
 
@@ -153,13 +154,16 @@ impl<'a>  ElementIterSingle<'a> {
                         return Some(x);
                     }
                     if let Some(x) = heap.next_permutation() {
-                        *termit = SequenceIter::new(pat, x[0]);
+                        *termit = SequenceIter::new(SliceRef::BorrowedSlice(pat), x[0]);
                     } else {
                         break;
                     }
                 }
 
                 None
+            },
+            ElementIterSingle::SeqIt(ref target, ref mut seqit) => {
+                seqit.next(target, m)
             }
         }
     }
@@ -226,10 +230,10 @@ impl Element {
     // create an iterator over a pattern
     fn to_iter_single<'a>(&'a self, target: &'a Element) -> ElementIterSingle<'a> {
         match (target, self) {
-            // TODO: match base and pow
-            // should be sequenceiter
-            //(&Element::Pow(ref b1, ref p1), &Element::Pow(ref b2, ref p2)) if b1 == b2 && p1 == p2 =>
-            //    ElementIterSingle::Once,
+            (&Element::Pow(ref b1, ref p1), &Element::Pow(ref b2, ref p2)) => {
+                ElementIterSingle::SeqIt(vec![b1, p1], 
+                    SequenceIter::new(SliceRef::OwnedSlice(vec![b2, p2]), b1))
+            },
             (&Element::Var(ref i1), &Element::Var(ref i2)) if i1 == i2 =>
                             ElementIterSingle::Once,
             (&Element::Num(ref pos1, ref num1, ref den1), &Element::Num(ref pos2, ref num2, ref den2)) 
@@ -366,20 +370,20 @@ impl<'a>FuncIterator<'a> {
 // iterator over a pattern that could occur in any order
 #[derive(Debug)]
 pub struct SequenceIter<'a> {
-    pattern: &'a [Element], // input term
+    pattern: SliceRef<'a,Element>, // input term
     iterators: Vec<ElementIterSingle<'a>>,
     matches: Vec<usize>, // keep track of stack depth
 }
 
 impl<'a> SequenceIter<'a> {
     fn dummy(pattern: &'a [Element]) -> SequenceIter<'a> {
-        SequenceIter { pattern: pattern, iterators: vec![], matches: vec![] }
+        SequenceIter { pattern: SliceRef::BorrowedSlice(pattern), iterators: vec![], matches: vec![] }
     }
 
-    fn new(pattern: &'a [Element], first: &'a Element) -> SequenceIter<'a> {
+    fn new(pattern: SliceRef<'a,Element>, first: &'a Element) -> SequenceIter<'a> {
         let mut its =  (0..pattern.len()).map(|_| { ElementIterSingle::None }).collect::<Vec<_>>();
-        its[0] = pattern[0].to_iter_single(first);
-        SequenceIter { pattern: pattern, iterators: its, matches: vec![MAXMATCH; pattern.len()] }
+        its[0] = pattern.index(0).to_iter_single(first);
+        SequenceIter { pattern: pattern.clone(), iterators: its, matches: vec![MAXMATCH; pattern.len()] }
     }
 
     fn next(&mut self, target: &[&'a Element], m: &mut MatchObject<'a>) -> Option<usize> {
@@ -399,7 +403,7 @@ impl<'a> SequenceIter<'a> {
                 let mut j = i + 1;
                 while j < self.iterators.len() {
                     // create a new iterator at j based on the previous match dictionary and slice
-                    self.iterators[j] = self.pattern[j].to_iter_single(target[j]);
+                    self.iterators[j] = self.pattern.index(j).to_iter_single(target[j]);
 
                     match self.iterators[j].next(m) {
                         Some(y) => { self.matches[j] = y; },
@@ -462,7 +466,7 @@ impl<'a> MatchTermIterator<'a> {
                 self.permutator = ElementIterSingle::PermIter(self.pattern, Heap::new(x.iter().map(|x| *x).collect::<Vec<_>>()),
                         SequenceIter::dummy(self.pattern));
 
-                SequenceIter::new(self.pattern, x[0]);
+                SequenceIter::new(SliceRef::BorrowedSlice(self.pattern), x[0]);
 
                 // construct the factors that are not affected
                 let mut rem = vec![];
@@ -594,10 +598,10 @@ impl IdentityStatement {
 }
 
 fn printmatch<'a>(m: &MatchObject<'a>) {
-    debug!("MATCH: [ ");
+    println!("MATCH: [ ");
 
     for &(ref k, ref v) in m.iter() {
-        debug!("{}={};", k,v);
+        println!("{}={};", k,v);
     }
-    debug!("]");
+    println!("]");
 }
