@@ -21,12 +21,12 @@ pub enum NumOrder {
     SmallerEqual,
 }
 
-// TODO: rename
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Element {
     VariableArgument(String),              // ?a
     Wildcard(String, Vec<Element>),        // x?{...}
     Var(String),                           // x
+    Pow(Box<Element>, Box<Element>),       // (1+x)^3
     NumberRange(bool, u64, u64, NumOrder), // >0, <=-5/2
     Fn(Func),                              // f(...)
     Term(Vec<Element>),
@@ -192,6 +192,16 @@ impl fmt::Display for Element {
                     write!(f, "{}{}", if *pos { "" } else { "-" }, num)
                 } else {
                     write!(f, "{}{}/{}", if *pos { "" } else { "-" }, num, den)
+                }
+            }
+            &Element::Pow(ref e, ref p) => {
+                match **e {
+                    Element::SubExpr(_) | Element::Term(_) => write!(f, "({})", e)?,
+                    _ => write!(f, "{}", e)?
+                };
+                match **p {
+                    Element::SubExpr(_) | Element::Term(_) => write!(f, "^({})", p),
+                    _ => write!(f, "^{}", p)
                 }
             }
             &Element::Fn(ref func) => func.fmt(f),

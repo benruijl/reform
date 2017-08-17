@@ -1,6 +1,8 @@
 use structure::{Module,Statement,Element,Func,StatementResult,IdentityStatement,Program};
 use id::{MatchIterator,MatchKind};
 use std::mem;
+use std::io::prelude::*;
+use std::fs::File;
 
 impl Element {
 	fn expand(&self) -> Element {
@@ -29,6 +31,10 @@ impl Element {
 				Element::SubExpr(r.iter().map(|x| Element::Term(x.clone())).collect()).normalize()
 			},
 			&Element::SubExpr(ref f) => Element::SubExpr( f.iter().map(|x| x.expand()).collect()).normalize(),
+			&Element::Pow(ref b, ref p) => {
+				warn!("Expand not implemented yet for pow");
+				self.clone()
+			},
 			_ => self.clone()
 		}
 	}
@@ -172,7 +178,6 @@ fn do_module_rec(input: &Element, statements: &[Statement], current_index: usize
 			// do the match
 			let mut m = MatchKind::from_element(cond, input);
 			if let Some(_) = m.next() {
-				println!("going to {}", current_index + 1);
 				return do_module_rec(input, statements, current_index + 1, term_affected, output);
 			} else {
 				return do_module_rec(input, statements, i, term_affected, output);
@@ -247,7 +252,7 @@ impl Module {
 }
 
 // execute the module
-pub fn do_program(program : &mut Program) {
+pub fn do_program(program : &mut Program, write_log: bool) {
 	program.input = program.input.normalize();
 
 	for module in program.modules.iter_mut() {
@@ -276,6 +281,14 @@ pub fn do_program(program : &mut Program) {
 	  		Element::SubExpr(ref x) => x.len(),
 	  		_ => 1
 	  	};
+
+		if write_log {
+			// FIXME: filename
+			let mut f = File::create("test.log").expect(&format!("Unable to create file {:?}", "test.log"));
+        	writeln!(f, "{} -- \t terms in: {}\tgenerated: {}\tterms out: {}", module.name,
+            	inpcount, genterms, outterms).unwrap();
+        	writeln!(f, "{}", program.input).unwrap();
+		}
 
         println!("{} -- \t terms in: {}\tgenerated: {}\tterms out: {}", module.name,
             	inpcount, genterms, outterms);

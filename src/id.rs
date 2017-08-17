@@ -9,7 +9,7 @@ use tools::{Heap,add_terms,is_number_in_range};
 pub const MAXMATCH: usize = 1000000; // maximum number of matches
 
 #[derive(Debug,Clone,Eq,PartialEq)]
-enum MatchOpt<'a> {
+pub enum MatchOpt<'a> {
     Single(&'a Element),
     Multiple(&'a [Element])
 }
@@ -90,6 +90,8 @@ impl Element {
         match *self {
             Element::VariableArgument(ref name) => find_match(m, name).unwrap().to_vec(),
             Element::Wildcard(ref name, ..) => find_match(m, name).unwrap().to_vec(),
+            // FIXME: add pow
+            //Element::Pow(ref b, ref p) => vec![Element::Pow(b.apply_map(m), p.apply_map(m)).normalize()],
             Element::Fn(ref f) => vec![Element::Fn(f.apply_map(m)).normalize()],
             Element::Term(ref f) => vec![ Element::Term(f.iter().flat_map(|x| x.apply_map(m)).collect()).normalize()],
             Element::SubExpr(ref f) => vec![Element::SubExpr(f.iter().flat_map(|x| x.apply_map(m)).collect()).normalize()],
@@ -106,7 +108,7 @@ impl Func {
 }
 
 #[derive(Debug)]
-enum ElementIterSingle<'a> {
+pub enum ElementIterSingle<'a> {
     FnIter(FuncIterator<'a>), // match function
     Once, // matching without wildcard, ie number vs number
     OnceMatch(&'a String, &'a Element), // simple match of variable
@@ -116,7 +118,7 @@ enum ElementIterSingle<'a> {
 
 
 #[derive(Debug)]
-enum ElementIter<'a> {
+pub enum ElementIter<'a> {
     SliceIter(&'a String, usize, &'a [Element]), // slice from 0 to Element end
     SingleArg(&'a [Element], ElementIterSingle<'a>), // iters consuming a single argument
     None, // no match
@@ -224,47 +226,51 @@ impl Element {
     // create an iterator over a pattern
     fn to_iter_single<'a>(&'a self, target: &'a Element) -> ElementIterSingle<'a> {
         match (target, self) {
-                (&Element::Var(ref i1), &Element::Var(ref i2)) if i1 == i2 =>
-                             ElementIterSingle::Once,
-                (&Element::Num(ref pos1, ref num1, ref den1), &Element::Num(ref pos2, ref num2, ref den2)) 
-                    if pos1 == pos2 && num1 == num2 && den1 == den2 =>
+            // TODO: match base and pow
+            // should be sequenceiter
+            //(&Element::Pow(ref b1, ref p1), &Element::Pow(ref b2, ref p2)) if b1 == b2 && p1 == p2 =>
+            //    ElementIterSingle::Once,
+            (&Element::Var(ref i1), &Element::Var(ref i2)) if i1 == i2 =>
                             ElementIterSingle::Once,
-                (&Element::Num(ref pos, ref num, ref den), &Element::Wildcard(ref i2, ref rest)) => {
-                    if rest.len() == 0 {
-                        return ElementIterSingle::OnceMatch(i2, &target)
-                    }
+            (&Element::Num(ref pos1, ref num1, ref den1), &Element::Num(ref pos2, ref num2, ref den2)) 
+                if pos1 == pos2 && num1 == num2 && den1 == den2 =>
+                        ElementIterSingle::Once,
+            (&Element::Num(ref pos, ref num, ref den), &Element::Wildcard(ref i2, ref rest)) => {
+                if rest.len() == 0 {
+                    return ElementIterSingle::OnceMatch(i2, &target)
+                }
 
-                    for restriction in rest {
-                        match restriction {
-                            &Element::NumberRange(ref pos1, ref num1, ref den1, ref rel) => {
-                                // see if the number is in the range
-                                if is_number_in_range(*pos,*num,*den,*pos1,*num1,*den1,rel) {
-                                    return ElementIterSingle::OnceMatch(i2, &target);
-                                }
+                for restriction in rest {
+                    match restriction {
+                        &Element::NumberRange(ref pos1, ref num1, ref den1, ref rel) => {
+                            // see if the number is in the range
+                            if is_number_in_range(*pos,*num,*den,*pos1,*num1,*den1,rel) {
+                                return ElementIterSingle::OnceMatch(i2, &target);
                             }
-                            _ if restriction == target => return ElementIterSingle::OnceMatch(i2, &target),
-                            _ => {}
                         }
+                        _ if restriction == target => return ElementIterSingle::OnceMatch(i2, &target),
+                        _ => {}
                     }
+                }
 
+                ElementIterSingle::None
+                
+            },
+            (_, &Element::Wildcard(ref i2, ref rest)) => {
+                if rest.len() == 0 || rest.contains(target) {
+                    ElementIterSingle::OnceMatch(i2, &target)
+                } else {
                     ElementIterSingle::None
-                    
-                },
-                (_, &Element::Wildcard(ref i2, ref rest)) => {
-                    if rest.len() == 0 || rest.contains(target) {
-                        ElementIterSingle::OnceMatch(i2, &target)
-                    } else {
-                        ElementIterSingle::None
-                    }
-                },
-                (&Element::Fn(ref f1), &Element::Fn(ref f2)) =>
-                            ElementIterSingle::FnIter(f2.to_iter(&f1)),
-                (&Element::Term(ref f1), &Element::Term(ref f2)) |
-                (&Element::SubExpr(ref f1), &Element::SubExpr(ref f2)) => {
-                    ElementIterSingle::PermIter(f2, Heap::new(f1.iter().map(|x| x).collect::<Vec<_>>()),
-                        SequenceIter::dummy(f2))
-                },
-                _ =>  ElementIterSingle::None
+                }
+            },
+            (&Element::Fn(ref f1), &Element::Fn(ref f2)) =>
+                        ElementIterSingle::FnIter(f2.to_iter(&f1)),
+            (&Element::Term(ref f1), &Element::Term(ref f2)) |
+            (&Element::SubExpr(ref f1), &Element::SubExpr(ref f2)) => {
+                ElementIterSingle::PermIter(f2, Heap::new(f1.iter().map(|x| x).collect::<Vec<_>>()),
+                    SequenceIter::dummy(f2))
+            },
+            _ =>  ElementIterSingle::None
         }
     }
 }
@@ -294,7 +300,7 @@ impl Func {
 
 // iterator over a pattern of a function
 #[derive(Debug)]
-struct FuncIterator<'a> {
+pub struct FuncIterator<'a> {
     pattern: &'a Func,
     iterators: Vec<ElementIter<'a>>,
     matches: Vec<(&'a [Element], usize)>, // keep track of stack depth
@@ -359,7 +365,7 @@ impl<'a>FuncIterator<'a> {
 
 // iterator over a pattern that could occur in any order
 #[derive(Debug)]
-struct SequenceIter<'a> {
+pub struct SequenceIter<'a> {
     pattern: &'a [Element], // input term
     iterators: Vec<ElementIterSingle<'a>>,
     matches: Vec<usize>, // keep track of stack depth
@@ -419,7 +425,7 @@ impl<'a> SequenceIter<'a> {
 // match a pattern to a subset of the terms
 // FIXME: nasty structure
 #[derive(Debug)]
-struct MatchTermIterator<'a> {
+pub struct MatchTermIterator<'a> {
     pattern: &'a [Element],
     target: &'a [Element],
     subtarget: Option<Vec<&'a Element>>,

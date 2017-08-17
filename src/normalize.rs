@@ -39,19 +39,106 @@ impl Element {
             &Element::Num(pos, mut num, mut den) => {
                 normalize_fraction(&mut num, &mut den);
                 Element::Num(pos, num, den)
-            }
+            },
             &Element::Wildcard(ref name, ref restriction) => {
                 let mut r = vec![];
                 for x in restriction {
                     r.push(x.normalize());
                 }
                 Element::Wildcard(name.clone(), r)
-            }
+            },
+            &Element::Pow(ref b, ref p) => {
+                // TODO: simplify if the base is a number and the power is too
+                let newb = b.normalize();
+                let mut newp = p.normalize();
+
+                // return x if x^1
+                if let Element::Num(true,1,1) = newp {
+                    return newb;
+                }
+
+                // simplify x^a^b = x^(a*b)
+                if let Element::Pow(c, d) = newb {
+                    match newp {
+                        Element::Term(ref mut f) => f.push(*d),
+                        _ => newp = Element::Term(vec![newp.clone(), *d])
+                    }
+                    Element::Pow(c, Box::new(newp))
+                } else {
+                    Element::Pow(Box::new(newb), Box::new(newp))
+                }
+            },
             &Element::Fn(ref f) => Element::Fn(f.normalize()),
             &Element::Term(ref ts) => {
                 let mut factors = vec![];
                 flatten_and_normalize_term(ts, &mut factors);
                 factors.sort();
+                println!("old factors {:?}", factors);
+
+                // create pows from terms that are the same
+                // they may not be side to side...
+                // first, find side-by-side factors
+                let mut samecount = 1;
+                let mut newfactors = vec![];
+
+                for x in factors.windows(2) {
+                    if x[0] == x[1] {
+                        samecount += 1;
+                    } else {
+                        if samecount > 1 {
+                            newfactors.push(Element::Pow(
+                                Box::new(x[0].clone()), 
+                                Box::new(Element::Num(true, samecount, 1))));
+                        } else {
+                            newfactors.push(x[0].clone());
+                        }
+                        samecount = 1;
+                    }
+                }
+
+                if let Some(x) = factors.last() {
+                    if samecount > 1 {
+                        newfactors.push(Element::Pow(
+                            Box::new(x.clone()), 
+                            Box::new(Element::Num(true, samecount, 1))));
+                    } else {
+                        newfactors.push(x.clone());
+                    }
+                }
+
+                newfactors.sort(); // FIXME: costly
+                println!("new fac {:?}", newfactors);
+
+                factors = newfactors;
+
+                // now merge pows: x^a*x^b = x^(a*b)
+                // should be side by side
+                let mut newfac2 = vec![];
+                match factors.first() {
+                    Some(x) => newfac2.push(x.clone()),
+                    _ => {}
+                }
+
+                for x in factors.iter().skip(1) {
+                    let mut add = true;
+                    if let &Element::Pow(ref b1, ref e1) = x {
+                        if let &mut Element::Pow(ref mut b2, ref mut e2) = newfac2.last_mut().unwrap() {
+                            if b1 == b2 {
+                                match (&**e1, &mut **e2) {
+                                    (&Element::Term(ref a1), &mut Element::Term(ref mut a2)) => a2.extend(a1.clone()),
+                                    (ref a1, &mut Element::Term(ref mut a2)) => a2.push((*a1).clone()),
+                                    (_, ref mut b) => **b = Element::Term(vec![*e1.clone(), b.clone()])
+                                }
+                                add = false;
+                            }
+                        }
+                    }
+                    if add {
+                        newfac2.push(x.clone());
+                    }
+                }
+
+                factors = newfac2;
 
                 // merge the coefficients
                 let mut pos = true;
@@ -76,7 +163,7 @@ impl Element {
                     1 => factors[0].clone(), // downgrade
                     _ => Element::Term(factors)
                 }
-            }
+            },
             // TODO: drop +0?
             &Element::SubExpr(ref ts) => {
                 let mut terms = vec![];
@@ -185,7 +272,7 @@ impl Element {
                     1 => newterms[0].clone(),
                     _ => Element::SubExpr(newterms)
                 }
-            }
+            },
             &ref o => o.clone() 
         }.apply_builtin_functions(false)
 

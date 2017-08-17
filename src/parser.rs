@@ -32,9 +32,9 @@ named!(minusexpr <Element>, do_parse!(ws!(tag!("-")) >>
 
 named!(pub expression <Element>, do_parse!(
   opt!(tag!("+")) >>
-  first : alt_complete!(minusexpr | term | element) >>
+  first : alt_complete!(minusexpr | term | pow | element) >>
   rest: many0!(
-    alt_complete!(do_parse!(ws!(tag!("+")) >> f: alt_complete!(term | element) >> (f)) 
+    alt_complete!(do_parse!(ws!(tag!("+")) >> f: alt_complete!(pow | term | element) >> (f)) 
     | minusexpr
    )) >>
   (match rest.len() {
@@ -45,7 +45,7 @@ named!(pub expression <Element>, do_parse!(
   	
 ));
 
-named!(term <Element>, map!(separated_nonempty_list_complete!(char!('*'), element), |x| if x.len() == 1 { x[0].clone() } else { Element::Term(x) } ));
+named!(term <Element>, map!(separated_nonempty_list_complete!(char!('*'), alt_complete!(pow | element)), |x| if x.len() == 1 { x[0].clone() } else { Element::Term(x) } ));
 named!(variable <Element>, map!(ws!(varname),|v| Element::Var(v)));
 named!(element <Element>, alt_complete!(map!(function, |x| Element::Fn(x)) | exprparen | numberdiv | numbersimple | rangedwildcard | wildcard | variable));
 
@@ -78,6 +78,7 @@ named!(set <Vec<Element>>, ws!(delimited!(char!('{'), separated_list!(char!(',')
 named!(wildcard <Element>, do_parse!(name: ws!(varname) >> ws!(tag!("?")) >> r: opt!(set) >> 
     (Element::Wildcard(name, match r { Some(a) => a, None => vec![]}))));
 named!(rangedwildcard <Element>, do_parse!(ws!(tag!("?")) >> name: ws!(varname) >> (Element::VariableArgument(name))));
+named!(pow <Element>, do_parse!(b: alt_complete!(exprparen | element) >> ws!(tag!("^")) >> p: alt_complete!(exprparen | element) >> (Element::Pow(Box::new(b), Box::new(p)))));
 
 named!(pub splitarg <Statement>, do_parse!(ws!(tag!("splitarg")) >> name: return_error!(ErrorKind::Custom(2), complete!(ws!(varname))) >> ws!(tag!(";")) >> ( Statement::SplitArg(name) ) ) );
 named!(pub symmetrize <Statement>, do_parse!(ws!(tag!("symmetrize")) >> name: return_error!(ErrorKind::Custom(2), complete!(ws!(varname))) >> complete!(ws!(tag!(";"))) >> ( Statement::Symmetrize(name) ) ) );
