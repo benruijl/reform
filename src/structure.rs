@@ -21,17 +21,20 @@ pub enum NumOrder {
     SmallerEqual,
 }
 
+// all the algebraic elements. A bool as the first
+// argument is the dirty flag, which is set to true
+// if a normalization needs to happen
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Element {
     VariableArgument(String),              // ?a
     Wildcard(String, Vec<Element>),        // x?{...}
     Var(String),                           // x
-    Pow(Box<Element>, Box<Element>),       // (1+x)^3
+    Pow(bool, Box<Element>, Box<Element>),       // (1+x)^3
     NumberRange(bool, u64, u64, NumOrder), // >0, <=-5/2
-    Fn(Func),                              // f(...)
-    Term(Vec<Element>),
-    SubExpr(Vec<Element>),
-    Num(bool, u64, u64), // fraction (true=positive), make sure it is last for sorting
+    Fn(bool, Func),                              // f(...)
+    Term(bool, Vec<Element>),
+    SubExpr(bool, Vec<Element>),
+    Num(bool, bool, u64, u64), // dirty, fraction (true=positive), make sure it is last for sorting
 }
 
 // TODO: move Func into Element?
@@ -181,7 +184,7 @@ impl fmt::Display for Element {
                 write!(f, "}}")
             },
             &Element::Var(ref name) => write!(f, "{}", name),
-            &Element::Num(ref pos, ref num, ref den) => if *den == 1 {
+            &Element::Num(_, ref pos, ref num, ref den) => if *den == 1 {
                 write!(f, "{}{}", if *pos { "" } else { "-" }, num)
             } else {
                 write!(f, "{}{}/{}", if *pos { "" } else { "-" }, num, den)
@@ -194,32 +197,32 @@ impl fmt::Display for Element {
                     write!(f, "{}{}/{}", if *pos { "" } else { "-" }, num, den)
                 }
             }
-            &Element::Pow(ref e, ref p) => {
+            &Element::Pow(_, ref e, ref p) => {
                 match **e {
-                    Element::SubExpr(_) | Element::Term(_) => write!(f, "({})", e)?,
+                    Element::SubExpr(..) | Element::Term(..) => write!(f, "({})", e)?,
                     _ => write!(f, "{}", e)?
                 };
                 match **p {
-                    Element::SubExpr(_) | Element::Term(_) => write!(f, "^({})", p),
+                    Element::SubExpr(..) | Element::Term(..) => write!(f, "^({})", p),
                     _ => write!(f, "^{}", p)
                 }
             }
-            &Element::Fn(ref func) => func.fmt(f),
-            &Element::Term(ref factors) => {
+            &Element::Fn(_, ref func) => func.fmt(f),
+            &Element::Term(_, ref factors) => {
                 match factors.first() {
-                    Some(s @ &Element::SubExpr(_)) if factors.len() > 1 => write!(f, "({})", s)?,
+                    Some(s @ &Element::SubExpr(..)) if factors.len() > 1 => write!(f, "({})", s)?,
                     Some(x) => write!(f, "{}", x)?,
                     None => {}
                 }
                 for t in factors.iter().skip(1) {
                     match t {
-                        s @ &Element::SubExpr(_) => write!(f, "*({})", s)?,
+                        s @ &Element::SubExpr(..) => write!(f, "*({})", s)?,
                         _ => write!(f, "*{}", t)?,
                     }
                 }
                 write!(f, "")
             }
-            &Element::SubExpr(ref terms) => {
+            &Element::SubExpr(_, ref terms) => {
                 match terms.first() {
                     Some(x) => write!(f, "{}", x)?,
                     None => {}

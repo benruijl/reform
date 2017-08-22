@@ -90,11 +90,11 @@ impl Element {
         match *self {
             Element::VariableArgument(ref name) => find_match(m, name).unwrap().to_vec(),
             Element::Wildcard(ref name, ..) => find_match(m, name).unwrap().to_vec(),
-            Element::Pow(ref b, ref p) => vec![Element::Pow(
+            Element::Pow(_, ref b, ref p) => vec![Element::Pow(true,
                 Box::new(b.apply_map(m)[0].clone()), Box::new(p.apply_map(m)[0].clone())).normalize()],
-            Element::Fn(ref f) => vec![Element::Fn(f.apply_map(m)).normalize()],
-            Element::Term(ref f) => vec![ Element::Term(f.iter().flat_map(|x| x.apply_map(m)).collect()).normalize()],
-            Element::SubExpr(ref f) => vec![Element::SubExpr(f.iter().flat_map(|x| x.apply_map(m)).collect()).normalize()],
+            Element::Fn(_, ref f) => vec![Element::Fn(true, f.apply_map(m))],
+            Element::Term(_, ref f) => vec![ Element::Term(true, f.iter().flat_map(|x| x.apply_map(m)).collect()).normalize()],
+            Element::SubExpr(_, ref f) => vec![Element::SubExpr(true, f.iter().flat_map(|x| x.apply_map(m)).collect()).normalize()],
             _ => vec![self.clone()]
         }
     }
@@ -230,16 +230,16 @@ impl Element {
     // create an iterator over a pattern
     fn to_iter_single<'a>(&'a self, target: &'a Element) -> ElementIterSingle<'a> {
         match (target, self) {
-            (&Element::Pow(ref b1, ref p1), &Element::Pow(ref b2, ref p2)) => {
+            (&Element::Pow(_, ref b1, ref p1), &Element::Pow(_, ref b2, ref p2)) => {
                 ElementIterSingle::SeqIt(vec![b1, p1], 
                     SequenceIter::new(SliceRef::OwnedSlice(vec![b2, p2]), b1))
             },
             (&Element::Var(ref i1), &Element::Var(ref i2)) if i1 == i2 =>
                             ElementIterSingle::Once,
-            (&Element::Num(ref pos1, ref num1, ref den1), &Element::Num(ref pos2, ref num2, ref den2)) 
+            (&Element::Num(_, ref pos1, ref num1, ref den1), &Element::Num(_, ref pos2, ref num2, ref den2)) 
                 if pos1 == pos2 && num1 == num2 && den1 == den2 =>
                         ElementIterSingle::Once,
-            (&Element::Num(ref pos, ref num, ref den), &Element::Wildcard(ref i2, ref rest)) => {
+            (&Element::Num(_, ref pos, ref num, ref den), &Element::Wildcard(ref i2, ref rest)) => {
                 if rest.len() == 0 {
                     return ElementIterSingle::OnceMatch(i2, &target)
                 }
@@ -267,10 +267,10 @@ impl Element {
                     ElementIterSingle::None
                 }
             },
-            (&Element::Fn(ref f1), &Element::Fn(ref f2)) =>
+            (&Element::Fn(_, ref f1), &Element::Fn(_, ref f2)) =>
                         ElementIterSingle::FnIter(f2.to_iter(&f1)),
-            (&Element::Term(ref f1), &Element::Term(ref f2)) |
-            (&Element::SubExpr(ref f1), &Element::SubExpr(ref f2)) => {
+            (&Element::Term(_, ref f1), &Element::Term(_, ref f2)) |
+            (&Element::SubExpr(_, ref f1), &Element::SubExpr(_, ref f2)) => {
                 ElementIterSingle::PermIter(f2, Heap::new(f1.iter().map(|x| x).collect::<Vec<_>>()),
                     SequenceIter::dummy(f2))
             },
@@ -496,8 +496,8 @@ pub enum MatchKind<'a> {
 impl<'a> MatchKind<'a> {
     pub fn from_element(pattern: &'a Element, target: &'a Element) -> MatchKind<'a> {
         match (pattern, target) {
-            (&Element::Term(ref x), &Element::Term(ref y)) => MatchKind::Many(MatchTermIterator::new(x, y)),
-            (ref a, &Element::Term(ref y)) => MatchKind::SinglePat(a, vec![], ElementIterSingle::None, y, 0),
+            (&Element::Term(_, ref x), &Element::Term(_, ref y)) => MatchKind::Many(MatchTermIterator::new(x, y)),
+            (ref a, &Element::Term(_, ref y)) => MatchKind::SinglePat(a, vec![], ElementIterSingle::None, y, 0),
             (a,b) => MatchKind::Single(vec![], a.to_iter_single(b)) 
         }
     }
@@ -541,14 +541,14 @@ impl<'a> MatchIterator<'a> {
     pub fn next(&mut self) -> StatementResult<Element> {
         if self.rhsp == 0 {
             match self.it.next() {
-                Some((ref rem, ref m)) => {
+                Some((rem, m)) => {
                     if let IdentityStatementMode::Once = self.mode {
                         self.it = MatchKind::None;
                     }
 
-                    self.m = m.clone(); //  TODO: prevent clone
-                    self.remaining = rem.clone();
-                    printmatch(&m);
+                    self.m = m;
+                    self.remaining = rem;
+                    printmatch(&self.m);
                 },
                 None => { if self.hasmatch { return StatementResult::Done; } else { 
                     self.hasmatch = true;
@@ -560,7 +560,7 @@ impl<'a> MatchIterator<'a> {
 
         StatementResult::Executed(
             match self.rhs {
-                &Element::SubExpr(ref x) => {
+                &Element::SubExpr(_, ref x) => {
                     let r = x[self.rhsp].apply_map(&self.m);
                     self.rhsp += 1;
                     if self.rhsp == x.len() {
@@ -598,10 +598,10 @@ impl IdentityStatement {
 }
 
 fn printmatch<'a>(m: &MatchObject<'a>) {
-    println!("MATCH: [ ");
+    debug!("MATCH: [ ");
 
     for &(ref k, ref v) in m.iter() {
-        println!("{}={};", k,v);
+        debug!("{}={};", k,v);
     }
-    println!("]");
+    debug!("]");
 }

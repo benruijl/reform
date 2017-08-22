@@ -1,5 +1,4 @@
 use structure::{Element, NumOrder};
-use std::ops::{Deref};
 
 // a SliceRef has either a borrowed slice,
 // or a vector of borrowed arguments.
@@ -167,7 +166,8 @@ pub fn exp_fraction(pos: &mut bool, num: &mut u64, den: &mut u64, pow: u64) {
     let oldden = *den;
     // FIXME: slow
     for _ in 1..pow {
-        mul_fractions(pos, num, den, true, oldnum, oldden);
+        *num *= oldnum;
+        *den *= oldden;
     }
 }
 
@@ -183,18 +183,24 @@ pub fn add_one(pos: &mut bool, num: &mut u64, den: &mut u64) {
 
 pub fn add_terms(dest: &mut Element, to_add: &Vec<&Element>) {
     match *dest {
-        Element::SubExpr(ref mut a) => for x in a {
-            add_terms(x, to_add);
+        Element::SubExpr(ref mut dirty, ref mut a) => {
+            for x in a {
+                add_terms(x, to_add);
+            }
+            *dirty = true;
         },
-        Element::Term(ref mut t) => for x in to_add {
-            t.push((*x).clone());
+        Element::Term(ref mut dirty, ref mut t) => {
+            for x in to_add {
+                t.push((*x).clone());
+            }
+            *dirty = true;
         },
         ref mut a => {
             let mut r = vec![a.clone()];
             for x in to_add {
                 r.push((*x).clone());
             }
-            *a = Element::Term(r);
+            *a = Element::Term(true, r);
         }
     }
 }

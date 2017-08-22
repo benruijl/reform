@@ -7,14 +7,14 @@ use std::fs::File;
 impl Element {
 	fn expand(&self) -> Element {
 		match self {
-			&Element::Fn(Func{ref name, ref args}) => Element::Fn(Func{ name: name.clone(),
-				args: args.iter().map(|x| x.expand()).collect()}),
-			&Element::Term(ref fs) => {
+			&Element::Fn(_, Func{ref name, ref args}) => Element::Fn(true, Func{ name: name.clone(),
+				args: args.iter().map(|x| x.expand()).collect()}), // TODO: only flag when changed
+			&Element::Term(_, ref fs) => {
 				let mut r : Vec<Vec<Element>> = vec![vec![]];
 
 				for f in fs {
 					match f {
-						&Element::SubExpr(ref s) => {
+						&Element::SubExpr(_, ref s) => {
 							// use cartesian product function?
 							r = r.iter().flat_map(|x| s.iter().map(|y| { 
 								let mut k = x.clone(); k.push(y.expand()); k } ).collect::<Vec<_>>() ).collect();
@@ -28,11 +28,18 @@ impl Element {
 				}
 
 				// FIXME: this should not happen for the ground level
-				Element::SubExpr(r.iter().map(|x| Element::Term(x.clone())).collect()).normalize()
+				Element::SubExpr(true, r.iter().map(|x| Element::Term(true, x.clone())).collect()).normalize()
 			},
-			&Element::SubExpr(ref f) => Element::SubExpr( f.iter().map(|x| x.expand()).collect()).normalize(),
-			&Element::Pow(ref b, ref p) => {
-				warn!("Expand not implemented yet for pow");
+			&Element::SubExpr(_, ref f) => Element::SubExpr(true, f.iter().map(|x| x.expand()).collect()).normalize(),
+			&Element::Pow(_, ref b, ref p) => {
+				if let Element::Num(_, true, n, 1) = **p {
+					if let Element::SubExpr(_, ref t) = **b {
+						warn!("Expand not implemented yet for pow");
+					}
+
+					// TODO: simplify (x*y)^z to z^z*y^z?
+				}
+
 				self.clone()
 			},
 			_ => self.clone()
@@ -82,15 +89,15 @@ impl Statement {
 	      },
 	      Statement::SplitArg(ref name) => {
 	        // split function arguments at the ground level
-	        let subs = | n : &String , a: &Vec<Element> |  Element::Fn( Func {name: n.clone(), args: 
-	              a.iter().flat_map( |x| match x { &Element::SubExpr(ref y) => y.clone(), _ => vec![x.clone()] } ).collect()});
+	        let subs = | n : &String , a: &Vec<Element> |  Element::Fn(false, Func {name: n.clone(), args: 
+	              a.iter().flat_map( |x| match x { &Element::SubExpr(_, ref y) => y.clone(), _ => vec![x.clone()] } ).collect()});
 
 	        match *input {
 	          // FIXME: check if the splitarg actually executed!
-	          Element::Fn(Func{name: ref n, args: ref a}) if *n == *name => StatementIter::Simple(subs(n, a), false),
-	          Element::Term(ref fs) => {
-	            StatementIter::Simple(Element::Term(fs.iter().map(|f| match f {
-	              &Element::Fn(Func{name: ref n, args: ref a}) if *n == *name => subs(n, a),
+	          Element::Fn(_, Func{name: ref n, args: ref a}) if *n == *name => StatementIter::Simple(subs(n, a), false),
+	          Element::Term(_, ref fs) => {
+	            StatementIter::Simple(Element::Term(false, fs.iter().map(|f| match f {
+	              &Element::Fn(_, Func{name: ref n, args: ref a}) if *n == *name => subs(n, a),
 	              _ => f.clone()
 	            } ).collect()), false)
 	          }
@@ -101,7 +108,7 @@ impl Statement {
 	      	// FIXME: treat ground level differently in the expand routine
 			// don't generate all terms in one go
 			match input.expand() {
-				Element::SubExpr(f) => {
+				Element::SubExpr(_, f) => {
 					if f.len() == 1 {
 						 StatementIter::Simple(f[0].clone(), false)
 					} else {
@@ -118,25 +125,25 @@ impl Statement {
 	      },
 	      Statement::Multiply(ref x) => {
 	      	let res = match (input, x) {
-	      		(&Element::Term(ref xx), &Element::Term(ref yy)) => { let mut r = xx.clone(); r.extend(yy.clone()); Element::Term(r) },
-				(&Element::Term(ref xx), _) => { let mut r = xx.clone(); r.push(x.clone()); Element::Term(r) },
-				(_, &Element::Term(ref xx)) => { let mut r = xx.clone(); r.push(input.clone()); Element::Term(r) },
-	      		_ => Element::Term(vec![input.clone(), x.clone()])
+	      		(&Element::Term(_,ref xx), &Element::Term(_,ref yy)) => { let mut r = xx.clone(); r.extend(yy.clone()); Element::Term(true, r) },
+				(&Element::Term(_,ref xx), _) => { let mut r = xx.clone(); r.push(x.clone()); Element::Term(true, r) },
+				(_, &Element::Term(_,ref xx)) => { let mut r = xx.clone(); r.push(input.clone()); Element::Term(true, r) },
+	      		_ => Element::Term(true, vec![input.clone(), x.clone()])
 	      	}.normalize();
 	      	StatementIter::Simple(res, true)
 	      },
 		  // TODO: use visitor pattern? this is almost a copy of splitarg
 	      Statement::Symmetrize(ref name) => {
 	        // sort function arguments at the ground level
-	        let subs = | n : &String , a: &Vec<Element> |  Element::Fn( Func {name: n.clone(), args: 
+	        let subs = | n : &String , a: &Vec<Element> |  Element::Fn(false, Func {name: n.clone(), args: 
 	              { let mut b = a.clone(); b.sort(); b } });
 
 	        match *input {
-	          // FIXME: check if the splitarg actually executed!
-	          Element::Fn(Func{name: ref n, args: ref a}) if *n == *name => StatementIter::Simple(subs(n, a), false),
-	          Element::Term(ref fs) => {
-	            StatementIter::Simple(Element::Term(fs.iter().map(|f| match f {
-	              &Element::Fn(Func{name: ref n, args: ref a}) if *n == *name => subs(n, a),
+	          // FIXME: check if the symmetrize actually executed!
+	          Element::Fn(_, Func{name: ref n, args: ref a}) if *n == *name => StatementIter::Simple(subs(n, a), false),
+	          Element::Term(_, ref fs) => {
+	            StatementIter::Simple(Element::Term(false, fs.iter().map(|f| match f {
+	              &Element::Fn(_, Func{name: ref n, args: ref a}) if *n == *name => subs(n, a),
 	              _ => f.clone()
 	            } ).collect()), false)
 	          }
@@ -151,6 +158,12 @@ impl Statement {
 fn do_module_rec(input: &Element, statements: &[Statement], current_index: usize, term_affected: &mut Vec<bool>,
 	output: &mut Vec<Element>) {
 	if current_index == statements.len() {
+
+		// print intermediate statistics
+		if output.len() >= 100000 && output.len() % 100000 == 0 {
+			println!("    -- generated: {}", output.len());
+		}
+
 		output.push(input.clone());
 		return;
 	}
@@ -264,11 +277,17 @@ pub fn do_program(program : &mut Program, write_log: bool) {
 
 		let inpcount;
 		match program.input {
-	  		Element::SubExpr(ref f) => {
+	  		Element::SubExpr(_, ref f) => {
 	  			inpcount = f.len();
 	  			// TODO: paralellize
-	  			for x in f.iter() {
+	  			for (i, x) in f.iter().enumerate() {
 	  				do_module_rec(x, &module.statements, 0, &mut executed, &mut output);
+
+	  					// print intermediate statistics
+			  			if output.len() > 100000 && output.len() % 100000 == 0 {
+			  				println!("{} -- generated: {}\tterms left: {}", module.name,
+		            			output.len(), f.len() - i);
+			  			}
 	  			}
 
 	  		},
@@ -276,9 +295,9 @@ pub fn do_program(program : &mut Program, write_log: bool) {
 	  	}
 
 	  	let genterms = output.len();
-	  	program.input = Element::SubExpr(output).normalize();
+	  	program.input = Element::SubExpr(true, output).normalize();
 	  	let outterms = match program.input {
-	  		Element::SubExpr(ref x) => x.len(),
+	  		Element::SubExpr(_, ref x) => x.len(),
 	  		_ => 1
 	  	};
 
@@ -295,6 +314,7 @@ pub fn do_program(program : &mut Program, write_log: bool) {
 
         // display the terms
         println!("{}", program.input);
+		println!("{}", ::parser::expression(&format!("{}", program.input).as_bytes()).to_result().unwrap().normalize());
 	}
 }
 

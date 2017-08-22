@@ -25,8 +25,8 @@ named!(pub exprparen <Element>, ws!(delimited!(char!('('), expression, char!(')'
 
 named!(minusexpr <Element>, do_parse!(ws!(tag!("-")) >>
 	g: map!(alt_complete!(term | element),|x| match x { 
-		Element::Term(mut g) => Element::Term( { g.push(Element::Num(false,1,1)); g } ), 
-		a => Element::Term(vec![a, Element::Num(false,1,1)])
+		Element::Term(_, mut g) => Element::Term(true, { g.push(Element::Num(false,true,1,1)); g } ), 
+		a => Element::Term(true, vec![a, Element::Num(false, false,1,1)])
 	}) >> (g)
 ));
 
@@ -39,28 +39,28 @@ named!(pub expression <Element>, do_parse!(
    )) >>
   (match rest.len() {
   	0 => first,
-  	_ => Element::SubExpr({let mut a = vec![first]; a.extend(rest); a})
+  	_ => Element::SubExpr(true, {let mut a = vec![first]; a.extend(rest); a})
   	})
 
   	
 ));
 
-named!(term <Element>, map!(separated_nonempty_list_complete!(char!('*'), alt_complete!(pow | element)), |x| if x.len() == 1 { x[0].clone() } else { Element::Term(x) } ));
+named!(term <Element>, map!(separated_nonempty_list_complete!(char!('*'), alt_complete!(pow | element)), |x| if x.len() == 1 { x[0].clone() } else { Element::Term(true, x) } ));
 named!(variable <Element>, map!(ws!(varname),|v| Element::Var(v)));
-named!(element <Element>, alt_complete!(map!(function, |x| Element::Fn(x)) | exprparen | numberdiv | numbersimple | rangedwildcard | wildcard | variable));
+named!(element <Element>, alt_complete!(map!(function, |x| Element::Fn(true, x)) | exprparen | numberdiv | numbersimple | rangedwildcard | wildcard | variable));
 
 named!(number <(bool,u64)>, do_parse!(pos: opt!(tag!("-")) >>  val: map_res!(map_res!(ws!(digit), str::from_utf8), FromStr::from_str) >> 
     (match pos { Some(_) => false, _ => true}, val) ));
 
 named!(numbersimple <Element>, do_parse!(
     num: number >>
-    (Element::Num(num.0, num.1, 1))));
+    (Element::Num(true, num.0, num.1, 1))));
 
 named!(numberdiv <Element>, do_parse!(
     num: number >> // make optional?
     ws!(tag!("/")) >>
     den : number >>
-    (Element::Num((num.0 & den.0) || (!num.0 && !den.0) , num.1, den.1))
+    (Element::Num(true, (num.0 & den.0) || (!num.0 && !den.0) , num.1, den.1))
     )
 );
 
@@ -73,12 +73,12 @@ named!(numorder <NumOrder>, ws!(
 	map!(tag!("<"), |_| NumOrder::Smaller)
 	)));
 named!(numrange <Element>, do_parse!(no: numorder >> num: alt_complete!(numberdiv | numbersimple) >> (match num {
-	Element::Num(pos, num, den) => Element::NumberRange(pos, num, den, no), _ => unreachable!() })));
+	Element::Num(_,pos, num, den) => Element::NumberRange(pos, num, den, no), _ => unreachable!() })));
 named!(set <Vec<Element>>, ws!(delimited!(char!('{'), separated_list!(char!(','), alt_complete!(expression | numrange)), char!('}'))));
 named!(wildcard <Element>, do_parse!(name: ws!(varname) >> ws!(tag!("?")) >> r: opt!(set) >> 
     (Element::Wildcard(name, match r { Some(a) => a, None => vec![]}))));
 named!(rangedwildcard <Element>, do_parse!(ws!(tag!("?")) >> name: ws!(varname) >> (Element::VariableArgument(name))));
-named!(pow <Element>, do_parse!(b: alt_complete!(exprparen | element) >> ws!(tag!("^")) >> p: alt_complete!(exprparen | element) >> (Element::Pow(Box::new(b), Box::new(p)))));
+named!(pow <Element>, do_parse!(b: alt_complete!(exprparen | element) >> ws!(tag!("^")) >> p: alt_complete!(exprparen | element) >> (Element::Pow(true, Box::new(b), Box::new(p)))));
 
 named!(pub splitarg <Statement>, do_parse!(ws!(tag!("splitarg")) >> name: return_error!(ErrorKind::Custom(2), complete!(ws!(varname))) >> ws!(tag!(";")) >> ( Statement::SplitArg(name) ) ) );
 named!(pub symmetrize <Statement>, do_parse!(ws!(tag!("symmetrize")) >> name: return_error!(ErrorKind::Custom(2), complete!(ws!(varname))) >> complete!(ws!(tag!(";"))) >> ( Statement::Symmetrize(name) ) ) );

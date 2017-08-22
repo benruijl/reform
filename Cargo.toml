@@ -1,6 +1,7 @@
 [package]
 name = "reform"
 version = "0.1.0"
+readme = "README.md"
 authors = ["Ben Ruijl <benruyl@gmail.com>"]
 
 [dependencies]
