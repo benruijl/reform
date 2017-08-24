@@ -14,11 +14,26 @@ pub enum MatchOpt<'a> {
     Multiple(&'a [Element])
 }
 
+#[derive(Debug,Clone,Eq,PartialEq)]
+pub enum MatchOptOwned {
+    Single(Element),
+    Multiple(Vec<Element>)
+}
+
 impl<'a> MatchOpt<'a> {
-    fn to_vec(&self) -> Vec<Element> {
+    fn to_owned(&self) -> MatchOptOwned {
         match *self {
-            MatchOpt::Single(ref x) => vec![(*x).clone()],
-            MatchOpt::Multiple(ref x) => x.iter().map(|y| (*y).clone()).collect()
+            MatchOpt::Single(x) => MatchOptOwned::Single(x.clone()),
+            MatchOpt::Multiple(x) => MatchOptOwned::Multiple(x.iter().map(|y| (*y).clone()).collect())
+        }
+    }
+}
+
+impl MatchOptOwned {
+    fn to_single(self) -> Element {
+        match self {
+            MatchOptOwned::Single(x) => x,
+            _ => panic!("Trying to get single element from a multiple")
         }
     }
 }
@@ -86,24 +101,33 @@ fn find_match<'a,>(m : &'a MatchObject<'a>, k: &'a String) -> Option<&'a MatchOp
 
 // apply a mapping of wildcards to a function argument
 impl Element {
-    fn apply_map<'a>(&self, m: &MatchObject<'a>) -> Vec<Element> {
+    fn apply_map<'a>(&self, m: &MatchObject<'a>) -> MatchOptOwned {
         match *self {
-            Element::VariableArgument(ref name) => find_match(m, name).unwrap().to_vec(),
-            Element::Wildcard(ref name, ..) => find_match(m, name).unwrap().to_vec(),
-            Element::Pow(_, ref b, ref p) => vec![Element::Pow(true,
-                Box::new(b.apply_map(m)[0].clone()), Box::new(p.apply_map(m)[0].clone())).normalize()],
-            Element::Fn(_, ref f) => vec![Element::Fn(true, f.apply_map(m))],
-            Element::Term(_, ref f) => vec![ Element::Term(true, f.iter().flat_map(|x| x.apply_map(m)).collect()).normalize()],
-            Element::SubExpr(_, ref f) => vec![Element::SubExpr(true, f.iter().flat_map(|x| x.apply_map(m)).collect()).normalize()],
-            _ => vec![self.clone()]
+            Element::VariableArgument(ref name) => find_match(m, name).unwrap().to_owned(),
+            Element::Wildcard(ref name, ..) => find_match(m, name).unwrap().to_owned(),
+            Element::Pow(_, ref b, ref p) => MatchOptOwned::Single(Element::Pow(true,
+                Box::new(b.apply_map(m).to_single()), Box::new(p.apply_map(m).to_single()))),
+            Element::Fn(_, ref f) => MatchOptOwned::Single(Element::Fn(true, f.apply_map(m))),
+            Element::Term(_, ref f) => MatchOptOwned::Single(Element::Term(true, 
+                f.iter().map(|x| x.apply_map(m).to_single()).collect())),
+            Element::SubExpr(_, ref f) => MatchOptOwned::Single(Element::SubExpr(true, 
+                f.iter().map(|x| x.apply_map(m).to_single()).collect())),
+            _ => MatchOptOwned::Single(self.clone())
         }
     }
 }
 
 impl Func {
     fn apply_map<'a>(&self, m: &MatchObject<'a>) -> Func {
-        let r = self.args.iter().flat_map(|x| x.apply_map(m)).collect();
-        Func { name: self.name.clone(), args : r }.normalize()
+        let mut args = vec![];
+        for a in self.args.iter() {
+            match a.apply_map(m) {
+                MatchOptOwned::Single(x) => args.push(x),
+                MatchOptOwned::Multiple(x) => args.extend(x)
+            }
+        }
+
+        Func { name: self.name.clone(), args : args }
     }
 }
 
@@ -566,23 +590,20 @@ impl<'a> MatchIterator<'a> {
                     if self.rhsp == x.len() {
                         self.rhsp = 0;
                     }
-                    assert!(r.len() == 1); // result is a subexpr
-                    let mut res = r[0].clone();
+
+                    let mut res = r.to_single();
                     if self.remaining.len() > 0 {
                         add_terms(&mut res, &self.remaining);
-                        res = res.normalize();
                     }
-                    res
+                    res.normalize()
                 },
                 x => {
                     let r = x.apply_map(&self.m);
-                    assert!(r.len() == 1);
-                    let mut res = r[0].clone();
+                    let mut res = r.to_single();
                     if self.remaining.len() > 0 {
                         add_terms(&mut res, &self.remaining);
-                        res = res.normalize();
                     }
-                    res
+                    res.normalize()
                 }
             }
         )

@@ -314,7 +314,6 @@ pub fn do_program(program : &mut Program, write_log: bool) {
 
         // display the terms
         println!("{}", program.input);
-		println!("{}", ::parser::expression(&format!("{}", program.input).as_bytes()).to_result().unwrap().normalize());
 	}
 }
 

@@ -161,6 +161,13 @@ pub fn add_fractions(
 }
 
 pub fn exp_fraction(pos: &mut bool, num: &mut u64, den: &mut u64, pow: u64) {
+    if pow == 0 {
+        *pos = true;
+        *num = 1;
+        *den = 1;
+        return;
+    }
+
     *pos = *pos | (pow % 2 == 0);
     let oldnum = *num;
     let oldden = *den;
