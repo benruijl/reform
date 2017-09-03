@@ -39,9 +39,9 @@ impl Element {
     // TODO: in-place?
     pub fn normalize<'a>(&self) -> Element {
         match self {
-            &Element::Num(dirty, pos, mut num, mut den) => {
+            &Element::Num(dirty, mut pos, mut num, mut den) => {
                 if dirty {
-                    normalize_fraction(&mut num, &mut den);
+                    normalize_fraction(&mut pos, &mut num, &mut den);
                 }
                 Element::Num(false, pos, num, den)
             },
@@ -220,88 +220,30 @@ impl Element {
 
                 // merge coefficients of similar terms
                 // FIXME: terms need not be next to eachother: f(0)+f(1)+f(0)*13
-                let mut newterms = vec![terms[0].clone()];
-                for x in terms.iter().skip(1) {
-                    let mut newterm = false;
-                    match (x, newterms.last_mut().unwrap()) {
-                        (&Element::Term(_,ref t1), &mut Element::Term(ref mut d2, ref mut t2)) => {
-                            // treat the case where the term doesn't have a coefficient
-                            assert!(t1.len() > 0 && t2.len() > 0);
+                //let mut newterms = vec![terms[0].clone()];
+                let mut lastindex = 0;
 
-                            let mut pos1;
-                            let mut num1;
-                            let mut den1;
-                            let (mut l1, l11) = t1.split_at(t1.len() - 1);
-                            match l11[0] {
-                                Element::Num(_, pos,num,den) => { pos1 = pos; num1 = num; den1 = den; },
-                                _ => { l1 = t1; pos1 = true; num1 = 1; den1 = 1; }
-                            }
-
-                            {
-                                let l2 = match t2.last() {
-                                    Some(&Element::Num(..)) => &t2[..t2.len() - 1],
-                                    _ => &t2[..]
-                                };
-
-                                if l1 != l2 { newterm = true; }
-                            }
-
-                            if !newterm {
-                                *d2 = true; // flag dirty
-                                // should we add the terms?
-                                match t2.last_mut() {
-                                    Some(&mut Element::Num(_,ref mut pos, ref mut num, ref mut den)) => 
-                                        add_fractions(pos, num, den, pos1, num1, den1),
-                                    _ => newterm = true  
-                                }
-                                if newterm {
-                                    // add 1
-                                    add_one(&mut pos1, &mut num1, &mut den1);
-                                    t2.push(Element::Num(false, pos1, num1 ,den1 ));
-                                    newterm = false;
-                                }
-                            }
-                        },
-                        // x + x/2
-                        // (1+x) + (1+x)/2
-                        (ref a, &mut Element::Term(_, ref mut t2)) => {
-                            assert!(t2.len() > 0);
-
-                            if **a == t2[0] && t2.len() == 2 {
-                                match t2[1] {
-                                    Element::Num(_, ref mut pos, ref mut num, ref mut den) => { add_one(pos, num, den); },
-                                    _ => { newterm = true; }
-                                }
-                            } else {
-                                newterm = true;
-                            }
-                        },
-                        (&Element::Term(_, ref t2), ref mut a) => {
-                            assert!(t2.len() > 0);
-
-                            if **a == t2[0] && t2.len() == 2 {
-                                match t2[1] {
-                                    Element::Num(_, mut pos, mut num, mut den) => {
-                                        add_one(&mut pos, &mut num, &mut den);
-                                        **a = Element::Term(false, vec![a.clone(), Element::Num(false, pos, num, den)]);
-                                    },
-                                    _ => { newterm = true; }
-                                }
-                            } else {
-                                newterm = true;
-                            }
-                        },
-                        (&Element::Num(_, pos1, num1, den1), 
-                            &mut Element::Num(_, ref mut pos, ref mut num, ref mut den)) => {
-                            add_fractions(pos, num, den, pos1, num1, den1);
-                        },
-                        (ref a1, ref mut a2) if a1 == a2 => { 
-                                **a2 = Element::Term(false, vec![x.clone(), Element::Num(false, true,2,1)] ) 
-                            },
-                        _ => {newterm = true}
+                for i in 1..terms.len() {
+                    let (a, b) = terms.split_at_mut(i);
+                    if !merge_terms(&mut a[lastindex], &b[0]) {
+                        if lastindex + 1 < i {
+                            a[lastindex + 1] = b[0].clone();
+                        }
+                        lastindex += 1;
                     }
+                }
+                terms.truncate(lastindex + 1);
 
-                    if newterm {
+                match terms.len() {
+                    0 => Element::Num(false, true,0,1),
+                    1 => terms[0].clone(),
+                    _ => Element::SubExpr(false, terms)
+                }
+
+                /*
+
+                for x in terms.iter().skip(1) {
+                    if !merge_terms(newterms.last_mut().unwrap(), x) {
                         newterms.push(x.clone());
                     }
 
@@ -312,12 +254,14 @@ impl Element {
                         _ => {}
                     }
                 }
+                
 
                 match newterms.len() {
                     0 => Element::Num(false, true,0,1),
                     1 => newterms[0].clone(),
                     _ => Element::SubExpr(false, newterms)
                 }
+                */
             },
             &ref o => o.clone() 
         }.apply_builtin_functions(false)
@@ -347,4 +291,93 @@ fn flatten_and_normalize_expr(expr: &[Element], res: &mut Vec<Element>) {
             _ => res.push(x.normalize())
         }
     }
+}
+
+// returns true if merged
+pub fn merge_terms(first: &mut Element, sec: &Element) -> bool {
+    // filter +0
+    // TODO: also filter from unnormalized term
+    match sec {
+        &Element::Num(_, _, 0, _) => { return true; },
+        _ => {}
+    }
+
+    match (sec, first) {
+        (&Element::Term(_,ref t1), &mut Element::Term(ref mut d2, ref mut t2)) => {
+            // treat the case where the term doesn't have a coefficient
+            assert!(t1.len() > 0 && t2.len() > 0);
+
+            let mut pos1;
+            let mut num1;
+            let mut den1;
+            let (mut l1, l11) = t1.split_at(t1.len() - 1);
+            match l11[0] {
+                Element::Num(_, pos,num,den) => { pos1 = pos; num1 = num; den1 = den; },
+                _ => { l1 = t1; pos1 = true; num1 = 1; den1 = 1; }
+            }
+
+            {
+                let l2 = match t2.last() {
+                    Some(&Element::Num(..)) => &t2[..t2.len() - 1],
+                    _ => &t2[..]
+                };
+
+                if l1 != l2 { return false; }
+            }
+
+            *d2 = false;
+            // should we add the terms?
+            match t2.last_mut() {
+                Some(&mut Element::Num(_,ref mut pos, ref mut num, ref mut den)) => 
+                    {
+                        add_fractions(pos, num, den, pos1, num1, den1);
+                        return true
+                    },
+                _ => {}
+            }
+
+            // add 1
+            add_one(&mut pos1, &mut num1, &mut den1);
+            t2.push(Element::Num(false, pos1, num1 ,den1));
+        },
+        // x + x/2
+        // (1+x) + (1+x)/2
+        (ref a, &mut Element::Term(_, ref mut t2)) => {
+            assert!(t2.len() > 0);
+
+            if **a == t2[0] && t2.len() == 2 {
+                match t2[1] {
+                    Element::Num(_, ref mut pos, ref mut num, ref mut den) => { add_one(pos, num, den); },
+                    _ => { return false; }
+                }
+            } else {
+                return false;
+            }
+        },
+        (&Element::Term(_, ref t2), ref mut a) => {
+            assert!(t2.len() > 0);
+
+            if **a == t2[0] && t2.len() == 2 {
+                match t2[1] {
+                    Element::Num(_, mut pos, mut num, mut den) => {
+                        add_one(&mut pos, &mut num, &mut den);
+                        **a = Element::Term(false, vec![a.clone(), Element::Num(false, pos, num, den)]);
+                    },
+                    _ => { return false; }
+                }
+            } else {
+                return false;
+            }
+        },
+        (&Element::Num(_, pos1, num1, den1), 
+            &mut Element::Num(_, ref mut pos, ref mut num, ref mut den)) => {
+            add_fractions(pos, num, den, pos1, num1, den1);
+        },
+        (ref a1, ref mut a2) if a1 == a2 => { 
+                **a2 = Element::Term(false, vec![sec.clone(), Element::Num(false, true,2,1)] ) 
+            },
+        _ => {return false}
+    }
+
+    true
 }

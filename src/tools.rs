@@ -99,7 +99,11 @@ pub fn lcm(a: u64, b: u64) -> u64 {
 }
 
 // multiple two normalized fractions
-pub fn normalize_fraction(num: &mut u64, den: &mut u64) {
+pub fn normalize_fraction(pos: &mut bool, num: &mut u64, den: &mut u64) {
+    if *num == 0 {
+        *pos = true;
+    }
+
     let gcd = gcd(*num, *den);
     *num /= gcd;
     *den /= gcd;
@@ -138,7 +142,7 @@ pub fn add_fractions(
     let lcm = lcm(*den, den1);
     let num2 = num1 * (lcm / den1);
     *num *= lcm / *den;
-    match (*pos, pos1, num2 > *num) {
+    match (*pos, pos1, num2 >= *num) {
         (true, false, true) => {
             *num = num2 - *num;
             *pos = false;
@@ -180,7 +184,7 @@ pub fn exp_fraction(pos: &mut bool, num: &mut u64, den: &mut u64, pow: u64) {
 
 // add one to an already normalized fraction
 pub fn add_one(pos: &mut bool, num: &mut u64, den: &mut u64) {
-    if !*pos && num < den {
+    if !*pos && num <= den {
         *pos = true;
         *num = *den - *num;
     } else {

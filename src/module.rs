@@ -1,8 +1,7 @@
 use structure::{Module,Statement,Element,Func,StatementResult,IdentityStatement,Program};
 use id::{MatchIterator,MatchKind};
 use std::mem;
-use std::io::prelude::*;
-use std::fs::File;
+use streaming::TermStreamer;
 
 impl Element {
 	fn expand(&self) -> Element {
@@ -156,15 +155,9 @@ impl Statement {
 }
 
 fn do_module_rec(input: &Element, statements: &[Statement], current_index: usize, term_affected: &mut Vec<bool>,
-	output: &mut Vec<Element>) {
+	output: &mut TermStreamer) {
 	if current_index == statements.len() {
-
-		// print intermediate statistics
-		if output.len() >= 100000 && output.len() % 100000 == 0 {
-			println!("    -- generated: {}", output.len());
-		}
-
-		output.push(input.clone());
+		output.add_term(input.normalize());
 		return;
 	}
 
@@ -266,95 +259,24 @@ impl Module {
 
 // execute the module
 pub fn do_program(program : &mut Program, write_log: bool) {
-	program.input = program.input.normalize();
-
 	for module in program.modules.iter_mut() {
 		module.normalize_module();
-		debug!("{}", module);
+		debug!("{}", module); // print module code
 
 		let mut executed = vec![false];
-		let mut output = vec![];
 
-		let inpcount;
-		match program.input {
-	  		Element::SubExpr(_, ref f) => {
-	  			inpcount = f.len();
-	  			// TODO: paralellize
-	  			for (i, x) in f.iter().enumerate() {
-	  				do_module_rec(x, &module.statements, 0, &mut executed, &mut output);
+		let mut inpcount = 0u64;
+		while let Some(x) = program.input.read_term() {
+			do_module_rec(&x, &module.statements, 0, &mut executed, &mut program.input);
 
-	  					// print intermediate statistics
-			  			if output.len() > 100000 && output.len() % 100000 == 0 {
-			  				println!("{} -- generated: {}\tterms left: {}", module.name,
-		            			output.len(), f.len() - i);
-			  			}
-	  			}
+			if program.input.termcount() > 100000 && program.input.termcount() % 100000 == 0 {
+				println!("{} -- generated: {}\tterms left: {}", module.name,
+					program.input.termcount(), program.input.input_termcount() - inpcount);
+			}
 
-	  		},
-	  		ref f => { inpcount = 1; do_module_rec(f, &module.statements, 0, &mut executed, &mut output); }
-	  	}
-
-	  	let genterms = output.len();
-	  	program.input = Element::SubExpr(true, output).normalize();
-	  	let outterms = match program.input {
-	  		Element::SubExpr(_, ref x) => x.len(),
-	  		_ => 1
-	  	};
-
-		if write_log {
-			// FIXME: filename
-			let mut f = File::create("test.log").expect(&format!("Unable to create file {:?}", "test.log"));
-        	writeln!(f, "{} -- \t terms in: {}\tgenerated: {}\tterms out: {}", module.name,
-            	inpcount, genterms, outterms).unwrap();
-        	writeln!(f, "{}", program.input).unwrap();
+			inpcount += 1;
 		}
 
-        println!("{} -- \t terms in: {}\tgenerated: {}\tterms out: {}", module.name,
-            	inpcount, genterms, outterms);
-
-        // display the terms
-        println!("{}", program.input);
+	  	program.input.sort(write_log);
 	}
 }
-
-// execute the module
-/*
-pub fn do_module_it(module : &Module) {
-  let mut curterm = Element::Num(0);// FIXME
-
-  let mut iterators = (0..module.statements.len() + 1).map(|_| StatementIter::None).collect::<Vec<_>>();
-  iterators[0] = StatementIter::Multiple(
-  	match module.input {
-  		Element::SubExpr(ref f) => f.clone(),
-  		ref f => vec![f.clone()]
-  	}
-  ); // first entry is all the terms
-
-
-  // loops over all terms
-  // TODO: paralellize
-	'next: loop {
-		let mut i = iterators.len() - 1;
-		if let Some(x) = iterators[i].next() {
-			curterm = x;
-
-            // now update all elements after
-            let mut j = i + 1;
-            while j < iterators.len() {
-                // create a new iterator at j based on the previous match dictionary and slice
-                iterators[j] = module.statements[j - 1].to_iter(&curterm); // note: element 0 was all the terms
-
-                match iterators[j].next() {
-                    Some(y) => { }, // do nothing?
-                    None => { i = j - 1; continue 'next; } // try the next match at j-1
-                }
-
-                j += 1;
-            }
-		}
-
-		if i == 0 { break; } // done!
-		i -= 1;
-	}
-}
-*/

@@ -2,6 +2,7 @@
 extern crate nom;
 extern crate itertools;
 extern crate clap; // command line argument options
+extern crate rand;
 
 #[macro_use]
 extern crate log;
@@ -11,6 +12,7 @@ mod structure;
 mod parser;
 mod id;
 mod normalize;
+mod streaming;
 mod tools;
 mod module;
 mod tests;

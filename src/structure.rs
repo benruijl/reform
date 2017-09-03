@@ -1,9 +1,25 @@
 use std::fmt;
+use streaming::TermStreamer;
 
 #[derive(Debug)]
 pub struct Program {
-    pub input: Element, // TODO: in future this is a stream of terms
+    pub input: TermStreamer,
     pub modules: Vec<Module>,
+}
+
+impl Program {
+    pub fn new(input: Element, modules: Vec<Module>) -> Program {
+        let mut ts = TermStreamer::new();
+        match input {
+            Element::SubExpr(_, t) => for x in t {
+                ts.add_term_input(x.normalize());
+            },
+            x => {
+                ts.add_term_input(x.normalize());
+            }
+        }
+        Program { input: ts, modules }
+    }
 }
 
 #[derive(Debug)]
@@ -29,9 +45,9 @@ pub enum Element {
     VariableArgument(String),              // ?a
     Wildcard(String, Vec<Element>),        // x?{...}
     Var(String),                           // x
-    Pow(bool, Box<Element>, Box<Element>),       // (1+x)^3
+    Pow(bool, Box<Element>, Box<Element>), // (1+x)^3
     NumberRange(bool, u64, u64, NumOrder), // >0, <=-5/2
-    Fn(bool, Func),                              // f(...)
+    Fn(bool, Func),                        // f(...)
     Term(bool, Vec<Element>),
     SubExpr(bool, Vec<Element>),
     Num(bool, bool, u64, u64), // dirty, fraction (true=positive), make sure it is last for sorting
@@ -55,7 +71,7 @@ pub enum Statement {
     Multiply(Element),
     Symmetrize(String),
     // internal commands
-    Jump(usize), // unconditional jump
+    Jump(usize),          // unconditional jump
     Eval(Element, usize), // evaluate and jump if eval is false
     JumpIfChanged(usize), // jump and pop change flag
     PushChange,           // push a new change flag
@@ -200,11 +216,11 @@ impl fmt::Display for Element {
             &Element::Pow(_, ref e, ref p) => {
                 match **e {
                     Element::SubExpr(..) | Element::Term(..) => write!(f, "({})", e)?,
-                    _ => write!(f, "{}", e)?
+                    _ => write!(f, "{}", e)?,
                 };
                 match **p {
                     Element::SubExpr(..) | Element::Term(..) => write!(f, "^({})", p),
-                    _ => write!(f, "^{}", p)
+                    _ => write!(f, "^{}", p),
                 }
             }
             &Element::Fn(_, ref func) => func.fmt(f),

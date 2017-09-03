@@ -190,11 +190,10 @@ named!(module <Module>, do_parse!(
   (Module { name: name, statements : ids }))
 );
 
-// FIXME: why so complicated?
 named!(program <Program>, do_parse!(
   input: input >> 
   mods : complete!(many0!(module)) >>
-  (Program { input: input, modules : mods }))
+  (Program::new(input, mods)))
 );
 
 pub fn parse_string(data: &[u8]) -> Program {
