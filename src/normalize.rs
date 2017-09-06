@@ -1,5 +1,5 @@
 use std::mem;
-use structure::{Element,Func};
+use structure::{Element,Func,VarName,FUNCTION_DELTA,FUNCTION_NARGS};
 use tools::{mul_fractions,add_fractions,add_one,normalize_fraction,exp_fraction};
 
 impl Element {
@@ -9,8 +9,8 @@ impl Element {
     pub fn apply_builtin_functions(&self, ground_level: bool) -> Element {
         match self {
             &Element::Fn(_, Func { name: ref n, args: ref a } ) => {
-                match n.as_str() {
-                    "delta_" => {
+                match n {
+                    &VarName::ID(x) if x == FUNCTION_DELTA => {
                         if a.len() == 1 {
                             match a[0] {
                                 Element::Num(_, _, 0, _) => Element::Num(false, true,1,1),
@@ -20,7 +20,7 @@ impl Element {
                             self.clone()
                         }
                     },
-                    "nargs_" => {
+                    &VarName::ID(x) if x == FUNCTION_NARGS => {
                         // get the number of arguments
                         Element::Num(false, true, a.len() as u64, 1)
                     }

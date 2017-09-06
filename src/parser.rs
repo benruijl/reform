@@ -1,4 +1,4 @@
-use structure::{Element,Func,IdentityStatementMode,Statement,Module,IdentityStatement,NumOrder,Program};
+use structure::{Element,Func,IdentityStatementMode,Statement,Module,IdentityStatement,NumOrder,Program,VarName};
 use nom::{digit,alpha,alphanumeric,GetInput,ErrorKind};
 use std;
 use std::str;
@@ -46,7 +46,7 @@ named!(pub expression <Element>, do_parse!(
 ));
 
 named!(term <Element>, map!(separated_nonempty_list_complete!(char!('*'), alt_complete!(pow | element)), |x| if x.len() == 1 { x[0].clone() } else { Element::Term(true, x) } ));
-named!(variable <Element>, map!(ws!(varname),|v| Element::Var(v)));
+named!(variable <Element>, map!(ws!(varname),|v| Element::Var(VarName::Name(v))));
 named!(element <Element>, alt_complete!(map!(function, |x| Element::Fn(true, x)) | exprparen | numberdiv | numbersimple | rangedwildcard | wildcard | variable));
 
 named!(number <(bool,u64)>, do_parse!(pos: opt!(tag!("-")) >>  val: map_res!(map_res!(ws!(digit), str::from_utf8), FromStr::from_str) >> 
@@ -76,12 +76,12 @@ named!(numrange <Element>, do_parse!(no: numorder >> num: alt_complete!(numberdi
 	Element::Num(_,pos, num, den) => Element::NumberRange(pos, num, den, no), _ => unreachable!() })));
 named!(set <Vec<Element>>, ws!(delimited!(char!('{'), separated_list!(char!(','), alt_complete!(expression | numrange)), char!('}'))));
 named!(wildcard <Element>, do_parse!(name: ws!(varname) >> ws!(tag!("?")) >> r: opt!(set) >> 
-    (Element::Wildcard(name, match r { Some(a) => a, None => vec![]}))));
-named!(rangedwildcard <Element>, do_parse!(ws!(tag!("?")) >> name: ws!(varname) >> (Element::VariableArgument(name))));
+    (Element::Wildcard(VarName::Name(name + "?"), match r { Some(a) => a, None => vec![]}))));
+named!(rangedwildcard <Element>, do_parse!(ws!(tag!("?")) >> name: ws!(varname) >> (Element::VariableArgument(VarName::Name("?".to_owned() + &name)))));
 named!(pow <Element>, do_parse!(b: alt_complete!(exprparen | element) >> ws!(tag!("^")) >> p: alt_complete!(exprparen | element) >> (Element::Pow(true, Box::new(b), Box::new(p)))));
 
-named!(pub splitarg <Statement>, do_parse!(ws!(tag!("splitarg")) >> name: return_error!(ErrorKind::Custom(2), complete!(ws!(varname))) >> ws!(tag!(";")) >> ( Statement::SplitArg(name) ) ) );
-named!(pub symmetrize <Statement>, do_parse!(ws!(tag!("symmetrize")) >> name: return_error!(ErrorKind::Custom(2), complete!(ws!(varname))) >> complete!(ws!(tag!(";"))) >> ( Statement::Symmetrize(name) ) ) );
+named!(pub splitarg <Statement>, do_parse!(ws!(tag!("splitarg")) >> name: return_error!(ErrorKind::Custom(2), complete!(ws!(varname))) >> ws!(tag!(";")) >> ( Statement::SplitArg(VarName::Name(name)) ) ) );
+named!(pub symmetrize <Statement>, do_parse!(ws!(tag!("symmetrize")) >> name: return_error!(ErrorKind::Custom(2), complete!(ws!(varname))) >> complete!(ws!(tag!(";"))) >> ( Statement::Symmetrize(VarName::Name(name)) ) ) );
 named!(pub print <Statement>, do_parse!(ws!(tag!("print")) >> ws!(tag!(";")) >> ( Statement::Print ) ) );
 named!(pub expand <Statement>, do_parse!(ws!(tag!("expand")) >> ws!(tag!(";")) >> ( Statement::Expand ) ) );
 named!(pub multiply <Statement>, do_parse!(ws!(tag!("multiply")) >> e: ws!(expression) >> ws!(tag!(";")) >> ( Statement::Multiply(e) ) ) );
@@ -162,7 +162,7 @@ named!(pub idstatement <Statement>, do_parse!(
 named!(pub function <Func>, do_parse!(
   fnname : ws!(alt_complete!(builtin | varname)) >>
     args: ws!(delimited!(char!('('), separated_list!(char!(','), alt_complete!( expression | exprparen ) ), char!(')'))) >>
-  (Func { name: fnname, args: args})
+  (Func { name: VarName::Name(fnname), args: args})
   )
 );
 
@@ -185,6 +185,7 @@ named!(statement <Statement>, do_parse!(
 // FIXME: why so complicated?
 named!(module <Module>, do_parse!(
   ids : complete!(many0!(complete!(statement))) >>
+  complete!(many0!(alt_complete!(blockcomment | comment))) >>
   name: add_return_error!(ErrorKind::Custom(1), sort) >>
   complete!(many0!(alt_complete!(blockcomment | comment))) >>
   (Module { name: name, statements : ids }))

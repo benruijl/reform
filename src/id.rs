@@ -1,4 +1,4 @@
-use structure::{Element,Func,IdentityStatementMode,IdentityStatement,StatementResult};
+use structure::{Element,Func,IdentityStatementMode,IdentityStatement,StatementResult,VarName};
 use std;
 use std::fmt;
 use std::mem;
@@ -57,10 +57,10 @@ impl<'a> fmt::Display for MatchOpt<'a> {
 }
 
 // map of variables names to a function argument slice
-pub type MatchObject<'a> = Vec<(&'a String, MatchOpt<'a>)>;
+pub type MatchObject<'a> = Vec<(&'a VarName, MatchOpt<'a>)>;
 
 // push something to the match object, keeping track of the old length
-fn push_match<'a>(m : &mut MatchObject<'a>, k: &'a String, v: &'a Element) -> Option<usize> {
+fn push_match<'a>(m : &mut MatchObject<'a>, k: &'a VarName, v: &'a Element) -> Option<usize> {
     for &(ref rk, ref rv) in m.iter() {
         if **rk == *k {
             match *rv {
@@ -75,7 +75,7 @@ fn push_match<'a>(m : &mut MatchObject<'a>, k: &'a String, v: &'a Element) -> Op
 }
 
 // push something to the match object, keeping track of the old length
-fn push_match_slice<'a>(m : &mut MatchObject<'a>, k: &'a String, v: &'a [Element]) -> Option<usize> {
+fn push_match_slice<'a>(m : &mut MatchObject<'a>, k: &'a VarName, v: &'a [Element]) -> Option<usize> {
     for &(ref rk, ref rv) in m.iter() {
         if **rk == *k {
             match *rv {
@@ -90,7 +90,7 @@ fn push_match_slice<'a>(m : &mut MatchObject<'a>, k: &'a String, v: &'a [Element
 }
 
 
-fn find_match<'a,>(m : &'a MatchObject<'a>, k: &'a String) -> Option<&'a MatchOpt<'a>> {
+fn find_match<'a,>(m : &'a MatchObject<'a>, k: &'a VarName) -> Option<&'a MatchOpt<'a>> {
     for &(ref rk, ref rv) in m.iter() {
         if **rk == *k {
             return Some(rv);
@@ -135,7 +135,7 @@ impl Func {
 pub enum ElementIterSingle<'a> {
     FnIter(FuncIterator<'a>), // match function
     Once, // matching without wildcard, ie number vs number
-    OnceMatch(&'a String, &'a Element), // simple match of variable
+    OnceMatch(&'a VarName, &'a Element), // simple match of variable
     PermIter(&'a [Element], Heap<&'a Element>, SequenceIter<'a>), // term and arg combinations,
     SeqIt(Vec<&'a Element>, SequenceIter<'a>), // target and iterator
     None
@@ -144,7 +144,7 @@ pub enum ElementIterSingle<'a> {
 
 #[derive(Debug)]
 pub enum ElementIter<'a> {
-    SliceIter(&'a String, usize, &'a [Element]), // slice from 0 to Element end
+    SliceIter(&'a VarName, usize, &'a [Element]), // slice from 0 to Element end
     SingleArg(&'a [Element], ElementIterSingle<'a>), // iters consuming a single argument
     None, // no match
 }

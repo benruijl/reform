@@ -1,5 +1,7 @@
 /target/
 **/*.rs.bk
 .vscode/launch.json
+.vscode/tasks.json
 Cargo.lock
 reform.sublime-workspace
+reform.sublime-project

@@ -1,4 +1,4 @@
-use structure::{Module,Statement,Element,Func,StatementResult,IdentityStatement,Program};
+use structure::{Module,Statement,Element,Func,StatementResult,IdentityStatement,Program,VarName};
 use id::{MatchIterator,MatchKind};
 use std::mem;
 use streaming::TermStreamer;
@@ -88,7 +88,7 @@ impl Statement {
 	      },
 	      Statement::SplitArg(ref name) => {
 	        // split function arguments at the ground level
-	        let subs = | n : &String , a: &Vec<Element> |  Element::Fn(false, Func {name: n.clone(), args: 
+	        let subs = | n : &VarName , a: &Vec<Element> |  Element::Fn(false, Func {name: n.clone(), args: 
 	              a.iter().flat_map( |x| match x { &Element::SubExpr(_, ref y) => y.clone(), _ => vec![x.clone()] } ).collect()});
 
 	        match *input {
@@ -134,7 +134,7 @@ impl Statement {
 		  // TODO: use visitor pattern? this is almost a copy of splitarg
 	      Statement::Symmetrize(ref name) => {
 	        // sort function arguments at the ground level
-	        let subs = | n : &String , a: &Vec<Element> |  Element::Fn(false, Func {name: n.clone(), args: 
+	        let subs = | n : &VarName , a: &Vec<Element> |  Element::Fn(false, Func {name: n.clone(), args: 
 	              { let mut b = a.clone(); b.sort(); b } });
 
 	        match *input {
