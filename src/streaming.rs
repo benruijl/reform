@@ -210,7 +210,7 @@ impl TermStreamer {
             self.sortfiles[x].set_len(0).unwrap(); // delete the contents
             self.sortfiles[x].seek(SeekFrom::Start(0)).unwrap();
             for v in self.mem_buffer.iter() {
-                writeln!(self.sortfiles[x], "{}", v);
+                writeln!(self.sortfiles[x], "{}", v).unwrap();
             }
 
             self.sortfiles[x].seek(SeekFrom::Start(0)).unwrap(); // go back to start

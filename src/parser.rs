@@ -1,4 +1,4 @@
-use structure::{Element,Func,IdentityStatementMode,Statement,Module,IdentityStatement,NumOrder,Program,VarName};
+use structure::{Element,Func,IdentityStatementMode,Statement,Module,IdentityStatement,NumOrder,Program,VarName,Procedure};
 use nom::{digit,alpha,alphanumeric,GetInput,ErrorKind};
 use std;
 use std::str;
@@ -173,11 +173,31 @@ named!(comment, do_parse!(ws!(tag!("//")) >> a: take_while!(eol) >> (a))); // co
 
 named!(blockcomment, ws!(delimited!(tag!("/*"), take_until!("*/"), tag!("*/"))));
 
+named!(call_procedure <Statement>, do_parse!(
+  ws!(tag!("call")) >>
+  name : ws!(varname) >>
+  args: ws!(delimited!(char!('('), separated_list!(char!(','), alt_complete!( expression | exprparen ) ), char!(')'))) >>
+  ws!(tag!(";")) >>
+  (Statement::Call(name, args))  
+  )
+);
+
+named!(procedure <Procedure>, do_parse!(
+  ws!(tag!("procedure")) >>
+  name : ws!(varname) >>
+  args: ws!(preceded!(char!('('), separated_list!(char!(','), alt_complete!( element ) ))) >>
+  local_args: ws!(opt!(preceded!(tag!(";"), separated_list!(char!(','), element)))) >>
+  tag!(")") >> tag!(";") >>
+  sts : many0!(complete!(statement)) >>
+  ws!(tag!("endprocedure;")) >>
+  (Procedure { name, args, local_args: local_args.unwrap_or(vec![]), statements: sts })
+  )
+);
 
 named!(statement <Statement>, do_parse!(
     many0!(alt_complete!(blockcomment | comment)) >>
     id: alt_complete!(repeatblock | repeat | ifelseblock | ifblock | ifelseshort | ifshort | 
-          multiply | symmetrize | idstatement | splitarg | expand | print) >>
+          multiply | symmetrize | idstatement | splitarg | expand | print | call_procedure) >>
     (id)
   )
 );
@@ -193,8 +213,9 @@ named!(module <Module>, do_parse!(
 
 named!(program <Program>, do_parse!(
   input: input >> 
+  prods : complete!(many0!(procedure)) >>
   mods : complete!(many0!(module)) >>
-  (Program::new(input, mods)))
+  (Program::new(input, mods, prods)))
 );
 
 pub fn parse_string(data: &[u8]) -> Program {

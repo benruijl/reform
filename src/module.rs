@@ -1,7 +1,8 @@
-use structure::{Module,Statement,Element,Func,StatementResult,IdentityStatement,Program,VarName};
+use structure::{Module,Statement,Element,Func,StatementResult,IdentityStatement,Program,VarName,VarInfo,Procedure};
 use id::{MatchIterator,MatchKind};
 use std::mem;
 use streaming::TermStreamer;
+use std::collections::HashMap;
 
 impl Element {
 	fn expand(&self) -> Element {
@@ -212,29 +213,66 @@ fn do_module_rec(input: &Element, statements: &[Statement], current_index: usize
 
 impl Module {
 	// flatten the statement structure and use conditional jumps
-	fn to_control_flow_stat(statements: &[Statement], output: &mut Vec<Statement>) {
+	// also inline the procedures
+	fn to_control_flow_stat(statements: &[Statement], var_info: &mut VarInfo, procedures: &[Procedure], output: &mut Vec<Statement>) {
 		for x in statements.iter() {
 			match x {
 				&Statement::Repeat(ref ss) => {
 					output.push(Statement::PushChange);
 					let pos = output.len();
-					Module::to_control_flow_stat(ss, output);
+					Module::to_control_flow_stat(ss, var_info, procedures, output);
 					output.push(Statement::JumpIfChanged(pos));
 				},
 				&Statement::IfElse(ref prod, ref m, ref nm) => {
 					let pos = output.len();
 					output.push(Statement::Jump(0)); // note: placeholder 0
-					Module::to_control_flow_stat(m, output);
+					Module::to_control_flow_stat(m, var_info, procedures, output);
 					
 					if nm.len() > 0 { // is there an else block?
 						let pos2 = output.len(); // pos after case
 						output.push(Statement::Jump(0)); // placeholder
 						output[pos] = Statement::Eval(prod.clone(), output.len());
-						Module::to_control_flow_stat(nm, output);
+						Module::to_control_flow_stat(nm, var_info, procedures, output);
 						output[pos2] = Statement::Jump(output.len());
 					} else {
 						output[pos] = Statement::Eval(prod.clone(), output.len());
 					}		
+				},
+				&Statement::Call(ref name, ref args) => {
+					// copy the procedure and rename local variables
+					var_info.clear_local(); // remove all previous maps
+					for p in procedures {
+						if p.name == *name {
+							if p.args.len() != args.len() {
+								panic!("Procedure {} takes {} arguments instead of {}", p.name, p.args.len(), args.len());
+							}
+							// add the local variables to the list of variables
+							for lv in &p.local_args {
+								match lv {
+									&Element::Var(VarName::Name(ref x)) => var_info.add_local(&x),
+									&Element::Var(_) => panic!("Subsituted name for local var"),
+									_ => panic!("Only variables are allowed as local variables")
+								}
+							}
+
+							// now map all the procedure arguments
+							let mut map = HashMap::new();
+							for (k, v) in p.args.iter().zip(args.iter()) {
+								if let &Element::Var(ref x) = k {
+									let mut y = x.clone();
+									var_info.replace_name(&mut y); // FIXME: make the replacement earlier?
+									map.insert(y, v.clone());
+								} else {
+									panic!("Argument in procedure header should be a variable");
+								}
+							}
+
+							let newmod = p.statements.iter().cloned().map(|mut x| { x.var_to_id(var_info); x}).
+								map(|mut x| {x.replace_var(&map); x}).collect::<Vec<_>>();
+							
+							Module::to_control_flow_stat(&newmod, var_info, procedures, output);
+						}
+					}
 				},
 				a => output.push(a.clone())
 			}
@@ -242,10 +280,10 @@ impl Module {
 	}
 
 	// normalize all expressions in statements
-	fn normalize_module(&mut self) {
+	fn normalize_module(&mut self, var_info: &mut VarInfo, procedures: &[Procedure]) {
 		let oldstat = self.statements.clone();
 		self.statements.clear();
-		Module::to_control_flow_stat(&oldstat, &mut self.statements);
+		Module::to_control_flow_stat(&oldstat, var_info, procedures, &mut self.statements);
 
 		for x in self.statements.iter_mut() {
 			match *x {
@@ -260,7 +298,7 @@ impl Module {
 // execute the module
 pub fn do_program(program : &mut Program, write_log: bool) {
 	for module in program.modules.iter_mut() {
-		module.normalize_module();
+		module.normalize_module(&mut program.var_info, &mut program.procedures);
 		debug!("{}", module); // print module code
 
 		let mut executed = vec![false];
