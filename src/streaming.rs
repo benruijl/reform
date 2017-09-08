@@ -7,7 +7,7 @@ use std::collections::BinaryHeap;
 use std::cmp::Ordering;
 use std::mem;
 
-use structure::Element;
+use structure::{Element, VarInfo, ElementPrinter};
 use parser::expression;
 use normalize::merge_terms;
 
@@ -101,7 +101,7 @@ impl TermStreamer {
             let mut b = BufWriter::new(self.sortfiles.last().unwrap());
 
             for x in &self.mem_buffer {
-                writeln!(b, "{}", x);
+                writeln!(b, "{}", x).unwrap(); // FIXME: we should use the human-readable mapping?
             }
 
             self.mem_buffer.clear();
@@ -153,7 +153,7 @@ impl TermStreamer {
 		}
     }*/
 
-    pub fn sort(&mut self, write_log: bool) {
+    pub fn sort(&mut self, var_info: &VarInfo, write_log: bool) {
         let inpterm = self.termcounter_input;
         let genterm = self.termcounter;
 
@@ -174,8 +174,9 @@ impl TermStreamer {
                 Element::SubExpr(_, x) => self.mem_buffer_input = x,
                 x => self.mem_buffer_input = vec![x],
             }
+
             for x in self.mem_buffer_input.iter() {
-                println!("\t+{}", x);
+                println!("\t+{}", ElementPrinter { element: x, var_info });
             }
 
             self.termcounter_input = self.mem_buffer_input.len() as u64;
@@ -268,8 +269,8 @@ impl TermStreamer {
                 if self.mem_buffer.len() == maxsortmem {
                     self.termcounter_input += maxsortmem as u64;
                     for x in &self.mem_buffer[..maxsortmem - 1] {
-                        println!("\t+{}", x);
-                        writeln!(of, "{}", x).unwrap();
+                        println!("\t+{}", ElementPrinter { element: x, var_info });
+                        writeln!(of, "{}", ElementPrinter { element: x, var_info }).unwrap();
                     }
 
                     self.mem_buffer[0] = self.mem_buffer.last().unwrap().clone();
@@ -287,8 +288,8 @@ impl TermStreamer {
 
             self.termcounter_input += self.mem_buffer.len() as u64;
             for x in self.mem_buffer.iter() {
-                println!("\t+{}", x);
-                writeln!(of, "{}", x).unwrap();
+                println!("\t+{}", ElementPrinter { element: x, var_info });
+                writeln!(of, "{}", ElementPrinter { element: x, var_info }).unwrap();
             }
             self.mem_buffer.clear();
 

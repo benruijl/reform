@@ -315,6 +315,6 @@ pub fn do_program(program : &mut Program, write_log: bool) {
 			inpcount += 1;
 		}
 
-	  	program.input.sort(write_log);
+	  	program.input.sort(&program.var_info, write_log);
 	}
 }

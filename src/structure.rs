@@ -24,6 +24,10 @@ pub struct VarInfo {
 }
 
 impl VarInfo {
+    fn empty() -> VarInfo {
+        VarInfo { inv_name_map: vec![], name_map: HashMap::new(), local_map: HashMap::new() }
+    }
+
     fn new() -> VarInfo {
         let mut inv_name_map = vec![];
         let mut name_map = HashMap::new();
@@ -300,6 +304,15 @@ impl fmt::Display for Statement {
     }
 }
 
+impl VarName {
+    fn fmt_output(&self, f: &mut fmt::Formatter, var_info: &VarInfo) -> fmt::Result {
+        match *self {
+            VarName::ID(id) => write!(f, "{}", var_info.inv_name_map[id as usize]),
+            VarName::Name(ref s) => write!(f, "{}", s),
+        }
+    }    
+}
+
 impl fmt::Display for VarName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
@@ -337,24 +350,37 @@ impl fmt::Display for IdentityStatementMode {
     }
 }
 
-impl fmt::Display for Element {
+pub struct ElementPrinter<'a> {
+    pub element: &'a Element,
+    pub var_info: &'a VarInfo
+}
+
+impl<'a> fmt::Display for ElementPrinter<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.element.fmt_output(f, self.var_info)
+    }
+}
+
+impl Element {
+    pub fn fmt_output(&self, f: &mut fmt::Formatter, var_info: &VarInfo) -> fmt::Result {
         match self {
-            &Element::VariableArgument(ref name) => write!(f, "?{}", name),
+            &Element::VariableArgument(ref name) => {write!(f, "?")?; name.fmt_output(f, var_info) },
             &Element::Wildcard(ref name, ref restriction) => if restriction.len() == 0 {
-                write!(f, "{}?", name)
+                name.fmt_output(f, var_info)?;
+                write!(f, "?")
             } else {
-                write!(f, "{}?{{", name)?;
+                name.fmt_output(f, var_info)?;
+                write!(f, "?{{")?;
                 match restriction.first() {
-                    Some(x) => write!(f, "{}", x)?,
+                    Some(x) => x.fmt_output(f, var_info)?,
                     None => {}
                 }
                 for t in restriction.iter().skip(1) {
-                    write!(f, ",{}", t)?
+                    t.fmt_output(f, var_info)?
                 }
                 write!(f, "}}")
             },
-            &Element::Var(ref name) => write!(f, "{}", name),
+            &Element::Var(ref name) => name.fmt_output(f, var_info),
             &Element::Num(_, ref pos, ref num, ref den) => if *den == 1 {
                 write!(f, "{}{}", if *pos { "" } else { "-" }, num)
             } else {
@@ -370,36 +396,37 @@ impl fmt::Display for Element {
             }
             &Element::Pow(_, ref e, ref p) => {
                 match **e {
-                    Element::SubExpr(..) | Element::Term(..) => write!(f, "({})", e)?,
-                    _ => write!(f, "{}", e)?,
+                    Element::SubExpr(..) | Element::Term(..) => { write!(f, "(")?; e.fmt_output(f, var_info)?; write!(f, ")")?  },
+                    _ => e.fmt_output(f, var_info)?,
                 };
                 match **p {
-                    Element::SubExpr(..) | Element::Term(..) => write!(f, "^({})", p),
-                    _ => write!(f, "^{}", p),
+                    Element::SubExpr(..) | Element::Term(..) => { write!(f, "^(")?; p.fmt_output(f, var_info)?; write!(f, ")")  },
+                    _ => { write!(f, "^")?; p.fmt_output(f, var_info) },
                 }
             }
-            &Element::Fn(_, ref func) => func.fmt(f),
+            &Element::Fn(_, ref func) => func.fmt_output(f, var_info),
             &Element::Term(_, ref factors) => {
                 match factors.first() {
-                    Some(s @ &Element::SubExpr(..)) if factors.len() > 1 => write!(f, "({})", s)?,
-                    Some(x) => write!(f, "{}", x)?,
+                    Some(s @ &Element::SubExpr(..)) if factors.len() > 1 => { write!(f, "(")?; s.fmt_output(f, var_info)?; write!(f, ")")?  },
+                    Some(x) => x.fmt_output(f, var_info)?,
                     None => {}
                 }
                 for t in factors.iter().skip(1) {
                     match t {
-                        s @ &Element::SubExpr(..) => write!(f, "*({})", s)?,
-                        _ => write!(f, "*{}", t)?,
+                        s @ &Element::SubExpr(..) => { write!(f, "*(")?; s.fmt_output(f, var_info)?; write!(f, ")")? },
+                        _ => { write!(f, "*")?; t.fmt_output(f, var_info)? },
                     }
                 }
                 write!(f, "")
             }
             &Element::SubExpr(_, ref terms) => {
                 match terms.first() {
-                    Some(x) => write!(f, "{}", x)?,
+                    Some(x) => x.fmt_output(f, var_info)?,
                     None => {}
                 }
                 for t in terms.iter().skip(1) {
-                    write!(f, "+{}", t)?
+                    write!(f, "+")?;
+                    t.fmt_output(f, var_info)?
                 }
                 write!(f, "")
             }
@@ -407,19 +434,32 @@ impl fmt::Display for Element {
     }
 }
 
-impl fmt::Display for Func {
+impl fmt::Display for Element {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}(", self.name)?;
+        self.fmt_output(f, &VarInfo::empty())
+    }
+}
+
+impl Func {
+    pub fn fmt_output(&self, f: &mut fmt::Formatter, var_info: &VarInfo) -> fmt::Result {
+        self.name.fmt_output(f, var_info)?;
         match self.args.first() {
-            Some(x) => write!(f, "{}", x)?,
+            Some(x) => x.fmt_output(f, var_info)?,
             None => {}
         }
 
         for x in self.args.iter().skip(1) {
-            write!(f, ",{}", x)?;
+            write!(f, ",")?;
+            x.fmt_output(f, var_info)?;
         }
 
         write!(f, ")")
+    }
+}
+
+impl fmt::Display for Func {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.fmt_output(f, &VarInfo::empty())
     }
 }
 
