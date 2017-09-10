@@ -68,7 +68,7 @@ impl VarInfo {
 }
 
 impl Program {
-    pub fn new(input: Element, mut modules: Vec<Module>, mut procedures: Vec<Procedure>) -> Program {
+    pub fn new(mut input: Element, mut modules: Vec<Module>, mut procedures: Vec<Procedure>) -> Program {
         let mut prog =  Program {
             input: TermStreamer::new(),
             modules: vec![],
@@ -77,15 +77,13 @@ impl Program {
         };
 
         match input {
-            Element::SubExpr(_, t) => for x in t {
-                let mut nt = x.normalize();
-                nt.var_to_id(&mut prog.var_info);
-                prog.input.add_term_input(nt);
+            Element::SubExpr(_, t) => for mut x in t {
+                x.var_to_id(&mut prog.var_info);
+                prog.input.add_term_input(x.normalize());
             },
-            x => {
-                let mut nt = x.normalize();
-                nt.var_to_id(&mut prog.var_info);
-                prog.input.add_term_input(nt);
+            mut x => {
+                x.var_to_id(&mut prog.var_info);
+                prog.input.add_term_input(x.normalize());
             }
         }
 
@@ -443,6 +441,7 @@ impl fmt::Display for Element {
 impl Func {
     pub fn fmt_output(&self, f: &mut fmt::Formatter, var_info: &VarInfo) -> fmt::Result {
         self.name.fmt_output(f, var_info)?;
+        write!(f, "(")?;
         match self.args.first() {
             Some(x) => x.fmt_output(f, var_info)?,
             None => {}
@@ -480,9 +479,10 @@ impl Element {
                 b.var_to_id(var_info);
                 e.var_to_id(var_info);
             },
-            Element::Term(_, ref mut f) | Element::SubExpr(_, ref mut f) => {for x in f {
-                x.var_to_id(var_info);
-            }
+            Element::Term(_, ref mut f) | Element::SubExpr(_, ref mut f) => {
+                for x in f {
+                    x.var_to_id(var_info);
+                }
             },
             Element::Fn(
                 _,

@@ -4,39 +4,33 @@ use tools::{mul_fractions,add_fractions,add_one,normalize_fraction,exp_fraction}
 
 impl Element {
     // TODO: return iterator over Elements for ground level?
-    // TODO: in-place?
-    // FIXME: shouldn't the dirty flag be enabled in general?
-    pub fn apply_builtin_functions(&self, ground_level: bool) -> Element {
-        match self {
-            &Element::Fn(_, Func { name: ref n, args: ref a } ) => {
-                match n {
-                    &VarName::ID(x) if x == FUNCTION_DELTA => {
+    pub fn apply_builtin_functions(&mut self, ground_level: bool) -> bool {
+        *self = match *self {
+            Element::Fn(_, Func { name: ref mut n, args: ref mut a } ) => {
+                match *n {
+                    VarName::ID(x) if x == FUNCTION_DELTA => {
                         if a.len() == 1 {
                             match a[0] {
                                 Element::Num(_, _, 0, _) => Element::Num(false, true,1,1),
                                 _ =>  Element::Num(false, true,0,1)
                             }
                         } else {
-                            self.clone()
+                            return false;
                         }
                     },
-                    &VarName::ID(x) if x == FUNCTION_NARGS => {
+                    VarName::ID(x) if x == FUNCTION_NARGS => {
                         // get the number of arguments
                         Element::Num(false, true, a.len() as u64, 1)
                     }
-                    _ =>
-                        Element::Fn(false, 
-                        Func { name: n.clone(), args: a.iter().map(|x| x.apply_builtin_functions(false)).collect()})
+                    _ => { return false; }
                 }
             },
-            &Element::Term(_, ref fs) => Element::Term(false, fs.iter().map(|x| x.apply_builtin_functions(false)).collect()),
-            &Element::SubExpr(_, ref ts) => Element::SubExpr(false, ts.iter().map(|x| x.apply_builtin_functions(false)).collect()),
-            _ => self.clone()
-         }
+            _ => { unreachable!(); }
+        };
+        true
     }
 
     // bring a term to canconical form
-    // TODO: in-place?
     pub fn normalize<'a>(&self) -> Element {
         match self {
             &Element::Num(dirty, mut pos, mut num, mut den) => {
@@ -90,7 +84,9 @@ impl Element {
             },
             &Element::Fn(dirty, ref f) => {
                 if dirty {
-                    Element::Fn(false, f.normalize())
+                    let mut new_fun = Element::Fn(false, f.normalize());
+                    new_fun.apply_builtin_functions(false);
+                    new_fun
                 } else {
                     self.clone()
                 }
@@ -264,8 +260,7 @@ impl Element {
                 */
             },
             &ref o => o.clone() 
-        }.apply_builtin_functions(false)
-
+        }
     }
 }
 
