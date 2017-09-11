@@ -68,7 +68,7 @@ impl VarInfo {
 }
 
 impl Program {
-    pub fn new(mut input: Element, mut modules: Vec<Module>, mut procedures: Vec<Procedure>) -> Program {
+    pub fn new(input: Element, mut modules: Vec<Module>, mut procedures: Vec<Procedure>) -> Program {
         let mut prog =  Program {
             input: TermStreamer::new(),
             modules: vec![],

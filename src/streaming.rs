@@ -15,7 +15,7 @@ pub const MAXTERMMEM: usize = 10000000; // maximum number of terms allowed in me
 impl Element {
     fn deserialize(input: &[u8]) -> Option<Element> {
         // FIXME: should we normalize?
-        expression(input).to_result().ok().map(|x| x.normalize())
+        expression(input).to_result().ok().map(|mut x| {x.normalize_inplace(); x})
     }
 }
 
@@ -83,14 +83,14 @@ impl TermStreamer {
     // add a term. First try to add it to the
     // in-memory buffer. If that one is full
     // write it to file
-    pub fn add_term(&mut self, element: Element) {
+    pub fn add_term(&mut self, element: &Element) {
         // print intermediate statistics
         if self.termcounter >= 100000 && self.termcounter % 100000 == 0 {
             println!("    -- generated: {}", self.termcounter);
         }
 
         if self.mem_buffer.len() < MAXTERMMEM {
-            self.mem_buffer.push(element);
+            self.mem_buffer.push(element.clone());
         } else {
             // write the buffer to a new file
             if self.termcounter % MAXTERMMEM as u64 == 0 {
@@ -105,7 +105,7 @@ impl TermStreamer {
             }
 
             self.mem_buffer.clear();
-            self.mem_buffer.push(element);
+            self.mem_buffer.push(element.clone());
         }
         self.termcounter += 1;
     }
@@ -119,7 +119,7 @@ impl TermStreamer {
     // get the next term from the input
     pub fn read_term(&mut self) -> Option<Element> {
         if self.mem_buffer_input.len() > 0 {
-            return self.mem_buffer_input.pop().clone();
+            return self.mem_buffer_input.pop();
         } else {
             // read the next terms from the input file,
             // so that the membuffer is filled
@@ -135,7 +135,7 @@ impl TermStreamer {
 
                 self.mem_buffer_input.reverse(); // FIXME: wasteful...
                 if self.mem_buffer_input.len() > 0 {
-                    return self.mem_buffer_input.pop().clone();
+                    return self.mem_buffer_input.pop();
                 }
             }
         }
@@ -166,7 +166,8 @@ impl TermStreamer {
 
             let mut tmp = vec![];
             mem::swap(&mut self.mem_buffer, &mut tmp);
-            let a = Element::SubExpr(true, tmp).normalize();
+            let mut a = Element::SubExpr(true, tmp);
+            a.normalize_inplace();
             self.input = None;
 
             // move to input buffer
@@ -273,7 +274,7 @@ impl TermStreamer {
                         writeln!(of, "{}", ElementPrinter { element: x, var_info }).unwrap();
                     }
 
-                    self.mem_buffer[0] = self.mem_buffer.last().unwrap().clone();
+                    self.mem_buffer[0] = self.mem_buffer.pop().unwrap();
                     self.mem_buffer.truncate(1);
                 }
 

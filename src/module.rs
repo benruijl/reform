@@ -158,7 +158,7 @@ impl Statement {
 fn do_module_rec(input: &Element, statements: &[Statement], current_index: usize, term_affected: &mut Vec<bool>,
 	output: &mut TermStreamer) {
 	if current_index == statements.len() {
-		output.add_term(input.normalize());
+		output.add_term(input);
 		return;
 	}
 

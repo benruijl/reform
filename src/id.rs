@@ -595,7 +595,8 @@ impl<'a> MatchIterator<'a> {
                     if self.remaining.len() > 0 {
                         add_terms(&mut res, &self.remaining);
                     }
-                    res.normalize()
+                    res.normalize_inplace();
+                    res
                 },
                 x => {
                     let r = x.apply_map(&self.m);
@@ -603,7 +604,8 @@ impl<'a> MatchIterator<'a> {
                     if self.remaining.len() > 0 {
                         add_terms(&mut res, &self.remaining);
                     }
-                    res.normalize()
+                    res.normalize_inplace();
+                    res
                 }
             }
         )

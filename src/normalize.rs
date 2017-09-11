@@ -30,6 +30,272 @@ impl Element {
         true
     }
 
+    pub fn normalize_inplace<'a>(&mut self) -> bool {
+        let mut changed = false;
+        match *self {
+            Element::Num(ref mut dirty, ref mut pos, ref mut num, ref mut den) => {
+                if *dirty {
+                    normalize_fraction(pos, num, den);
+                    *dirty = false;
+                    changed = true;
+                }
+            },
+            Element::Wildcard(_, ref mut restriction) => {
+                for x in restriction {
+                    changed |= x.normalize_inplace();
+                }
+            },
+            Element::Pow(dirty, ..) => {
+                if !dirty {
+                    return false
+                }
+
+                *self = if let Element::Pow(ref mut dirty, ref mut b, ref mut p) = *self {
+                    changed |= b.normalize_inplace();
+                    changed |= p.normalize_inplace();
+                    *dirty = false;
+
+                    // x^0 = 1
+                    match **p {
+                        Element::Num(_,_, 0, _) => Element::Num(false, true, 1, 1),
+                        Element::Num(_, true, 1, 1) => (**b).clone(),
+                        _ => {
+                            // simplify numbers if exponent is a positive integer
+                            let rv = if let Element::Num(_, true, n, 1) = **p {
+                                if let Element::Num(_, mut pos, mut num, mut den) = **b {
+                                    exp_fraction(&mut pos, &mut num, &mut den, n);
+                                    Some(Element::Num(false, pos, num, den))
+                                } else {
+                                    None
+                                }
+                            }  else {
+                                    None
+                            };
+
+                            if let Some(x) = rv {
+                                x
+                            } else {
+                                // simplify x^a^b = x^(a*b)
+                                // TODO: note the nasty syntax to avoid borrow checker bug
+                                if let Element::Pow(_, ref mut c, ref d) = *&mut **b {
+                                    match **p {
+                                        Element::Term(_, ref mut f) => f.push(*d.clone()),
+                                        _ => **p = {
+                                            let mut r = Element::Term(true, vec![*p.clone(), *d.clone()]);
+                                            r.normalize_inplace();
+                                            r
+                                        }
+                                    }
+
+                                    // TODO: is this the best way? can the box be avoided?
+                                    Element::Pow(false, mem::replace(c, Box::new(Element::Num(false,true,1,1))),
+                                        mem::replace(p, Box::new(Element::Num(false,true,1,1))))
+                                } else {
+                                    return changed;
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    unreachable!();
+                };
+                changed = true;
+            },
+            Element::Fn(dirty, _) => {
+                if dirty {
+                    if let Element::Fn(ref mut dirty, ref mut f) = *self {
+                        for x in f.args.iter_mut() {
+                            changed |= x.normalize_inplace();   
+                        }
+                        *dirty = false; // TODO: or should this be done by builtin_functions?
+                    }
+                }
+                changed |= self.apply_builtin_functions(false);  
+            },
+            Element::Term(dirty, _) => {
+                if !dirty {
+                    return false;
+                }
+
+                *self = if let Element::Term(ref mut dirty, ref mut ts) = *self {
+                    *dirty = false;
+
+                    // normalize factors and flatten
+                    let mut restructure = false;
+                    for x in ts.iter_mut() {
+                        changed |= x.normalize_inplace();
+                        if let Element::Term(..) = *x {
+                            restructure = true;
+                            changed = true;
+                        }
+                    }
+
+                    // flatten the term
+                    if restructure {
+                        let mut tmp = vec![];
+                        for x in ts.iter_mut() {
+                            match *x {
+                                Element::Term(_, ref ts) => tmp.extend(ts.clone()),
+                                _ => tmp.push(x.clone())
+                            }
+                        }
+                        mem::swap(&mut tmp, ts);
+                    }
+
+                    ts.sort();
+
+                    // FIXME: very wasteful and not even working for all cases
+                    // create pows from terms that are the same
+                    // they may not be side to side...
+                    // first, find side-by-side factors
+                    let mut samecount = 1;
+                    let mut newfactors = vec![];
+
+                    for x in ts.windows(2) {
+                        // do not treat numbers
+                        //if let Element::Num(..) = x[0] {
+                        //    newfactors.push(x[0].clone());
+                        //    samecount = 1;
+                        //}
+                        if x[0] == x[1] {
+                            samecount += 1;
+                        } else {
+                            if samecount > 1 {
+                                newfactors.push(Element::Pow(true,
+                                    Box::new(x[0].clone()), 
+                                    Box::new(Element::Num(false, true, samecount, 1))).normalize());
+                            } else {
+                                newfactors.push(x[0].clone());
+                            }
+                            samecount = 1;
+                        }
+                    }
+
+                    if let Some(x) = ts.last() {
+                        if samecount > 1 {
+                            newfactors.push(Element::Pow(true,
+                                Box::new(x.clone()), 
+                                Box::new(Element::Num(false, true, samecount, 1))).normalize());
+                        } else {
+                            newfactors.push(x.clone());
+                        }
+                    }
+
+                    if newfactors.len() != ts.len() {
+                        newfactors.sort(); // FIXME: costly
+                    }
+
+                    // FIXME: the case x*x^a is not supported yet
+                    mem::swap(ts, &mut newfactors);
+
+                    // now merge pows: x^a*x^b = x^(a*b)
+                    // should be side by side
+                    let mut lastindex = 0;
+
+                    for i in 1..ts.len() {
+                        let (a, b) = ts.split_at_mut(i);
+                        if !merge_factors(&mut a[lastindex], &b[0]) {
+                            if lastindex + 1 < i {
+                                a[lastindex + 1] = b[0].clone();
+                            }
+                            lastindex += 1;
+                        }
+                    }
+                    ts.truncate(lastindex + 1);
+
+                    // merge the coefficients
+                    let mut pos = true;
+                    let mut num = 1;
+                    let mut den = 1;
+
+                    while let Some(x) = ts.pop() {
+                        match x {
+                            Element::Num(_,pos1,num1,den1) => mul_fractions(&mut pos, &mut num,&mut den,pos1,num1,den1),
+                            _ => { ts.push(x); break; }
+                        }
+                    }
+
+                    match (pos, num, den) {
+                        (_, 0, _) => ts.clear(),
+                        (true, 1, 1) => {}, // don't add a factor
+                        x => ts.push(Element::Num(false, x.0, x.1, x.2))
+                    }
+
+                    match ts.len() {
+                        0 => Element::Num(false, true, 0, 1),
+                        1 => ts[0].clone(), // downgrade
+                        _ => return false
+                    }
+                } else {
+                    unreachable!()
+                }
+            },
+            Element::SubExpr(dirty, _) => {
+                if !dirty {
+                    return false;
+                }
+
+                *self = if let Element::SubExpr(ref mut dirty, ref mut ts) = *self {
+                    *dirty = false;
+
+                    // normalize factors and flatten
+                    let mut restructure = false;
+                    for x in ts.iter_mut() {
+                        changed |= x.normalize_inplace();
+                        if let Element::SubExpr(..) = *x {
+                            restructure = true;
+                            changed = true;
+                        }
+                    }
+
+                    // flatten the expression
+                    if restructure {
+                        let mut tmp = vec![];
+                        for x in ts.iter_mut() {
+                            match *x {
+                                Element::SubExpr(_, ref ts) => tmp.extend(ts.clone()),
+                                _ => tmp.push(x.clone())
+                            }
+                        }
+                        mem::swap(&mut tmp, ts);
+                    }
+
+                ts.sort();
+
+                if ts.len() == 0 {
+                    return true; // FIXME: correct value?
+                }
+
+                // merge coefficients of similar terms
+                // FIXME: terms need not be next to eachother: f(0)+f(1)+f(0)*13
+                let mut lastindex = 0;
+
+                for i in 1..ts.len() {
+                    let (a, b) = ts.split_at_mut(i);
+                    if !merge_terms(&mut a[lastindex], &b[0]) {
+                        if lastindex + 1 < i {
+                            a[lastindex + 1] = b[0].clone();
+                        }
+                        lastindex += 1;
+                    }
+                }
+                ts.truncate(lastindex + 1);
+
+                match ts.len() {
+                    0 => Element::Num(false, true,0,1),
+                    1 => ts[0].clone(),
+                    _ => return true
+                }
+                } else {
+                    unreachable!();
+                }
+
+            },
+            _ => {}
+        };
+        changed
+    }
+
     // bring a term to canconical form
     pub fn normalize<'a>(&self) -> Element {
         match self {
@@ -84,7 +350,8 @@ impl Element {
             },
             &Element::Fn(dirty, ref f) => {
                 if dirty {
-                    let mut new_fun = Element::Fn(false, f.normalize());
+                    let mut new_fun = Element::Fn(false, 
+                        Func { name: f.name.clone(), args: f.args.iter().map(|x| x.normalize()).collect() });
                     new_fun.apply_builtin_functions(false);
                     new_fun
                 } else {
@@ -100,7 +367,15 @@ impl Element {
                 }
 
                 let mut factors = vec![];
-                flatten_and_normalize_term(ts, &mut factors);
+
+                // normalize factors and flatten
+                for x in ts {
+                    match x.normalize() {
+                        Element::Term(_, tt) => factors.extend(tt),
+                        t => factors.push(t)
+                    }
+                }
+
                 factors.sort();
 
                 // create pows from terms that are the same
@@ -207,8 +482,15 @@ impl Element {
                     return self.clone()
                 }    
                 let mut terms = vec![];
-                flatten_and_normalize_expr(ts, &mut terms);
-                terms.sort(); // TODO: merge during sort
+
+                // normalize terms and flatten
+                for x in ts {
+                    match x.normalize() {
+                        Element::SubExpr(_, tt) => terms.extend(tt),
+                        t => terms.push(t)
+                    }
+                }
+                terms.sort();
 
                 if terms.len() == 0 {
                     return Element::SubExpr(false, terms);
@@ -264,28 +546,24 @@ impl Element {
     }
 }
 
-impl Func {
-    pub fn normalize(&self) -> Func {
-        Func { name: self.name.clone(), args: self.args.iter().map(|x| x.normalize()).collect() }
-    }
-}
-
-fn flatten_and_normalize_term(terms: &[Element], res: &mut Vec<Element>) {
-    for x in terms {
-        match x {
-            &Element::Term(_, ref f) => flatten_and_normalize_term(f, res),
-            _ => res.push(x.normalize())
+// returns true if merged
+pub fn merge_factors(first: &mut Element, sec: &Element) -> bool {
+    let mut changed = false;
+    if let &Element::Pow(_, ref b1, ref e1) = sec {
+        if let &mut Element::Pow(ref mut dirty, ref mut b2, ref mut e2) = first {
+            if b1 == b2 {
+                match (&**e1, &mut **e2) {
+                    (&Element::Term(_, ref a1), &mut Element::Term(ref mut d2, ref mut a2)) => {*d2 = true; a2.extend(a1.clone())},
+                    (ref a1, &mut Element::Term(ref mut d2, ref mut a2)) => {*d2 = true; a2.push((*a1).clone())},
+                    (_, ref mut b) => **b = Element::Term(true, vec![*e1.clone(), b.clone()])
+                }
+                *dirty = true;
+                changed = true;
+            }
         }
-    }
-}
-
-fn flatten_and_normalize_expr(expr: &[Element], res: &mut Vec<Element>) {
-    for x in expr {
-        match x {
-            &Element::SubExpr(_, ref f) => flatten_and_normalize_expr(f, res),
-            _ => res.push(x.normalize())
-        }
-    }
+        first.normalize_inplace();
+    };
+    changed
 }
 
 // returns true if merged
