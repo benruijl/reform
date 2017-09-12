@@ -153,6 +153,9 @@ pub enum Element {
     Num(bool, bool, u64, u64), // dirty, fraction (true=positive), make sure it is last for sorting
 }
 
+#[macro_export]
+macro_rules! DUMMY_ELEM { () => (Element::Num(false, true, 1, 1)) }
+
 // TODO: move Func into Element?
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
 pub struct Func {

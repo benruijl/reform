@@ -58,7 +58,7 @@ impl Element {
                     // x^0 = 1
                     match **p {
                         Element::Num(_,_, 0, _) => Element::Num(false, true, 1, 1),
-                        Element::Num(_, true, 1, 1) => (**b).clone(),
+                        Element::Num(_, true, 1, 1) => mem::replace(&mut **b, DUMMY_ELEM!()),
                         _ => {
                             // simplify numbers if exponent is a positive integer
                             let rv = if let Element::Num(_, true, n, 1) = **p {
@@ -77,19 +77,22 @@ impl Element {
                             } else {
                                 // simplify x^a^b = x^(a*b)
                                 // TODO: note the nasty syntax to avoid borrow checker bug
-                                if let Element::Pow(_, ref mut c, ref d) = *&mut **b {
-                                    match **p {
-                                        Element::Term(_, ref mut f) => f.push(*d.clone()),
-                                        _ => **p = {
-                                            let mut r = Element::Term(true, vec![*p.clone(), *d.clone()]);
-                                            r.normalize_inplace();
-                                            r
-                                        }
+                                if let Element::Pow(_, ref mut c, ref mut d) = *&mut **b {
+                                    match (&mut **p, &mut **d) {
+                                        (&mut Element::Term(ref mut dirty, ref mut f), &mut Element::Term(_, ref mut f1)) => {*dirty = true; f.append(f1);},
+                                        (&mut Element::Term(ref mut dirty, ref mut f), ref mut b) => {*dirty = true; f.push(mem::replace(b, DUMMY_ELEM!()))},
+                                        (a,b) => { *a = 
+                                            Element::Term(true, vec![mem::replace(a, DUMMY_ELEM!()), 
+                                                mem::replace(b, DUMMY_ELEM!())]);
+                                            }
                                     }
 
                                     // TODO: is this the best way? can the box be avoided?
-                                    Element::Pow(false, mem::replace(c, Box::new(Element::Num(false,true,1,1))),
-                                        mem::replace(p, Box::new(Element::Num(false,true,1,1))))
+                                    // can we recycle the old box and move a new pointer in there?
+                                    let mut res = Element::Pow(true, mem::replace(c, Box::new(DUMMY_ELEM!())),
+                                        mem::replace(p, Box::new(DUMMY_ELEM!())));
+                                    res.normalize_inplace();
+                                    res
                                 } else {
                                     return changed;
                                 }
@@ -135,11 +138,11 @@ impl Element {
                         let mut tmp = vec![];
                         for x in ts.iter_mut() {
                             match *x {
-                                Element::Term(_, ref ts) => tmp.extend(ts.clone()),
-                                _ => tmp.push(x.clone())
+                                Element::Term(_, ref mut tss) => tmp.append(tss),
+                                _ => tmp.push(mem::replace(x, DUMMY_ELEM!()))
                             }
                         }
-                        mem::swap(&mut tmp, ts);
+                        *ts = tmp;
                     }
 
                     ts.sort();
@@ -150,9 +153,9 @@ impl Element {
 
                     for i in 1..ts.len() {
                         let (a, b) = ts.split_at_mut(i);
-                        if !merge_factors(&mut a[lastindex], &b[0]) {
+                        if !merge_factors(&mut a[lastindex], &mut b[0]) {
                             if lastindex + 1 < i {
-                                a[lastindex + 1] = b[0].clone();
+                                a[lastindex + 1] = mem::replace(&mut b[0], DUMMY_ELEM!());
                             }
                             lastindex += 1;
                         }
@@ -179,7 +182,7 @@ impl Element {
 
                     match ts.len() {
                         0 => Element::Num(false, true, 0, 1),
-                        1 => ts[0].clone(), // downgrade
+                        1 => ts.swap_remove(0), // downgrade
                         _ => return false
                     }
                 } else {
@@ -208,36 +211,38 @@ impl Element {
                         let mut tmp = vec![];
                         for x in ts.iter_mut() {
                             match *x {
-                                Element::SubExpr(_, ref ts) => tmp.extend(ts.clone()),
-                                _ => tmp.push(x.clone())
+                                Element::SubExpr(_, ref mut tss) => tmp.append(tss),
+                                _ => tmp.push(mem::replace(x, DUMMY_ELEM!()))
                             }
                         }
-                        mem::swap(&mut tmp, ts);
+                        *ts = tmp;
                     }
 
-                ts.sort(); // TODO: slow!
+                // normalize neighbouring terms on the first iteration
+                // this may merge some terms
+                // then sort, and do it again
+                for _ in 0..1 {
+                    ts.sort(); // TODO: slow!
+                    // merge coefficients of similar terms
+                    let mut lastindex = 0;
 
-                if ts.len() == 0 {
-                    return true; // FIXME: correct value?
-                }
-
-                // merge coefficients of similar terms
-                let mut lastindex = 0;
-
-                for i in 1..ts.len() {
-                    let (a, b) = ts.split_at_mut(i);
-                    if !merge_terms(&mut a[lastindex], &b[0]) {
-                        if lastindex + 1 < i {
-                            a[lastindex + 1] = b[0].clone();
+                    for i in 1..ts.len() {
+                        let (a, b) = ts.split_at_mut(i);
+                        if !merge_terms(&mut a[lastindex], &b[0]) {
+                            if lastindex + 1 < i {
+                                a[lastindex + 1] = mem::replace(&mut b[0], DUMMY_ELEM!());
+                            }
+                            lastindex += 1;
                         }
-                        lastindex += 1;
                     }
+                    ts.truncate(lastindex + 1);
+
+                    
                 }
-                ts.truncate(lastindex + 1);
 
                 match ts.len() {
                     0 => Element::Num(false, true,0,1),
-                    1 => ts[0].clone(),
+                    1 => ts.swap_remove(0),
                     _ => return true
                 }
                 } else {
@@ -325,7 +330,7 @@ impl Element {
                 // normalize factors and flatten
                 for x in ts {
                     match x.normalize() {
-                        Element::Term(_, tt) => factors.extend(tt),
+                        Element::Term(_, ref mut tt) => factors.append(tt),
                         t => factors.push(t)
                     }
                 }
@@ -335,9 +340,9 @@ impl Element {
                 let mut lastindex = 0;
                 for i in 1..factors.len() {
                     let (a, b) = factors.split_at_mut(i);
-                    if !merge_factors(&mut a[lastindex], &b[0]) {
+                    if !merge_factors(&mut a[lastindex], &mut b[0]) {
                         if lastindex + 1 < i {
-                            a[lastindex + 1] = b[0].clone();
+                            a[lastindex + 1] = mem::replace(&mut b[0], DUMMY_ELEM!());
                         }
                         lastindex += 1;
                     }
@@ -364,7 +369,7 @@ impl Element {
 
                 match factors.len() {
                     0 => Element::Num(false, true, 0, 1),
-                    1 => factors[0].clone(), // downgrade
+                    1 => factors.swap_remove(0), // downgrade
                     _ => Element::Term(false, factors)
                 }
             },
@@ -378,7 +383,7 @@ impl Element {
                 // normalize terms and flatten
                 for x in ts {
                     match x.normalize() {
-                        Element::SubExpr(_, tt) => terms.extend(tt),
+                        Element::SubExpr(_, ref mut tt) => terms.append(tt),
                         t => terms.push(t)
                     }
                 }
@@ -395,7 +400,7 @@ impl Element {
                     let (a, b) = terms.split_at_mut(i);
                     if !merge_terms(&mut a[lastindex], &b[0]) {
                         if lastindex + 1 < i {
-                            a[lastindex + 1] = b[0].clone();
+                            a[lastindex + 1] = mem::replace(&mut b[0], DUMMY_ELEM!());
                         }
                         lastindex += 1;
                     }
@@ -404,32 +409,9 @@ impl Element {
 
                 match terms.len() {
                     0 => Element::Num(false, true,0,1),
-                    1 => terms[0].clone(),
+                    1 => terms.swap_remove(0),
                     _ => Element::SubExpr(false, terms)
                 }
-
-                /*
-
-                for x in terms.iter().skip(1) {
-                    if !merge_terms(newterms.last_mut().unwrap(), x) {
-                        newterms.push(x.clone());
-                    }
-
-                    // filter +0
-                    // TODO: also filter from unnormalized term
-                    match newterms.last() {
-                        Some(&Element::Num(_, _, 0, _)) => { newterms.pop(); }
-                        _ => {}
-                    }
-                }
-                
-
-                match newterms.len() {
-                    0 => Element::Num(false, true,0,1),
-                    1 => newterms[0].clone(),
-                    _ => Element::SubExpr(false, newterms)
-                }
-                */
             },
             &ref o => o.clone() 
         }
@@ -437,28 +419,25 @@ impl Element {
 }
 
 // returns true if merged
-pub fn merge_factors(first: &mut Element, sec: &Element) -> bool {
+pub fn merge_factors(first: &mut Element, sec: &mut Element) -> bool {
     let mut changed = false;
 
-    // FIXME: this may mess up the sorting!
-    // x*x*x will become x^2*x
-    // therefore, we should sort the pow to the left
+    // x*x => x^2
     if first == sec {
-        let tmp = Element::Num(false,true,1,1);
-        *first = Element::Pow(true, Box::new(mem::replace(first, tmp)), 
+        *first = Element::Pow(true, Box::new(mem::replace(first, DUMMY_ELEM!())), 
             Box::new(Element::Num(false,true,2,1)));
         first.normalize_inplace();
         return true;
     }
 
-    
+    // x^a*x^b = x^(a+b)
     if let &mut Element::Pow(ref mut dirty, ref mut b2, ref mut e2) = first {
-        if let &Element::Pow(_, ref b1, ref e1) = sec {
+        if let &mut Element::Pow(_, ref b1, ref mut e1) = sec {
             if b1 == b2 {
-                match (&**e1, &mut **e2) {
-                    (&Element::Term(_, ref a1), &mut Element::Term(ref mut d2, ref mut a2)) => {*d2 = true; a2.extend(a1.clone())},
-                    (ref a1, &mut Element::Term(ref mut d2, ref mut a2)) => {*d2 = true; a2.push((*a1).clone())},
-                    (_, ref mut b) => **b = Element::Term(true, vec![*e1.clone(), b.clone()])
+                match (&mut **e1, &mut **e2) {
+                    (&mut Element::SubExpr(_, ref mut a1), &mut Element::SubExpr(ref mut d2, ref mut a2)) => {*d2 = true; a2.append(a1)},
+                    (ref mut a1, &mut Element::SubExpr(ref mut d2, ref mut a2)) => {*d2 = true; a2.push(mem::replace(*a1, DUMMY_ELEM!()))},
+                    (ref mut a, ref mut b) => **b = Element::SubExpr(true, vec![mem::replace(a, DUMMY_ELEM!()), mem::replace(b, DUMMY_ELEM!())])
                 }
                 *dirty = true;
                 changed = true;
@@ -474,7 +453,7 @@ pub fn merge_factors(first: &mut Element, sec: &Element) -> bool {
                 }
                 if addone {
                     **e2 = Element::SubExpr(true, vec![
-                        mem::replace(e2, Element::Num(false,true,1,1)),
+                        mem::replace(e2, DUMMY_ELEM!()),
                         Element::Num(false,true,1,1)]);
                 }
                 
@@ -548,14 +527,14 @@ pub fn merge_terms(first: &mut Element, sec: &Element) -> bool {
                 return false;
             }
         },
-        (&Element::Term(_, ref t2), ref mut a) => {
+        (&Element::Term(_, ref t2), ref mut a) => {          
             assert!(t2.len() > 0);
 
             if **a == t2[0] && t2.len() == 2 {
                 match t2[1] {
                     Element::Num(_, mut pos, mut num, mut den) => {
                         add_one(&mut pos, &mut num, &mut den);
-                        **a = Element::Term(false, vec![a.clone(), Element::Num(false, pos, num, den)]);
+                        **a = Element::Term(false, vec![mem::replace(a, DUMMY_ELEM!()), Element::Num(false, pos, num, den)]);
                     },
                     _ => { return false; }
                 }
@@ -568,7 +547,7 @@ pub fn merge_terms(first: &mut Element, sec: &Element) -> bool {
             add_fractions(pos, num, den, pos1, num1, den1);
         },
         (ref a1, ref mut a2) if a1 == a2 => { 
-                **a2 = Element::Term(false, vec![sec.clone(), Element::Num(false, true,2,1)] ) 
+                **a2 = Element::Term(false, vec![mem::replace(a2, DUMMY_ELEM!()), Element::Num(false, true, 2, 1)] ) 
             },
         _ => {return false}
     }

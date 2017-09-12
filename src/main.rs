@@ -8,6 +8,7 @@ extern crate rand;
 extern crate log;
 extern crate env_logger;
 
+#[macro_use]
 mod structure;
 mod parser;
 mod id;

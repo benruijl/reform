@@ -124,12 +124,13 @@ impl Statement {
 	      	StatementIter::Simple(input.clone(), false)
 	      },
 	      Statement::Multiply(ref x) => {
-	      	let res = match (input, x) {
+	      	let mut res = match (input, x) {
 	      		(&Element::Term(_,ref xx), &Element::Term(_,ref yy)) => { let mut r = xx.clone(); r.extend(yy.clone()); Element::Term(true, r) },
 				(&Element::Term(_,ref xx), _) => { let mut r = xx.clone(); r.push(x.clone()); Element::Term(true, r) },
 				(_, &Element::Term(_,ref xx)) => { let mut r = xx.clone(); r.push(input.clone()); Element::Term(true, r) },
 	      		_ => Element::Term(true, vec![input.clone(), x.clone()])
-	      	}.normalize();
+	      	};
+			res.normalize_inplace();
 	      	StatementIter::Simple(res, true)
 	      },
 		  // TODO: use visitor pattern? this is almost a copy of splitarg
