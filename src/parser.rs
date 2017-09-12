@@ -34,7 +34,7 @@ named!(pub expression <Element>, do_parse!(
   opt!(tag!("+")) >>
   first : alt_complete!(minusexpr | term | pow | element) >>
   rest: many0!(
-    alt_complete!(do_parse!(ws!(tag!("+")) >> f: alt_complete!(pow | term | element) >> (f)) 
+    alt_complete!(do_parse!(ws!(tag!("+")) >> f: alt_complete!(term | pow | element) >> (f)) 
     | minusexpr
    )) >>
   (match rest.len() {
