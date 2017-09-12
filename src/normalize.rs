@@ -144,52 +144,8 @@ impl Element {
 
                     ts.sort();
 
-                    // FIXME: very wasteful and not even working for all cases
-                    // create pows from terms that are the same
-                    // they may not be side to side...
-                    // first, find side-by-side factors
-                    let mut samecount = 1;
-                    let mut newfactors = vec![];
-
-                    for x in ts.windows(2) {
-                        // do not treat numbers
-                        //if let Element::Num(..) = x[0] {
-                        //    newfactors.push(x[0].clone());
-                        //    samecount = 1;
-                        //}
-                        if x[0] == x[1] {
-                            samecount += 1;
-                        } else {
-                            if samecount > 1 {
-                                newfactors.push(Element::Pow(true,
-                                    Box::new(x[0].clone()), 
-                                    Box::new(Element::Num(false, true, samecount, 1))).normalize());
-                            } else {
-                                newfactors.push(x[0].clone());
-                            }
-                            samecount = 1;
-                        }
-                    }
-
-                    if let Some(x) = ts.last() {
-                        if samecount > 1 {
-                            newfactors.push(Element::Pow(true,
-                                Box::new(x.clone()), 
-                                Box::new(Element::Num(false, true, samecount, 1))).normalize());
-                        } else {
-                            newfactors.push(x.clone());
-                        }
-                    }
-
-                    if newfactors.len() != ts.len() {
-                        newfactors.sort(); // FIXME: costly
-                    }
-
-                    // FIXME: the case x*x^a is not supported yet
-                    mem::swap(ts, &mut newfactors);
-
                     // now merge pows: x^a*x^b = x^(a*b)
-                    // should be side by side
+                    // x*x^a and x*x, all should be side by side now
                     let mut lastindex = 0;
 
                     for i in 1..ts.len() {
@@ -234,7 +190,6 @@ impl Element {
                 if !dirty {
                     return false;
                 }
-
                 *self = if let Element::SubExpr(ref mut dirty, ref mut ts) = *self {
                     *dirty = false;
 
@@ -260,14 +215,13 @@ impl Element {
                         mem::swap(&mut tmp, ts);
                     }
 
-                ts.sort();
+                ts.sort(); // TODO: slow!
 
                 if ts.len() == 0 {
                     return true; // FIXME: correct value?
                 }
 
                 // merge coefficients of similar terms
-                // FIXME: terms need not be next to eachother: f(0)+f(1)+f(0)*13
                 let mut lastindex = 0;
 
                 for i in 1..ts.len() {
@@ -377,80 +331,18 @@ impl Element {
                 }
 
                 factors.sort();
-
-                // create pows from terms that are the same
-                // they may not be side to side...
-                // first, find side-by-side factors
-                let mut samecount = 1;
-                let mut newfactors = vec![];
-
-                for x in factors.windows(2) {
-                    // do not treat numbers
-                    //if let Element::Num(..) = x[0] {
-                    //    newfactors.push(x[0].clone());
-                    //    samecount = 1;
-                    //}
-                    if x[0] == x[1] {
-                        samecount += 1;
-                    } else {
-                        if samecount > 1 {
-                            newfactors.push(Element::Pow(true,
-                                Box::new(x[0].clone()), 
-                                Box::new(Element::Num(false, true, samecount, 1))).normalize());
-                        } else {
-                            newfactors.push(x[0].clone());
+                
+                let mut lastindex = 0;
+                for i in 1..factors.len() {
+                    let (a, b) = factors.split_at_mut(i);
+                    if !merge_factors(&mut a[lastindex], &b[0]) {
+                        if lastindex + 1 < i {
+                            a[lastindex + 1] = b[0].clone();
                         }
-                        samecount = 1;
+                        lastindex += 1;
                     }
                 }
-
-                if let Some(x) = factors.last() {
-                    if samecount > 1 {
-                        newfactors.push(Element::Pow(true,
-                            Box::new(x.clone()), 
-                            Box::new(Element::Num(false, true, samecount, 1))).normalize());
-                    } else {
-                        newfactors.push(x.clone());
-                    }
-                }
-
-                if newfactors.len() != factors.len() {
-                    newfactors.sort(); // FIXME: costly
-                }
-
-                // FIXME: the case x*x^a is not supported yet
-                factors = newfactors;
-
-                // now merge pows: x^a*x^b = x^(a*b)
-                // should be side by side
-                let mut newfac2 = vec![];
-                match factors.first() {
-                    Some(x) => newfac2.push(x.clone()),
-                    _ => {}
-                }
-
-                for x in factors.iter().skip(1) {
-                    let mut add = true;
-                    if let &Element::Pow(_, ref b1, ref e1) = x {
-                        if let &mut Element::Pow(ref mut dirty, ref mut b2, ref mut e2) = newfac2.last_mut().unwrap() {
-                            if b1 == b2 {
-                                match (&**e1, &mut **e2) {
-                                    (&Element::Term(_, ref a1), &mut Element::Term(ref mut d2, ref mut a2)) => {*d2 = true; a2.extend(a1.clone())},
-                                    (ref a1, &mut Element::Term(ref mut d2, ref mut a2)) => {*d2 = true; a2.push((*a1).clone())},
-                                    (_, ref mut b) => **b = Element::Term(true, vec![*e1.clone(), b.clone()])
-                                }
-                                *dirty = true;
-                                add = false;
-                            }
-                        }
-                        *newfac2.last_mut().unwrap() = newfac2.last().unwrap().normalize();
-                    }
-                    if add {
-                        newfac2.push(x.clone());
-                    }
-                }
-
-                factors = newfac2;
+                factors.truncate(lastindex + 1);
 
                 // merge the coefficients
                 let mut pos = true;
@@ -497,8 +389,6 @@ impl Element {
                 }
 
                 // merge coefficients of similar terms
-                // FIXME: terms need not be next to eachother: f(0)+f(1)+f(0)*13
-                //let mut newterms = vec![terms[0].clone()];
                 let mut lastindex = 0;
 
                 for i in 1..terms.len() {
@@ -549,8 +439,21 @@ impl Element {
 // returns true if merged
 pub fn merge_factors(first: &mut Element, sec: &Element) -> bool {
     let mut changed = false;
-    if let &Element::Pow(_, ref b1, ref e1) = sec {
-        if let &mut Element::Pow(ref mut dirty, ref mut b2, ref mut e2) = first {
+
+    // FIXME: this may mess up the sorting!
+    // x*x*x will become x^2*x
+    // therefore, we should sort the pow to the left
+    if first == sec {
+        let tmp = Element::Num(false,true,1,1);
+        *first = Element::Pow(true, Box::new(mem::replace(first, tmp)), 
+            Box::new(Element::Num(false,true,2,1)));
+        first.normalize_inplace();
+        return true;
+    }
+
+    
+    if let &mut Element::Pow(ref mut dirty, ref mut b2, ref mut e2) = first {
+        if let &Element::Pow(_, ref b1, ref e1) = sec {
             if b1 == b2 {
                 match (&**e1, &mut **e2) {
                     (&Element::Term(_, ref a1), &mut Element::Term(ref mut d2, ref mut a2)) => {*d2 = true; a2.extend(a1.clone())},
@@ -560,9 +463,27 @@ pub fn merge_factors(first: &mut Element, sec: &Element) -> bool {
                 *dirty = true;
                 changed = true;
             }
+        } else {
+            if *sec == **b2 {
+                // e2 should become e2 + 1
+                // avoid borrow checker error
+                let mut addone = true;
+                if let &mut Element::Num(_, ref mut pos, ref mut num, ref mut den) = &mut **e2 {
+                    add_one(pos, num, den);
+                    addone = false;
+                }
+                if addone {
+                    **e2 = Element::SubExpr(true, vec![
+                        mem::replace(e2, Element::Num(false,true,1,1)),
+                        Element::Num(false,true,1,1)]);
+                }
+                
+                *dirty = true;
+                changed = true;
+            }
         }
-        first.normalize_inplace();
     };
+    first.normalize_inplace();
     changed
 }
 

@@ -287,9 +287,11 @@ impl Module {
 
 		for x in self.statements.iter_mut() {
 			match *x {
-				Statement::IdentityStatement(IdentityStatement{ref mut lhs, ..}) => 
-					*lhs = lhs.normalize(),
-					_ => {}
+				Statement::IdentityStatement(IdentityStatement{ref mut lhs, ref mut rhs, ..}) => {
+					lhs.normalize_inplace();
+					rhs.normalize_inplace();
+				},
+				_ => {}
 			}
 		}
 	}

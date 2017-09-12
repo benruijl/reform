@@ -2,6 +2,7 @@ use std::fmt;
 use streaming::TermStreamer;
 use std::collections::HashMap;
 use std::mem;
+use std::cmp::Ordering;
 
 pub const BUILTIN_FUNCTIONS :  &'static [&'static str] = &["delta_", "nargs_"];
 pub const FUNCTION_DELTA : u64 = 0;
@@ -139,7 +140,7 @@ pub enum VarName {
 // argument is the dirty flag, which is set to true
 // if a normalization needs to happen
 // TODO: ignore dirty flag for equality and ordering
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, Ord)]
 pub enum Element {
     VariableArgument(VarName),             // ?a
     Wildcard(VarName, Vec<Element>),       // x?{...}
@@ -175,6 +176,140 @@ pub enum Statement {
     Eval(Element, usize), // evaluate and jump if eval is false
     JumpIfChanged(usize), // jump and pop change flag
     PushChange,           // push a new change flag
+}
+
+// implement a custom partial order that puts
+// x and x*2 next to each other for term sorting
+// and x*x^2 next to each other for 
+// numbers are partially ignored and sorted at the back
+impl PartialOrd for Element {
+    fn partial_cmp(&self, other: &Element) -> Option<Ordering> {
+        match (self, other) {
+            (&Element::Fn(_, Func{name: ref namea, args: ref argsa}), &Element::Fn(_, Func{name: ref nameb, args: ref argsb})) => {
+                let k = namea.partial_cmp(nameb);
+                match k {
+                    Some(Ordering::Equal) => {},
+                    _ => return k
+                }
+                if argsa.len() != argsb.len() {
+                    return argsa.len().partial_cmp(&argsb.len());
+                }
+
+                for (argsaa,argsbb) in argsa.iter().zip(argsb) {
+                    let k = argsaa.partial_cmp(argsbb);
+                    match k {
+                        Some(Ordering::Equal) => {},
+                        _ => return k
+                    }
+                }
+                Some(Ordering::Equal)
+            }
+            (&Element::Num(_, ref pos, ref num, ref den), &Element::Num(_, ref posa, ref numa, ref dena)) => {
+                let mut k = pos.partial_cmp(posa);
+                match k {
+                    Some(Ordering::Equal) => {},
+                    _ => return k
+                }
+                k = num.partial_cmp(numa);
+                match k {
+                    Some(Ordering::Equal) => {},
+                    _ => return k
+                }
+                k = den.partial_cmp(dena);
+                match k {
+                    Some(Ordering::Equal) => {},
+                    _ => return k
+                }
+                Some(Ordering::Equal)
+            },
+            (_, &Element::Num(..)) => Some(Ordering::Less),
+            (&Element::Num(..), _) => Some(Ordering::Greater),
+            (&Element::Pow(_, ref b, ref p), &Element::Pow(_, ref b1, ref p1)) => {
+                let k = (**b).partial_cmp(&**b1);
+                match k {
+                    Some(Ordering::Equal) => (**p).partial_cmp(&**p1),
+                    _ => return k
+                }
+            },
+            (&Element::Pow(_, ref b, _), _) => {
+                let k = (**b).partial_cmp(other);
+                match k {
+                    Some(Ordering::Equal) => Some(Ordering::Less),
+                    _ => return k
+                }
+            },
+            (_, &Element::Pow(_, ref b, _)) => {
+                let k = self.partial_cmp(&**b);
+                match k {
+                    Some(Ordering::Equal) => Some(Ordering::Greater),
+                    _ => return k
+                }
+            }
+            (&Element::Term(_, ref ta), &Element::Term(_, ref tb)) => {
+                // ignore coefficients
+                // we can assume the coefficients are at the end and that the term is in proper order
+                let tamin = if let Some(&Element::Num(..)) = ta.last() {
+                    ta.len() -1
+                } else { ta.len() };
+                let tbmin = if let Some(&Element::Num(..)) = tb.last() {
+                    tb.len() -1
+                } else { tb.len() };
+                if tamin != tbmin {
+                    return tamin.partial_cmp(&tbmin);
+                }
+
+                for (taa,tbb) in ta.iter().zip(tb) {
+                    if let& Element::Num(..) = taa {
+                        if let &Element::Num(..) = tbb {
+                            continue; // don't compare numbers
+                        }
+                    }
+
+                    let k = taa.partial_cmp(tbb);
+                    match k {
+                        Some(Ordering::Equal) => {},
+                        _ => return k
+                    }
+                }
+                Some(Ordering::Equal)
+            },
+            (_, &Element::Term(_, ref t)) => {
+                if t.len() == 2 {
+                    if let Element::Num(..) = t[1] {
+                        return self.partial_cmp(&t[0]);
+                    }
+                }
+                Some(Ordering::Less)
+            },
+            (&Element::Term(_, ref t), _) => {
+                if t.len() == 2 {
+                    if let Element::Num(..) = t[1] {
+                        return t[0].partial_cmp(other);
+                    }
+                }
+                Some(Ordering::Greater)
+            },
+            (&Element::Fn(..), _) => Some(Ordering::Less),
+            (_, &Element::Fn(..)) => Some(Ordering::Greater),
+            (&Element::SubExpr(_, ref ta), &Element::SubExpr(_, ref tb)) => {
+                if ta.len() != tb.len() {
+                    return ta.len().partial_cmp(&tb.len());
+                }
+
+                for (taa,tbb) in ta.iter().zip(tb) {
+                    let k = taa.partial_cmp(tbb);
+                    match k {
+                        Some(Ordering::Equal) => {},
+                        _ => return k
+                    }
+                }
+                Some(Ordering::Equal)
+            },
+            (&Element::SubExpr(..), _) => Some(Ordering::Less),
+            (&Element::Var(ref a), &Element::Var(ref b)) => a.partial_cmp(b),
+            _ => Some(Ordering::Less)
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -305,7 +440,13 @@ impl fmt::Display for Statement {
 impl VarName {
     fn fmt_output(&self, f: &mut fmt::Formatter, var_info: &VarInfo) -> fmt::Result {
         match *self {
-            VarName::ID(id) => write!(f, "{}", var_info.inv_name_map[id as usize]),
+            VarName::ID(id) => {
+                if var_info.inv_name_map.len() == 0 {
+                    write!(f, "var_{}", id)
+                } else {
+                    write!(f, "{}", var_info.inv_name_map[id as usize])
+                }
+            },
             VarName::Name(ref s) => write!(f, "{}", s),
         }
     }    
@@ -509,7 +650,7 @@ impl Element {
                     return
                 }
             },
-            Element::Wildcard(ref mut name, ref mut restrictions) => {
+            Element::Wildcard(_, ref mut restrictions) => {
                 for x in restrictions {
                     x.replace_var(map);
                 }
@@ -523,7 +664,6 @@ impl Element {
             Element::Term(_, ref mut f) | Element::SubExpr(_, ref mut f) => {
             for x in f {
                 x.replace_var(map);
-                
             }
             return
             },
