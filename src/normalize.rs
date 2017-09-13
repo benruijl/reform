@@ -145,7 +145,7 @@ impl Element {
                         *ts = tmp;
                     }
 
-                    ts.sort();
+                    ts.sort_unstable();
 
                     // now merge pows: x^a*x^b = x^(a*b)
                     // x*x^a and x*x, all should be side by side now
@@ -222,7 +222,7 @@ impl Element {
                 // this may merge some terms
                 // then sort, and do it again
                 for _ in 0..1 {
-                    ts.sort(); // TODO: slow!
+                    ts.sort_unstable(); // TODO: slow!
                     // merge coefficients of similar terms
                     let mut lastindex = 0;
 
@@ -335,7 +335,7 @@ impl Element {
                     }
                 }
 
-                factors.sort();
+                factors.sort_unstable();
                 
                 let mut lastindex = 0;
                 for i in 1..factors.len() {
@@ -387,7 +387,7 @@ impl Element {
                         t => terms.push(t)
                     }
                 }
-                terms.sort();
+                terms.sort_unstable();
 
                 if terms.len() == 0 {
                     return Element::SubExpr(false, terms);

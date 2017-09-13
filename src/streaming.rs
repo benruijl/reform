@@ -206,7 +206,7 @@ impl TermStreamer {
                 }
             }
 
-            self.mem_buffer.sort();
+            self.mem_buffer.sort_unstable();
 
             // write back
             self.sortfiles[x].set_len(0).unwrap(); // delete the contents
