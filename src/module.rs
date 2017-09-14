@@ -3,6 +3,7 @@ use id::{MatchIterator,MatchKind};
 use std::mem;
 use streaming::TermStreamer;
 use std::collections::HashMap;
+use tools::exponentiate;
 
 impl Element {
 	fn expand(&self) -> Element {
@@ -28,13 +29,15 @@ impl Element {
 				}
 
 				// FIXME: this should not happen for the ground level
-				Element::SubExpr(true, r.iter().map(|x| Element::Term(true, x.clone())).collect()).normalize()
+				Element::SubExpr(true, r.into_iter().map(|x| Element::Term(true, x)).collect()).normalize()
 			},
 			&Element::SubExpr(_, ref f) => Element::SubExpr(true, f.iter().map(|x| x.expand()).collect()).normalize(),
 			&Element::Pow(_, ref b, ref p) => {
 				if let Element::Num(_, true, n, 1) = **p {
 					if let Element::SubExpr(_, ref t) = **b {
-						warn!("Expand not implemented yet for pow");
+						let mut e = exponentiate(t, n);
+						e.normalize_inplace();
+						return e;
 					}
 
 					// TODO: simplify (x*y)^z to z^z*y^z?

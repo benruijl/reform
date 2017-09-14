@@ -176,7 +176,7 @@ impl Element {
 
                     match (pos, num, den) {
                         (_, 0, _) => ts.clear(),
-                        (true, 1, 1) => {}, // don't add a factor
+                        (true, 1, 1) if ts.len() > 0 => {}, // don't add a factor
                         x => ts.push(Element::Num(false, x.0, x.1, x.2))
                     }
 
@@ -336,7 +336,7 @@ impl Element {
                 }
 
                 factors.sort_unstable();
-                
+
                 let mut lastindex = 0;
                 for i in 1..factors.len() {
                     let (a, b) = factors.split_at_mut(i);
@@ -363,7 +363,7 @@ impl Element {
 
                 match (pos, num, den) {
                     (_, 0, _) => return Element::Num(false, true, 0, 1),
-                    (true, 1, 1) => {}, // don't add a factor
+                    (true, 1, 1) if factors.len() > 0 => {}, // don't add a factor
                     x => factors.push(Element::Num(false, x.0, x.1, x.2))
                 }
 
