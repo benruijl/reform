@@ -7,7 +7,7 @@ use std::collections::BinaryHeap;
 use std::cmp::Ordering;
 use std::mem;
 
-use structure::{Element, VarInfo, ElementPrinter};
+use structure::{Element, VarInfo, ElementPrinter, Func, Statement};
 use parser::expression;
 use normalize::merge_terms;
 
@@ -153,7 +153,7 @@ impl TermStreamer {
 		}
     }*/
 
-    pub fn sort(&mut self, var_info: &VarInfo, write_log: bool) {
+    pub fn sort(&mut self, var_info: &VarInfo, global_statements: &[Statement], write_log: bool) {
         let inpterm = self.termcounter_input;
         let genterm = self.termcounter;
 
@@ -169,6 +169,16 @@ impl TermStreamer {
             let mut a = Element::SubExpr(true, tmp);
             a.normalize_inplace();
             self.input = None;
+
+            // execute the global statements
+            for s in global_statements {
+                match s {
+                    &Statement::Collect(ref v) => {
+                        a = Element::Fn(false, Func { name: v.clone(), args: vec![a] } );
+                    },
+                    _ => unreachable!()
+                }
+            }
 
             // move to input buffer
             match a {
@@ -286,6 +296,12 @@ impl TermStreamer {
                     ))
                 }
             }
+
+            if self.termcounter_input <= self.mem_buffer.len() as u64 {
+                // the output fits into memory, so we shouldn't write to disk
+                // TODO: apply global statements
+
+            }       
 
             self.termcounter_input += self.mem_buffer.len() as u64;
             for x in self.mem_buffer.iter() {

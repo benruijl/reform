@@ -285,9 +285,18 @@ impl Module {
 
 	// normalize all expressions in statements
 	fn normalize_module(&mut self, var_info: &mut VarInfo, procedures: &[Procedure]) {
-		let oldstat = self.statements.clone();
-		self.statements.clear();
-		Module::to_control_flow_stat(&oldstat, var_info, procedures, &mut self.statements);
+		let oldstat = mem::replace(&mut self.statements, vec![]);
+		let mut newstat = vec![];
+		
+		// split off global statements
+		for x in oldstat {
+			match x {
+				Statement::Collect(_) => self.global_statements.push(x),
+				_ => newstat.push(x)
+			}
+		}
+
+		Module::to_control_flow_stat(&newstat, var_info, procedures, &mut self.statements);
 
 		for x in self.statements.iter_mut() {
 			match *x {
@@ -321,6 +330,6 @@ pub fn do_program(program : &mut Program, write_log: bool) {
 			inpcount += 1;
 		}
 
-	  	program.input.sort(&program.var_info, write_log);
+	  	program.input.sort(&program.var_info, &module.global_statements, write_log);
 	}
 }

@@ -111,6 +111,7 @@ impl Program {
 pub struct Module {
     pub name: String,
     pub statements: Vec<Statement>,
+    pub global_statements: Vec<Statement>
 }
 
 #[derive(Debug)]
@@ -173,6 +174,7 @@ pub enum Statement {
     Print,
     Multiply(Element),
     Symmetrize(VarName),
+    Collect(VarName),
     Call(String, Vec<Element>),
     // internal commands
     Jump(usize),          // unconditional jump
@@ -342,6 +344,9 @@ impl fmt::Display for Module {
         for (i, x) in self.statements.iter().enumerate() {
             write!(f, "{}: {}", i, x)?;
         }
+        for (i, x) in self.global_statements.iter().enumerate() {
+            write!(f, "G{}: {}", i, x)?;
+        }
         writeln!(f, "")
     }
 }
@@ -389,6 +394,7 @@ impl fmt::Display for Statement {
             Statement::Print => writeln!(f, "Print;"),
             Statement::Multiply(ref x) => writeln!(f, "Multiply {};", x),
             Statement::Symmetrize(ref x) => writeln!(f, "Symmetrize {};", x),
+            Statement::Collect(ref x) => writeln!(f, "Collect {};", x),
             Statement::Repeat(ref ss) => if ss.len() == 1 {
                 write!(f, "repeat {}", ss[0])
             } else {
@@ -720,7 +726,8 @@ impl Statement {
                     s.var_to_id(var_info);
                 }
             },
-            Statement::SplitArg(ref mut name) | Statement::Symmetrize(ref mut name) => {
+            Statement::SplitArg(ref mut name) | Statement::Symmetrize(ref mut name)
+            | Statement::Collect(ref mut name) => {
                 var_info.replace_name(name);
             },
             Statement::Multiply(ref mut e) => {
@@ -759,7 +766,8 @@ impl Statement {
                     s.replace_var(map);
                 }
             },
-            Statement::SplitArg(ref mut name) | Statement::Symmetrize(ref mut name) => {
+            Statement::SplitArg(ref mut name) | Statement::Symmetrize(ref mut name)
+            | Statement::Collect(ref mut name) => {
                 if let Some(x) = map.get(name) {
                     if let &Element::Var(ref y) = x {
                         *name = y.clone();

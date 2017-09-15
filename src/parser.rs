@@ -80,8 +80,9 @@ named!(wildcard <Element>, do_parse!(name: ws!(varname) >> ws!(tag!("?")) >> r: 
 named!(rangedwildcard <Element>, do_parse!(ws!(tag!("?")) >> name: ws!(varname) >> (Element::VariableArgument(VarName::Name("?".to_owned() + &name)))));
 named!(pow <Element>, do_parse!(b: alt_complete!(exprparen | element) >> ws!(tag!("^")) >> p: alt_complete!(exprparen | element) >> (Element::Pow(true, Box::new(b), Box::new(p)))));
 
-named!(pub splitarg <Statement>, do_parse!(ws!(tag!("splitarg")) >> name: return_error!(ErrorKind::Custom(2), complete!(ws!(varname))) >> ws!(tag!(";")) >> ( Statement::SplitArg(VarName::Name(name)) ) ) );
-named!(pub symmetrize <Statement>, do_parse!(ws!(tag!("symmetrize")) >> name: return_error!(ErrorKind::Custom(2), complete!(ws!(varname))) >> complete!(ws!(tag!(";"))) >> ( Statement::Symmetrize(VarName::Name(name)) ) ) );
+named!(pub splitarg <Statement>, do_parse!(ws!(tag_no_case!("splitarg")) >> name: return_error!(ErrorKind::Custom(2), complete!(ws!(varname))) >> ws!(tag!(";")) >> ( Statement::SplitArg(VarName::Name(name)) ) ) );
+named!(pub symmetrize <Statement>, do_parse!(ws!(tag_no_case!("symmetrize")) >> name: return_error!(ErrorKind::Custom(2), complete!(ws!(varname))) >> complete!(ws!(tag!(";"))) >> ( Statement::Symmetrize(VarName::Name(name)) ) ) );
+named!(pub collect <Statement>, do_parse!(ws!(tag_no_case!("collect")) >> name: return_error!(ErrorKind::Custom(2), complete!(ws!(varname))) >> complete!(ws!(tag!(";"))) >> ( Statement::Collect(VarName::Name(name)) ) ) );
 named!(pub print <Statement>, do_parse!(ws!(tag!("print")) >> ws!(tag!(";")) >> ( Statement::Print ) ) );
 named!(pub expand <Statement>, do_parse!(ws!(tag!("expand")) >> ws!(tag!(";")) >> ( Statement::Expand ) ) );
 named!(pub multiply <Statement>, do_parse!(ws!(tag!("multiply")) >> e: ws!(expression) >> ws!(tag!(";")) >> ( Statement::Multiply(e) ) ) );
@@ -197,7 +198,7 @@ named!(procedure <Procedure>, do_parse!(
 named!(statement <Statement>, do_parse!(
     many0!(alt_complete!(blockcomment | comment)) >>
     id: alt_complete!(repeatblock | repeat | ifelseblock | ifblock | ifelseshort | ifshort | 
-          multiply | symmetrize | idstatement | splitarg | expand | print | call_procedure) >>
+          multiply | symmetrize | collect | idstatement | splitarg | expand | print | call_procedure) >>
     (id)
   )
 );
@@ -208,7 +209,7 @@ named!(module <Module>, do_parse!(
   complete!(many0!(alt_complete!(blockcomment | comment))) >>
   name: add_return_error!(ErrorKind::Custom(1), sort) >>
   complete!(many0!(alt_complete!(blockcomment | comment))) >>
-  (Module { name: name, statements : ids }))
+  (Module { name: name, statements : ids, global_statements: vec![] }))
 );
 
 named!(program <Program>, do_parse!(
