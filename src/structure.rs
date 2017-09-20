@@ -22,11 +22,13 @@ pub struct VarInfo {
     inv_name_map: Vec<String>,
     name_map: HashMap<String, u64>,
     local_map: HashMap<u64, u64>, // (temporary) map from ids to new ids in a procedure
+    variables: HashMap<VarName, Element> // map of (dollar) variables. These could be global
 }
 
 impl VarInfo {
     fn empty() -> VarInfo {
-        VarInfo { inv_name_map: vec![], name_map: HashMap::new(), local_map: HashMap::new() }
+        VarInfo { inv_name_map: vec![], name_map: HashMap::new(), local_map: HashMap::new(),
+        variables: HashMap::new() }
     }
 
     fn new() -> VarInfo {
@@ -40,7 +42,7 @@ impl VarInfo {
             inv_name_map.push(x.to_string());
             i += 1;
         }
-        VarInfo { inv_name_map, name_map, local_map: HashMap::new() }
+        VarInfo { inv_name_map, name_map, local_map: HashMap::new(), variables: HashMap::new() }
     }
 
     pub fn replace_name(&mut self, name: &mut VarName) {
@@ -401,7 +403,7 @@ impl fmt::Display for Statement {
                 writeln!(f, "repeat;")?;
 
                 for s in ss {
-                    writeln!(f, "\t{}", s)?;
+                    write!(f, "\t{}", s)?;
                 }
 
                 writeln!(f, "endrepeat;")
@@ -425,7 +427,7 @@ impl fmt::Display for Statement {
                 writeln!(f, "endif;")
             },
             Statement::Call(ref name, ref args) => {
-                writeln!(f, "call {}(", name)?;
+                write!(f, "call {}(", name)?;
 
                 match args.first() {
                     Some(x) => write!(f, "{}", x)?,

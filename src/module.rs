@@ -304,6 +304,8 @@ impl Module {
 					lhs.normalize_inplace();
 					rhs.normalize_inplace();
 				},
+				Statement::Multiply(ref mut e) => {e.normalize_inplace();},
+				Statement::Eval(ref mut e, _) => {e.normalize_inplace();},
 				_ => {}
 			}
 		}

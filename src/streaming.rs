@@ -8,14 +8,15 @@ use std::cmp::Ordering;
 use std::mem;
 
 use structure::{Element, VarInfo, ElementPrinter, Func, Statement};
-use parser::expression;
+use parser::parse_term;
 use normalize::merge_terms;
 
 pub const MAXTERMMEM: usize = 10000000; // maximum number of terms allowed in memory
 impl Element {
-    fn deserialize(input: &[u8]) -> Option<Element> {
-        // FIXME: should we normalize?
-        expression(input).to_result().ok().map(|mut x| {x.normalize_inplace(); x})
+    fn deserialize(input: &String) -> Option<Element> {
+        let mut x = parse_term(&input[..]);
+        x.normalize_inplace();
+        Some(x)
     }
 }
 
@@ -127,7 +128,7 @@ impl TermStreamer {
                 for _ in 0..MAXTERMMEM {
                     if let Some(y) = x.next() {
                         self.mem_buffer_input
-                            .push(Element::deserialize(&y.unwrap().as_bytes()).unwrap());
+                            .push(Element::deserialize(&y.unwrap()).unwrap());
                     } else {
                         break;
                     }
@@ -211,7 +212,7 @@ impl TermStreamer {
                     reader.seek(SeekFrom::Start(0)).unwrap();
                     for l in reader.lines() {
                         self.mem_buffer
-                            .push(Element::deserialize(&l.unwrap().as_bytes()).unwrap());
+                            .push(Element::deserialize(&l.unwrap()).unwrap());
                     }
                 }
             }
@@ -261,7 +262,7 @@ impl TermStreamer {
             for (i, s) in streamer.iter_mut().enumerate() {
                 if let Some(x) = s.next() {
                     heap.push(ElementStreamTuple(
-                        Element::deserialize(&x.unwrap().as_bytes()).unwrap(),
+                        Element::deserialize(&x.unwrap()).unwrap(),
                         i,
                     ));
                 }
@@ -291,7 +292,7 @@ impl TermStreamer {
                 // push new objects to the queue
                 if let Some(nv) = streamer[i].next() {
                     heap.push(ElementStreamTuple(
-                        Element::deserialize(&nv.unwrap().as_bytes()).unwrap(),
+                        Element::deserialize(&nv.unwrap()).unwrap(),
                         i,
                     ))
                 }

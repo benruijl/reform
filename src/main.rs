@@ -1,8 +1,8 @@
 #[macro_use]
-extern crate nom;
+extern crate combine;
 extern crate itertools;
 extern crate clap; // command line argument options
-extern crate rand;
+//extern crate rand;
 
 #[macro_use]
 extern crate log;

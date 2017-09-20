@@ -5,9 +5,9 @@ readme = "README.md"
 authors = ["Ben Ruijl <benruyl@gmail.com>"]
 
 [dependencies]
-nom = "^3.2"
 itertools = "^0.5.8"
 clap = "^2.26.0"
 log = "0.3.8"
 env_logger = "0.4.3"
 rand = "0.3.16"
+combine = "2.5.1"

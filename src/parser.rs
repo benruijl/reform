@@ -1,240 +1,189 @@
-use structure::{Element,Func,IdentityStatementMode,Statement,Module,IdentityStatement,NumOrder,Program,VarName,Procedure};
-use nom::{digit,alpha,alphanumeric,GetInput,ErrorKind};
-use std;
-use std::str;
-use std::str::FromStr;
 use std::io::prelude::*;
 use std::fs::File;
+use structure::*;
 
-named!(builtin <String>, do_parse!(f: map_res!(alt_complete!(tag!("dd_") | tag!("delta_") 
-	| tag!("theta_") | tag!("pow_") | tag!("nargs_")), std::str::from_utf8) >> (f.to_owned())));
+use combine::char::*;
+use combine::*;
+use combine::primitives::Stream;
+use combine::State;
+use std::ascii::AsciiExt;
 
-// varname: alpha + alphanumeric
-named!(varname <String>, do_parse!(
-	first: map_res!(alpha, std::str::from_utf8) >>
-  rest: opt!(complete!(map_res!(alphanumeric, std::str::from_utf8))) >>
-	(
-    match rest {
-		Some(vv) => first.to_owned() + vv,
-		None => first.to_owned()
-	} )
-	
-));
-
-named!(pub exprparen <Element>, ws!(delimited!(char!('('), expression, char!(')'))));
-
-named!(minusexpr <Element>, do_parse!(ws!(tag!("-")) >>
-	g: map!(alt_complete!(term | element),|x| match x { 
-		Element::Term(_, mut g) => Element::Term(true, { g.push(Element::Num(false,true,1,1)); g } ), 
-		a => Element::Term(true, vec![a, Element::Num(false, false,1,1)])
-	}) >> (g)
-));
-
-named!(pub expression <Element>, do_parse!(
-  opt!(tag!("+")) >>
-  first : alt_complete!(minusexpr | term | pow | element) >>
-  rest: many0!(
-    alt_complete!(do_parse!(ws!(tag!("+")) >> f: alt_complete!(term | pow | element) >> (f)) 
-    | minusexpr
-   )) >>
-  (match rest.len() {
-  	0 => first,
-  	_ => Element::SubExpr(true, {let mut a = vec![first]; a.extend(rest); a})
-  	})
-
-  	
-));
-
-named!(term <Element>, map!(separated_nonempty_list_complete!(char!('*'), alt_complete!(pow | element)), |x| if x.len() == 1 { x[0].clone() } else { Element::Term(true, x) } ));
-named!(variable <Element>, map!(ws!(varname),|v| Element::Var(VarName::Name(v))));
-named!(element <Element>, alt_complete!(map!(function, |x| Element::Fn(true, x)) | exprparen | numberdiv | numbersimple | rangedwildcard | wildcard | variable));
-
-named!(number <(bool,u64)>, do_parse!(pos: opt!(tag!("-")) >>  val: map_res!(map_res!(ws!(digit), str::from_utf8), FromStr::from_str) >> 
-    (match pos { Some(_) => false, _ => true}, val) ));
-
-named!(numbersimple <Element>, do_parse!(
-    num: number >>
-    (Element::Num(true, num.0, num.1, 1))));
-
-named!(numberdiv <Element>, do_parse!(
-    num: number >> // make optional?
-    ws!(tag!("/")) >>
-    den : number >>
-    (Element::Num(true, (num.0 & den.0) || (!num.0 && !den.0) , num.1, den.1))
-    )
-);
-
-named!(numorder <NumOrder>, ws!(
-	alt_complete!(
-	map!(tag!(">="), |_| NumOrder::GreaterEqual) |
-	map!(tag!(">"), |_| NumOrder::Greater) |
-	map!(tag!("=="), |_| NumOrder::Equal) |
-	map!(tag!("<="), |_| NumOrder::SmallerEqual) |
-	map!(tag!("<"), |_| NumOrder::Smaller)
-	)));
-named!(numrange <Element>, do_parse!(no: numorder >> num: alt_complete!(numberdiv | numbersimple) >> (match num {
-	Element::Num(_,pos, num, den) => Element::NumberRange(pos, num, den, no), _ => unreachable!() })));
-named!(set <Vec<Element>>, ws!(delimited!(char!('{'), separated_list!(char!(','), alt_complete!(expression | numrange)), char!('}'))));
-named!(wildcard <Element>, do_parse!(name: ws!(varname) >> ws!(tag!("?")) >> r: opt!(set) >> 
-    (Element::Wildcard(VarName::Name(name + "?"), match r { Some(a) => a, None => vec![]}))));
-named!(rangedwildcard <Element>, do_parse!(ws!(tag!("?")) >> name: ws!(varname) >> (Element::VariableArgument(VarName::Name("?".to_owned() + &name)))));
-named!(pow <Element>, do_parse!(b: alt_complete!(exprparen | element) >> ws!(tag!("^")) >> p: alt_complete!(exprparen | element) >> (Element::Pow(true, Box::new(b), Box::new(p)))));
-
-named!(pub splitarg <Statement>, do_parse!(ws!(tag_no_case!("splitarg")) >> name: return_error!(ErrorKind::Custom(2), complete!(ws!(varname))) >> ws!(tag!(";")) >> ( Statement::SplitArg(VarName::Name(name)) ) ) );
-named!(pub symmetrize <Statement>, do_parse!(ws!(tag_no_case!("symmetrize")) >> name: return_error!(ErrorKind::Custom(2), complete!(ws!(varname))) >> complete!(ws!(tag!(";"))) >> ( Statement::Symmetrize(VarName::Name(name)) ) ) );
-named!(pub collect <Statement>, do_parse!(ws!(tag_no_case!("collect")) >> name: return_error!(ErrorKind::Custom(2), complete!(ws!(varname))) >> complete!(ws!(tag!(";"))) >> ( Statement::Collect(VarName::Name(name)) ) ) );
-named!(pub print <Statement>, do_parse!(ws!(tag!("print")) >> ws!(tag!(";")) >> ( Statement::Print ) ) );
-named!(pub expand <Statement>, do_parse!(ws!(tag!("expand")) >> ws!(tag!(";")) >> ( Statement::Expand ) ) );
-named!(pub multiply <Statement>, do_parse!(ws!(tag!("multiply")) >> e: ws!(expression) >> ws!(tag!(";")) >> ( Statement::Multiply(e) ) ) );
-named!(pub sort <String>, do_parse!(ws!(tag!("sort")) >> m: opt!(ws!(map_res!(alpha, std::str::from_utf8))) >> ws!(tag!(";")) >> (
-  match m { Some(x) => x.to_owned(), None => "sort".to_owned() } ) ) );
-
-named!(ifshort <Statement>, do_parse!(
-    ws!(tag!("if")) >>
-    cond: delimited!(char!('('), preceded!(tag!("match"), exprparen), char!(')') ) >>
-    st: complete!(statement) >>
-   (Statement::IfElse(cond, vec![st], vec![]))
-  )
-);
-
-named!(ifelseshort <Statement>, do_parse!(
-    ws!(tag!("if")) >>
-    cond: delimited!(char!('('), preceded!(tag!("match"), exprparen), char!(')') ) >>
-    st: complete!(statement) >>
-    ws!(tag!("else")) >>
-    ste: complete!(statement) >>
-   (Statement::IfElse(cond, vec![st], vec![ste]))
-  )
-);
-
-named!(ifblock <Statement>, do_parse!(
-    ws!(tag!("if")) >>
-    cond: delimited!(char!('('), preceded!(tag!("match"), exprparen), char!(')') ) >>
-    ws!(tag!(";")) >>
-    sts : many0!(complete!(statement)) >>
-    ws!(tag!("endif;")) >>
-   (Statement::IfElse(cond, sts, vec![]))
-  )
-);
-
-
-named!(ifelseblock <Statement>, do_parse!(
-    ws!(tag!("if")) >>
-    cond: delimited!(char!('('), preceded!(tag!("match"), exprparen), char!(')') ) >>
-    ws!(tag!(";")) >>
-    sts : many0!(complete!(statement)) >>
-    ws!(tag!("else;")) >>
-    nm : many0!(complete!(statement)) >>
-    ws!(tag!("endif;")) >>
-   (Statement::IfElse(cond, sts, nm))
-  )
-);
-
-named!(repeatblock <Statement>, do_parse!(
-    ws!(tag!("repeat;")) >>
-    sts : many0!(complete!(statement)) >>
-    ws!(tag!("endrepeat;")) >>
-   (Statement::Repeat(sts))
-  )
-);
-
-named!(repeat <Statement>, do_parse!(
-    ws!(tag_no_case!("repeat")) >>
-    st: statement >>
-   (Statement::Repeat(vec![st]))
-  )
-);
-
-
-named!(pub idstatement <Statement>, do_parse!(
-    ws!(tag!("id")) >>
-    mode: ws!(map!(opt!(alt_complete!(
-          map!(tag!("all"),|_|{ IdentityStatementMode::All}) | 
-          map!(tag!("many"),|_|{ IdentityStatementMode::Many}))),
-      |y : Option<IdentityStatementMode>| {y.unwrap_or(IdentityStatementMode::Once)})) >>
-    lhs: term >>
-    ws!(tag!("=")) >>
-    rhs: expression >>
-    ws!(tag!(";")) >>
-   (Statement::IdentityStatement(IdentityStatement {mode, lhs, rhs}))
-  )
-);
-
-named!(pub function <Func>, do_parse!(
-  fnname : ws!(alt_complete!(builtin | varname)) >>
-    args: ws!(delimited!(char!('('), separated_list!(char!(','), alt_complete!( expression | exprparen ) ), char!(')'))) >>
-  (Func { name: VarName::Name(fnname), args: args})
-  )
-);
-
-named!(input <Element>, do_parse!(ws!(tag!("IN")) >> ws!(tag!("=")) >> t: expression >> ws!(tag!(";")) >> (t)));
-
-fn eol(chr: u8) -> bool { chr != b'\n' }
-named!(comment, do_parse!(ws!(tag!("//")) >> a: take_while!(eol) >> (a))); // comment ends on line end or eof
-
-named!(blockcomment, ws!(delimited!(tag!("/*"), take_until!("*/"), tag!("*/"))));
-
-named!(call_procedure <Statement>, do_parse!(
-  ws!(tag!("call")) >>
-  name : ws!(varname) >>
-  args: ws!(delimited!(char!('('), separated_list!(char!(','), alt_complete!( expression | exprparen ) ), char!(')'))) >>
-  ws!(tag!(";")) >>
-  (Statement::Call(name, args))  
-  )
-);
-
-named!(procedure <Procedure>, do_parse!(
-  ws!(tag!("procedure")) >>
-  name : ws!(varname) >>
-  args: ws!(preceded!(char!('('), separated_list!(char!(','), alt_complete!( element ) ))) >>
-  local_args: ws!(opt!(preceded!(tag!(";"), separated_list!(char!(','), element)))) >>
-  tag!(")") >> tag!(";") >>
-  sts : many0!(complete!(statement)) >>
-  ws!(tag!("endprocedure;")) >>
-  (Procedure { name, args, local_args: local_args.unwrap_or(vec![]), statements: sts })
-  )
-);
-
-named!(statement <Statement>, do_parse!(
-    many0!(alt_complete!(blockcomment | comment)) >>
-    id: alt_complete!(repeatblock | repeat | ifelseblock | ifblock | ifelseshort | ifshort | 
-          multiply | symmetrize | collect | idstatement | splitarg | expand | print | call_procedure) >>
-    (id)
-  )
-);
-
-// FIXME: why so complicated?
-named!(module <Module>, do_parse!(
-  ids : complete!(many0!(complete!(statement))) >>
-  complete!(many0!(alt_complete!(blockcomment | comment))) >>
-  name: add_return_error!(ErrorKind::Custom(1), sort) >>
-  complete!(many0!(alt_complete!(blockcomment | comment))) >>
-  (Module { name: name, statements : ids, global_statements: vec![] }))
-);
-
-named!(program <Program>, do_parse!(
-  input: input >> 
-  prods : complete!(many0!(procedure)) >>
-  mods : complete!(many0!(module)) >>
-  (Program::new(input, mods, prods)))
-);
-
-pub fn parse_string(data: &[u8]) -> Program {
-  let a = program(data);
-
-  if let Some(ref r) = a.remaining_input() {
-    if r.len() > 0 {
-      // TODO: turn into 'module ended without sort'
-      panic!("Could not parse file completely at: {}",  str::from_utf8(&r).expect("No utf-8"));
+// parse a reform file
+pub fn parse_file(filename: &str) -> Program {
+    let mut f = File::open(filename).expect(&format!("Unable to open file {:?}", filename));
+    let mut s = String::new();
+    f.read_to_string(&mut s).expect("Unable to read file");
+  
+    match program().parse(State::new(&s[..])) {
+        Ok((v, _)) => v,
+        Err(err) => { error!("{}", err); panic!(); }
     }
-  }
-
-  a.to_result().expect("Module parsing error")
 }
 
-pub fn parse_file(filename: &str) -> Program {
-  let mut f = File::open(filename).expect(&format!("Unable to open file {:?}", filename));
-  let mut s  = vec![];
-  f.read_to_end(&mut s).expect("Unable to read file");
-  parse_string(&s)
+pub fn parse_term(input: &str) -> Element {
+    expr().skip(eof()).parse(State::new(input)).ok().unwrap().0
+}
+
+parser!{
+   fn program[I]()(I) -> Program
+    where [I: Stream<Item=char>]
+{
+    // skip spaces and comments
+    let linecomment = || try(string("//")).and(skip_many(satisfy(|c| c != '\n'))).map(|_| ());
+    let blockcomment = || try(string("/*")).and(skip_many(not_followed_by(string("*/")).and(any()))).and(string("*/")).map(|_| ());
+    let skipnocode = || skip_many(skip_many1(space()).or(linecomment()).or(blockcomment()));
+
+    let lex_char = |c| char(c).skip(skipnocode());
+    let keyword = |c| try(string_cmp(c, |l,r| l.eq_ignore_ascii_case(&r))).skip(not_followed_by(alpha_num())).skip(skipnocode());
+    let varname = || (many1(letter()), many(alpha_num())).skip(spaces())
+    .map(|(mut f, r) : (String, String)| { f.push_str(&r); f}).expected("function or variable name");
+
+    let procedure = || struct_parser!{
+        Procedure {
+            _: keyword("procedure"),
+            name: varname(),
+            args: lex_char('(').with(sep_by(expr(), lex_char(','))).skip(skipnocode()),
+            local_args: optional(lex_char(';').with(sep_by(expr(), lex_char(',')))).map(|x| x.unwrap_or(vec![])).skip(skipnocode()),
+            _: lex_char(')').with(lex_char(';')),
+            statements: many(statement()),
+            _: keyword("endprocedure").with(lex_char(';'))
+        }
+    };
+
+    let module = || struct_parser!{
+        Module {
+            name: value("test".to_string()),
+            statements: many(statement()),
+            global_statements: value(vec![]),
+            _: keyword("sort").with(lex_char(';'))
+        }
+    };
+
+    let input = keyword("IN").with(lex_char('=')).with(expr()).skip(lex_char(';'));
+
+    skipnocode().with((input, many(procedure()), many(module()))).skip(eof()).map(|(e,p,m)| Program::new(e, m, p))
+}
+}
+
+parser!{
+   fn statement[I]()(I) -> Statement
+    where [I: Stream<Item=char>]
+{
+    let lex_char = |c| char(c).skip(spaces());
+    let varname = || (many1(letter()), many(alpha_num())).skip(spaces())
+        .map(|(mut f, r) : (String, String)| { f.push_str(&r); f}).expected("function or variable name");
+
+    // skip spaces and comments
+    let linecomment = || try(string("//")).and(skip_many(satisfy(|c| c != '\n'))).map(|_| ());
+    let blockcomment = || try(string("/*")).and(skip_many(not_followed_by(string("*/")).and(any()))).and(string("*/")).map(|_| ());
+    let skipnocode = || skip_many(skip_many1(space()).or(linecomment()).or(blockcomment()));
+
+    let keyword = |c| try(string_cmp(c, |l,r| l.eq_ignore_ascii_case(&r))).skip(not_followed_by(alpha_num())).skip(skipnocode());
+    
+    let statementend = || lex_char(';').skip(skipnocode());
+
+    let symmetrize = || keyword("symmetrize").with(varname()).skip(statementend()).map(|x| Statement::Symmetrize(VarName::Name(x)));
+    let multiply = || keyword("multiply").with(expr()).skip(statementend()).map(|x| Statement::Multiply(x));
+    let splitarg = || keyword("splitarg").with(varname()).skip(statementend()).map(|x| Statement::SplitArg(VarName::Name(x)));
+    let expand = || keyword("expand").skip(statementend()).map(|_| Statement::Expand);
+    let print = || keyword("print").skip(statementend()).map(|_| Statement::Print);
+    let collect = || keyword("collect").with(varname()).skip(statementend()).map(|x| Statement::Collect(VarName::Name(x)));
+    let call_procedure = || (keyword("call").with(varname()), between(lex_char('('), lex_char(')'), sep_by(expr(), lex_char(',')))).
+        skip(statementend()).map(|(name, args)| Statement::Call(name, args));
+
+    let idmode = optional(choice!(keyword("once"), keyword("all"), keyword("many"))).map(|x| match x {
+                    Some("all") => IdentityStatementMode::All,
+                    Some("many") => IdentityStatementMode::Many,
+                    _ => IdentityStatementMode::Once
+                });
+    let idstatement = || struct_parser!{
+        IdentityStatement {
+            _: keyword("id"),
+            mode: idmode,
+            lhs: expr(),
+            _: lex_char('='),
+            rhs: expr(),
+            _: statementend()
+        }
+    }.map(|x| Statement::IdentityStatement(x));
+
+    let repeat = || keyword("repeat").with(
+        choice!(statementend().with(many(statement())).skip(keyword("endrepeat")).skip(statementend()).map(|x| Statement::Repeat(x)),
+            statement().map(|x| Statement::Repeat(vec![x]))
+        ));
+
+    let ifclause = || between(lex_char('('),lex_char(')'), keyword("match").with(
+        between(lex_char('('),lex_char(')'), expr())));
+    let ifelse = || (keyword("if").with(ifclause())
+        ,choice!(statementend().with(many(statement())).skip(keyword("endif")).skip(statementend()),
+        statement().map(|x| vec![x])),
+        optional(keyword("else").with(choice!(statementend().with(many(statement())).skip(keyword("endif")).skip(statementend()),
+        statement().map(|x| vec![x])))).map(|x| x.unwrap_or(vec![]))). // parse the else
+        map(|(q,x,e)| Statement::IfElse(q, x, e));
+
+    choice!(call_procedure(), print(), ifelse(), expand(), multiply(), repeat(), idstatement(), collect(), splitarg(), symmetrize()).skip(skipnocode())
+}
+}
+
+parser!{
+   fn expr[I]()(I) -> Element
+    where [I: Stream<Item=char>]
+{
+    let lex_char = |c| char(c).skip(spaces());
+    let varname = || (many1(letter()), many(alpha_num())).skip(spaces())
+        .map(|(mut f, r) : (String, String)| { f.push_str(&r); f}).expected("function or variable name");
+  
+    let comma_list = || sep_by(expr(), lex_char(','));
+    let funcarg = || between(lex_char('('), lex_char(')'), comma_list());
+
+    let number = || (optional(char('-')).map(|x| x.is_none()), 
+        many1(digit()).map(|d : String| d.parse::<u64>().unwrap()), 
+        optional(char('/').with(many1(digit()))).map(|x| x.map(|y : String| y.parse::<u64>().unwrap()).unwrap_or(1) 
+    )).map(|(sign, num, den)| Element::Num(true, sign, num, den));
+
+    let numorder = || choice!(try(string(">=")).map(|_| NumOrder::GreaterEqual), 
+    string(">").map(|_| NumOrder::Greater), string("==").map(|_| NumOrder::Equal), 
+    try(string("<=")).map(|_| NumOrder::SmallerEqual), string("<").map(|_| NumOrder::Smaller)).skip(spaces());
+    let numrange = || (numorder(), number()).map(|(r,b)| match b {
+        Element::Num(_,pos,num,den) => Element::NumberRange(pos,num,den,r),
+        _ => unreachable!()
+    });
+    let set = || between(lex_char('{'), lex_char('}'), sep_by(choice!(expr(), numrange()), lex_char(',')));
+    let variableargument = || (char('?'), varname()).map(|x| Element::VariableArgument(VarName::Name("?".to_owned() + &x.1)));
+
+    // read the variable name and then see if it is a wildcard, a function or variable
+    let namedfactor = || varname().and(choice!(lex_char('?').and(optional(set()).map(|x| x.unwrap_or(vec![]))).
+        map(|(_, s)| Element::Wildcard(VarName::ID(1), s)),
+        funcarg().map(|fa| Element::Fn(true, Func{ name: VarName::ID(1), args: fa })),
+        value(1).map(|_| Element::Var(VarName::ID(1))))).map(|(name, mut res)| {
+            match res {
+                Element::Wildcard(ref mut n, ..) => *n = VarName::Name(name),
+                Element::Fn(_, Func { name: ref mut n, .. } ) => *n = VarName::Name(name),
+                Element::Var(ref mut n) => *n = VarName::Name(name),
+                _ => unreachable!()
+            }
+            res
+        });
+
+    let parenexpr = || between(lex_char('('), lex_char(')'), sep_by1(expr(), lex_char('+'))).
+        map(|x : Vec<Element>| Element::SubExpr(true, x));
+    let factor = || choice!(number(), namedfactor(), variableargument(), parenexpr());
+
+    // TODO: support a^b^c? use chainl?
+    let powfactor = || factor().and(optional(lex_char('^').with(factor()))).map(|(b, e)| match e {
+        Some(ee) => Element::Pow(true, Box::new(b), Box::new(ee)),
+        _ => b
+    });
+
+    let terms = || sep_by1(powfactor(), lex_char('*')).map(|x : Vec<Element>| Element::Term(true, x));
+    let minexpr = || lex_char('-').with(choice!(parenexpr(), terms())).map(|mut x| { match x {
+        Element::Term(_, ref mut f) => f.push(Element::Num(false,false,1,1)),
+        _ => { x = Element::Term(true, vec![x,Element::Num(false,false,1,1)])}
+    }; x});
+    let expr_full = || (optional(lex_char('+')).with(choice!(minexpr(), terms())),
+        many(choice!(minexpr(), lex_char('+').with(terms())))).
+        map(|(x, mut y) : (Element, Vec<Element>)| Element::SubExpr(true, {y.push(x); y}));
+
+    expr_full().skip(spaces())
+}
 }
