@@ -111,9 +111,9 @@ impl Statement {
 	      	// FIXME: treat ground level differently in the expand routine
 			// don't generate all terms in one go
 			match input.expand() {
-				Element::SubExpr(_, f) => {
+				Element::SubExpr(_, mut f) => {
 					if f.len() == 1 {
-						 StatementIter::Simple(f[0].clone(), false)
+						 StatementIter::Simple(f.swap_remove(0), false)
 					} else {
 						 StatementIter::Multiple(f, true)
 					}
@@ -159,8 +159,11 @@ impl Statement {
 	}
 }
 
-fn do_module_rec(input: &Element, statements: &[Statement], current_index: usize, term_affected: &mut Vec<bool>,
+fn do_module_rec(input: Element, statements: &[Statement],  var_info: &mut VarInfo, current_index: usize, term_affected: &mut Vec<bool>,
 	output: &mut TermStreamer) {
+	if let Element::Num(_, true, 0, 1) = input {
+		return; // drop 0
+	}
 	if current_index == statements.len() {
 		output.add_term(input);
 		return;
@@ -170,7 +173,7 @@ fn do_module_rec(input: &Element, statements: &[Statement], current_index: usize
 	match statements[current_index] {
 		Statement::PushChange => {
 			term_affected.push(false);
-			return do_module_rec(input, statements, current_index + 1, term_affected, output)
+			return do_module_rec(input, statements, var_info, current_index + 1, term_affected, output)
 		},
 		Statement::JumpIfChanged(i) => { // the i should be one after the PushChange
 			let l = term_affected.len();
@@ -179,40 +182,52 @@ fn do_module_rec(input: &Element, statements: &[Statement], current_index: usize
 			if repeat {
 				term_affected[l - 2] = true;
 				term_affected[l - 1] = false;
-				return do_module_rec(input, statements, i, term_affected, output);
+				return do_module_rec(input, statements, var_info, i, term_affected, output);
 			} else {
 				term_affected.pop();
-				return do_module_rec(input, statements, current_index + 1, term_affected, output);
+				return do_module_rec(input, statements, var_info, current_index + 1, term_affected, output);
 			}
 		},
-		Statement::Eval(ref cond, i) => { // if statement`
+		Statement::Eval(ref cond, i) => { // if statement
 			// do the match
-			let mut m = MatchKind::from_element(cond, input);
-			if let Some(_) = m.next() {
-				return do_module_rec(input, statements, current_index + 1, term_affected, output);
+			if let Some(_) = MatchKind::from_element(cond, &input).next() {
+				return do_module_rec(input, statements, var_info, current_index + 1, term_affected, output);
 			} else {
-				return do_module_rec(input, statements, i, term_affected, output);
+				return do_module_rec(input, statements, var_info, i, term_affected, output);
 			}
 		},
 		Statement::Jump(i) => {
-			return do_module_rec(input, statements, i, term_affected, output);
+			return do_module_rec(input, statements, var_info, i, term_affected, output);
+		},
+		// TODO: not a control flow instruction
+		// move to iter if we decide how to propagate the var_info
+		Statement::Assign(ref d, ref e) => {
+			var_info.add_dollar(d.clone(), e.clone());
+			return do_module_rec(input, statements, var_info, current_index + 1, term_affected, output);
 		},
 		_ => {}
 	}
 	
+	{
 	let mut it = statements[current_index].to_iter(&input);
 	loop {
 		match it.next() { // for every term
-			StatementResult::Executed(ref f) => { 
+			StatementResult::Executed(f) => { 
 				// make a copy that will be modified further in the recursion. FIXME: is this the only way?
 				let mut newtermaff = term_affected.clone();
 				*newtermaff.last_mut().unwrap() = true; 
-				do_module_rec(f, statements, current_index + 1, &mut newtermaff, output);
+				do_module_rec(f, statements, var_info, current_index + 1, &mut newtermaff, output);
 			},
-			StatementResult::NotExecuted(ref f) => do_module_rec(f, statements, current_index + 1, term_affected, output),
+			StatementResult::NotExecuted(f) => do_module_rec(f, statements, var_info, current_index + 1, term_affected, output),
+			StatementResult::NoChange => {  break; },
 			StatementResult::Done => { return; }
 		};
 	}
+	}
+
+	// only reached when the input was not changed
+	// TODO: is that really the case?
+	do_module_rec(input, statements, var_info, current_index + 1, term_affected, output);
 }
 
 impl Module {
@@ -291,7 +306,7 @@ impl Module {
 		// split off global statements
 		for x in oldstat {
 			match x {
-				Statement::Collect(_) => self.global_statements.push(x),
+				Statement::Collect(_) | Statement::Maximum(_) => self.global_statements.push(x),
 				_ => newstat.push(x)
 			}
 		}
@@ -322,7 +337,7 @@ pub fn do_program(program : &mut Program, write_log: bool) {
 
 		let mut inpcount = 0u64;
 		while let Some(x) = program.input.read_term() {
-			do_module_rec(&x, &module.statements, 0, &mut executed, &mut program.input);
+			do_module_rec(x, &module.statements, &mut program.var_info, 0, &mut executed, &mut program.input);
 
 			if program.input.termcount() > 100000 && program.input.termcount() % 100000 == 0 {
 				println!("{} -- generated: {}\tterms left: {}", module.name,
@@ -332,6 +347,6 @@ pub fn do_program(program : &mut Program, write_log: bool) {
 			inpcount += 1;
 		}
 
-	  	program.input.sort(&program.var_info, &module.global_statements, write_log);
+	  	program.input.sort(&mut program.var_info, &module.global_statements, write_log);
 	}
 }

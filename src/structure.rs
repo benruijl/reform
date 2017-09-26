@@ -22,16 +22,16 @@ pub struct VarInfo {
     inv_name_map: Vec<String>,
     name_map: HashMap<String, u64>,
     local_map: HashMap<u64, u64>, // (temporary) map from ids to new ids in a procedure
-    variables: HashMap<VarName, Element> // map of (dollar) variables. These could be global
+    pub variables: HashMap<VarName, Element> // map of (dollar) variables. These could be global
 }
 
 impl VarInfo {
-    fn empty() -> VarInfo {
+    pub fn empty() -> VarInfo {
         VarInfo { inv_name_map: vec![], name_map: HashMap::new(), local_map: HashMap::new(),
         variables: HashMap::new() }
     }
 
-    fn new() -> VarInfo {
+    pub fn new() -> VarInfo {
         let mut inv_name_map = vec![];
         let mut name_map = HashMap::new();
 
@@ -63,6 +63,10 @@ impl VarInfo {
             self.local_map.insert(*y, self.name_map.len() as u64); // we have seen this variable before
         }
         self.name_map.insert(format!("{}_{}", name, self.inv_name_map.len() as u64), self.inv_name_map.len() as u64);
+    }
+
+    pub fn add_dollar(&mut self, name: VarName, value: Element) {
+        self.variables.insert(name, value);
     }
 
     pub fn clear_local(&mut self) {
@@ -142,7 +146,6 @@ pub enum VarName {
 // all the algebraic elements. A bool as the first
 // argument is the dirty flag, which is set to true
 // if a normalization needs to happen
-// TODO: ignore dirty flag for equality and ordering
 #[derive(Debug, Clone, PartialEq, Eq, Ord)]
 pub enum Element {
     VariableArgument(VarName),             // ?a
@@ -177,6 +180,8 @@ pub enum Statement {
     Multiply(Element),
     Symmetrize(VarName),
     Collect(VarName),
+    Assign(VarName, Element),
+    Maximum(VarName),
     Call(String, Vec<Element>),
     // internal commands
     Jump(usize),          // unconditional jump
@@ -323,6 +328,7 @@ impl PartialOrd for Element {
 pub enum StatementResult<T> {
     Executed(T),
     NotExecuted(T),
+    NoChange,
     Done,
 }
 
@@ -440,6 +446,8 @@ impl fmt::Display for Statement {
 
                 writeln!(f, ");")
             },
+            Statement::Assign(ref d, ref e) => writeln!(f, "{}={};", d, e),
+            Statement::Maximum(ref d) => writeln!(f, "Maximum {};", d),
             Statement::Jump(ref i) => writeln!(f, "JMP {}", i),
             Statement::Eval(ref n, ref i) => writeln!(f, "IF NOT {} JMP {}", n, i),
             Statement::JumpIfChanged(ref i) => writeln!(f, "JMP_CH {}", i),
@@ -740,6 +748,10 @@ impl Statement {
                     s.var_to_id(var_info);
                 }
             },
+            Statement::Assign(ref d, ref mut e) => {
+                // TODO: also change dollar variable to id?
+                e.var_to_id(var_info);
+            }
             _ => {}
         }
     }
@@ -786,6 +798,10 @@ impl Statement {
                     s.replace_var(map);
                 }
             },
+            Statement::Assign(ref d, ref mut e) => {
+                // TODO: also change dollar variable?
+                e.replace_var(map);
+            }
             _ => {}
         }
     }

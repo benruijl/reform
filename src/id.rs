@@ -553,7 +553,7 @@ pub struct MatchIterator<'a> {
     mode: IdentityStatementMode,
     rhs: &'a Element,
     m: MatchObject<'a>,
-    remaining: Vec<&'a Element>,
+    remaining: Vec<Element>,
     it: MatchKind<'a>,
     rhsp: usize, // current rhs index,
     hasmatch: bool,
@@ -571,12 +571,11 @@ impl<'a> MatchIterator<'a> {
                     }
 
                     self.m = m;
-                    self.remaining = rem;
+                    self.remaining = rem.iter().map(|&x| x.clone()).collect();
                     printmatch(&self.m);
                 },
                 None => { if self.hasmatch { return StatementResult::Done; } else { 
-                    self.hasmatch = true;
-                    return StatementResult::NotExecuted(self.input.clone()); } }
+                    return StatementResult::NoChange; } }
             }
         }
 
@@ -593,7 +592,7 @@ impl<'a> MatchIterator<'a> {
 
                     let mut res = r.to_single();
                     if self.remaining.len() > 0 {
-                        add_terms(&mut res, &self.remaining);
+                        add_terms(&mut res, self.remaining.clone());
                     }
                     res.normalize_inplace();
                     res
@@ -602,7 +601,7 @@ impl<'a> MatchIterator<'a> {
                     let r = x.apply_map(&self.m);
                     let mut res = r.to_single();
                     if self.remaining.len() > 0 {
-                        add_terms(&mut res, &self.remaining);
+                        add_terms(&mut res, self.remaining.clone());
                     }
                     res.normalize_inplace();
                     res

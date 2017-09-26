@@ -3,6 +3,7 @@ extern crate combine;
 extern crate itertools;
 extern crate clap; // command line argument options
 //extern crate rand;
+extern crate byteorder; // for serialization
 
 #[macro_use]
 extern crate log;
@@ -17,6 +18,7 @@ mod streaming;
 mod tools;
 mod module;
 mod tests;
+mod serialize;
 
 use clap::{Arg, App};
 
