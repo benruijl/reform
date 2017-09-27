@@ -168,19 +168,13 @@ impl TermStreamer {
                     &Statement::Collect(ref v) => {
                         a = Element::Fn(false, Func { name: v.clone(), args: vec![a] } );
                     },
-                    &Statement::Maximum(ref d) => {
-                        /*match var_info.variables.get_mut(d) {
-                            Some(ref mut x) => if 
-                            None => {}
-                        }*/
-                    }
                     _ => unreachable!()
                 }
             }
 
             // for now, print the dollar variables
-            for (k,v) in &var_info.variables {
-                println!("{} = {}", k, v);
+            for (k,v) in &var_info.global_variables {
+                println!("GLOB {} = {}", k, v);
             }
 
             // move to input buffer
@@ -304,6 +298,24 @@ impl TermStreamer {
                         e,
                         i,
                     ))
+                }
+            }
+
+             // execute the global statements
+            for s in global_statements {
+                match s {
+                    &Statement::Collect(ref v) => {
+                        // does the output fit in memory?
+                        if self.termcounter_input == 0 {
+                            self.mem_buffer = vec![
+                                Element::Fn(false, Func { name: v.clone(), args:
+                                    mem::replace(&mut self.mem_buffer, vec![])})
+                            ];
+                        } else {
+                            panic!("Cannot collect, since output does not fit in memory.");
+                        }
+                    },
+                    _ => unreachable!()
                 }
             }
 

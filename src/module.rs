@@ -3,6 +3,7 @@ use id::{MatchIterator,MatchKind};
 use std::mem;
 use streaming::TermStreamer;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use tools::exponentiate;
 
 impl Element {
@@ -205,6 +206,18 @@ fn do_module_rec(input: Element, statements: &[Statement],  var_info: &mut VarIn
 			var_info.add_dollar(d.clone(), e.clone());
 			return do_module_rec(input, statements, var_info, current_index + 1, term_affected, output);
 		},
+		Statement::Maximum(ref d) => {
+			match var_info.variables.get_mut(d) {
+				Some(x) => {
+					match var_info.global_variables.entry(d.clone()) {
+						Entry::Occupied(mut y) => { if *y.get() < *x { mem::swap(x, y.get_mut()); } }
+						Entry::Vacant(y) => { y.insert(mem::replace(x, DUMMY_ELEM!())); }
+					};
+				},
+				None => {}
+			}
+			return do_module_rec(input, statements, var_info, current_index + 1, term_affected, output);
+		}
 		_ => {}
 	}
 	
@@ -306,7 +319,7 @@ impl Module {
 		// split off global statements
 		for x in oldstat {
 			match x {
-				Statement::Collect(_) | Statement::Maximum(_) => self.global_statements.push(x),
+				Statement::Collect(_) => self.global_statements.push(x),
 				_ => newstat.push(x)
 			}
 		}
@@ -321,6 +334,7 @@ impl Module {
 				},
 				Statement::Multiply(ref mut e) => {e.normalize_inplace();},
 				Statement::Eval(ref mut e, _) => {e.normalize_inplace();},
+				Statement::Assign(_, ref mut e) => {e.normalize_inplace();}
 				_ => {}
 			}
 		}
@@ -337,6 +351,7 @@ pub fn do_program(program : &mut Program, write_log: bool) {
 
 		let mut inpcount = 0u64;
 		while let Some(x) = program.input.read_term() {
+			program.var_info.variables.clear(); // reset the dollar variables
 			do_module_rec(x, &module.statements, &mut program.var_info, 0, &mut executed, &mut program.input);
 
 			if program.input.termcount() > 100000 && program.input.termcount() % 100000 == 0 {

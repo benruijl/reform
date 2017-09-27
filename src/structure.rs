@@ -3,6 +3,7 @@ use streaming::TermStreamer;
 use std::collections::HashMap;
 use std::mem;
 use std::cmp::Ordering;
+use tools::num_cmp;
 
 pub const BUILTIN_FUNCTIONS :  &'static [&'static str] = &["delta_", "nargs_"];
 pub const FUNCTION_DELTA : u64 = 0;
@@ -22,13 +23,14 @@ pub struct VarInfo {
     inv_name_map: Vec<String>,
     name_map: HashMap<String, u64>,
     local_map: HashMap<u64, u64>, // (temporary) map from ids to new ids in a procedure
-    pub variables: HashMap<VarName, Element> // map of (dollar) variables. These could be global
+    pub variables: HashMap<VarName, Element>, // local map of (dollar) variables
+    pub global_variables: HashMap<VarName, Element> // global map of (dollar) variables
 }
 
 impl VarInfo {
     pub fn empty() -> VarInfo {
         VarInfo { inv_name_map: vec![], name_map: HashMap::new(), local_map: HashMap::new(),
-        variables: HashMap::new() }
+        variables: HashMap::new(), global_variables: HashMap::new() }
     }
 
     pub fn new() -> VarInfo {
@@ -42,7 +44,8 @@ impl VarInfo {
             inv_name_map.push(x.to_string());
             i += 1;
         }
-        VarInfo { inv_name_map, name_map, local_map: HashMap::new(), variables: HashMap::new() }
+        VarInfo { inv_name_map, name_map, local_map: HashMap::new(), variables: HashMap::new(),
+            global_variables: HashMap::new() }
     }
 
     pub fn replace_name(&mut self, name: &mut VarName) {
@@ -216,23 +219,12 @@ impl PartialOrd for Element {
                 }
                 Some(Ordering::Equal)
             }
-            (&Element::Num(_, ref pos, ref num, ref den), &Element::Num(_, ref posa, ref numa, ref dena)) => {
-                let mut k = pos.partial_cmp(posa);
-                match k {
-                    Some(Ordering::Equal) => {},
-                    _ => return k
-                }
-                k = num.partial_cmp(numa);
-                match k {
-                    Some(Ordering::Equal) => {},
-                    _ => return k
-                }
-                k = den.partial_cmp(dena);
-                match k {
-                    Some(Ordering::Equal) => {},
-                    _ => return k
-                }
-                Some(Ordering::Equal)
+            (&Element::Num(_, pos, num, den), &Element::Num(_, posa, numa, dena)) => {
+                Some(match num_cmp(pos, num, den, posa, numa, dena) {
+                    NumOrder::SmallerEqual | NumOrder::Smaller => Ordering::Less,
+                    NumOrder::GreaterEqual | NumOrder::Greater => Ordering::Greater,
+                    NumOrder::Equal => Ordering::Equal
+                })
             },
             (_, &Element::Num(..)) => Some(Ordering::Less),
             (&Element::Num(..), _) => Some(Ordering::Greater),
