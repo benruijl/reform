@@ -116,7 +116,7 @@ parser!{
    fn dollarvar[I]()(I) -> (VarName)
     where [I: Stream<Item=char>]
 {
-   char('$').with(varname()).map(|x| VarName::Name('$'.to_string() + &x))
+   char('$').with(varname()).map(|x| VarName::Name(Box::new('$'.to_string() + &x)))
 }
 }
 
@@ -125,13 +125,13 @@ parser!{
     where [I: Stream<Item=char>]
 {
     let assign = (dollarvar(), lex_char('=').with(expr()).skip(statementend())).map(|(d,e)| Statement::Assign(d, e));
-    let symmetrize = keyword("symmetrize").with(varname()).skip(statementend()).map(|x| Statement::Symmetrize(VarName::Name(x)));
+    let symmetrize = keyword("symmetrize").with(varname()).skip(statementend()).map(|x| Statement::Symmetrize(VarName::Name(Box::new(x))));
     let multiply = keyword("multiply").with(expr()).skip(statementend()).map(|x| Statement::Multiply(x));
-    let splitarg = keyword("splitarg").with(varname()).skip(statementend()).map(|x| Statement::SplitArg(VarName::Name(x)));
+    let splitarg = keyword("splitarg").with(varname()).skip(statementend()).map(|x| Statement::SplitArg(VarName::Name(Box::new(x))));
     let expand = keyword("expand").skip(statementend()).map(|_| Statement::Expand);
     let print = keyword("print").skip(statementend()).map(|_| Statement::Print);
     let maximum = keyword("maximum").with(dollarvar()).skip(statementend()).map(|x| Statement::Maximum(x));
-    let collect = keyword("collect").with(varname()).skip(statementend()).map(|x| Statement::Collect(VarName::Name(x)));
+    let collect = keyword("collect").with(varname()).skip(statementend()).map(|x| Statement::Collect(VarName::Name(Box::new(x))));
     let call_procedure = (keyword("call").with(varname()), between(lex_char('('), lex_char(')'), sep_by(expr(), lex_char(',')))).
         skip(statementend()).map(|(name, args) : (String, Vec<Element>)| Statement::Call(name, args));
 
@@ -195,7 +195,7 @@ parser!{
         _ => unreachable!()
     });
     let set = between(lex_char('{'), lex_char('}'), sep_by(choice!(expr(), numrange), lex_char(',')));
-    let variableargument = (char('?'), varname()).map(|(_, v)| Element::VariableArgument(VarName::Name("?".to_owned() + &v)));
+    let variableargument = (char('?'), varname()).map(|(_, v)| Element::VariableArgument(VarName::Name(Box::new("?".to_owned() + &v))));
 
     // read the variable name and then see if it is a wildcard, a function or variable
     let namedfactor = varname().and(choice!(lex_char('?').and(optional(set).map(|x| x.unwrap_or(vec![]))).
@@ -203,9 +203,9 @@ parser!{
         funcarg.map(|fa| Element::Fn(true, Func{ name: VarName::ID(1), args: fa })),
         value(1).map(|_| Element::Var(VarName::ID(1))))).map(|(name, mut res)| {
             match res {
-                Element::Wildcard(ref mut n, ..) => *n = VarName::Name(name),
-                Element::Fn(_, Func { name: ref mut n, .. } ) => *n = VarName::Name(name),
-                Element::Var(ref mut n) => *n = VarName::Name(name),
+                Element::Wildcard(ref mut n, ..) => *n = VarName::Name(Box::new(name)),
+                Element::Fn(_, Func { name: ref mut n, .. } ) => *n = VarName::Name(Box::new(name)),
+                Element::Var(ref mut n) => *n = VarName::Name(Box::new(name)),
                 _ => unreachable!()
             }
             res

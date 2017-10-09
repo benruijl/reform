@@ -86,26 +86,27 @@ impl<'a> StatementIter<'a> {
 }
 
 impl Statement {
-	fn to_iter<'a>(&'a self, input: &'a Element) -> StatementIter<'a> {
+	fn to_iter<'a>(&'a self, input: &'a mut Element) -> StatementIter<'a> {
 		match *self {
 	      Statement::IdentityStatement (ref id) => {
 	        StatementIter::IdentityStatement(id.to_iter(input))
 	      },
 	      Statement::SplitArg(ref name) => {
+			// TODO: use mutability to prevent unnecessary copy
 	        // split function arguments at the ground level
 	        let subs = | n : &VarName , a: &Vec<Element> |  Element::Fn(false, Func {name: n.clone(), args: 
 	              a.iter().flat_map( |x| match x { &Element::SubExpr(_, ref y) => y.clone(), _ => vec![x.clone()] } ).collect()});
 
 	        match *input {
 	          // FIXME: check if the splitarg actually executed!
-	          Element::Fn(_, Func{name: ref n, args: ref a}) if *n == *name => StatementIter::Simple(subs(n, a), false),
+	          Element::Fn(_, Func{name: ref mut n, args: ref mut a}) if *n == *name => StatementIter::Simple(subs(n, a), false),
 	          Element::Term(_, ref fs) => {
 	            StatementIter::Simple(Element::Term(false, fs.iter().map(|f| match f {
 	              &Element::Fn(_, Func{name: ref n, args: ref a}) if *n == *name => subs(n, a),
 	              _ => f.clone()
 	            } ).collect()), false)
 	          }
-	          _ => StatementIter::Simple(input.clone(), false)
+	          _ => StatementIter::Simple(mem::replace(input, Element::default()), false)
 	        }
 	      },
 	      Statement::Expand => {
@@ -125,14 +126,17 @@ impl Statement {
 	      },
 	      Statement::Print => {
 	      	println!("\t+{}", input);
-	      	StatementIter::Simple(input.clone(), false)
+	      	StatementIter::Simple(mem::replace(input, Element::default()), false)
 	      },
 	      Statement::Multiply(ref x) => {
 	      	let mut res = match (input, x) {
-	      		(&Element::Term(_,ref xx), &Element::Term(_,ref yy)) => { let mut r = xx.clone(); r.extend(yy.clone()); Element::Term(true, r) },
-				(&Element::Term(_,ref xx), _) => { let mut r = xx.clone(); r.push(x.clone()); Element::Term(true, r) },
-				(_, &Element::Term(_,ref xx)) => { let mut r = xx.clone(); r.push(input.clone()); Element::Term(true, r) },
-	      		_ => Element::Term(true, vec![input.clone(), x.clone()])
+	      		(&mut Element::Term(_,ref mut xx), &Element::Term(_,ref yy)) => { 
+					  xx.extend(yy.iter().map(|x| x.clone())); 
+					  Element::Term(true, mem::replace(xx, vec![])) 
+				},
+				(&mut Element::Term(_,ref mut xx), _) => { xx.push(x.clone()); Element::Term(true, mem::replace(xx, vec![])) },
+				(ref mut a, &Element::Term(_,ref xx)) => { let mut r = xx.clone(); r.push(mem::replace(a, DUMMY_ELEM!())); Element::Term(true, r) },
+	      		(ref mut a, aa) => Element::Term(true, vec![mem::replace(a, DUMMY_ELEM!()), aa.clone()])
 	      	};
 			res.normalize_inplace();
 	      	StatementIter::Simple(res, true)
@@ -152,7 +156,7 @@ impl Statement {
 	              _ => f.clone()
 	            } ).collect()), false)
 	          }
-	          _ => StatementIter::Simple(input.clone(), false)
+	          _ => StatementIter::Simple(mem::replace(input, Element::default()), false)
 	        }
 	      },
 	      _ => unreachable!()
@@ -160,7 +164,7 @@ impl Statement {
 	}
 }
 
-fn do_module_rec(input: Element, statements: &[Statement],  var_info: &mut VarInfo, current_index: usize, term_affected: &mut Vec<bool>,
+fn do_module_rec(mut input: Element, statements: &[Statement],  var_info: &mut VarInfo, current_index: usize, term_affected: &mut Vec<bool>,
 	output: &mut TermStreamer) {
 	if let Element::Num(_, true, 0, 1) = input {
 		return; // drop 0
@@ -222,7 +226,7 @@ fn do_module_rec(input: Element, statements: &[Statement],  var_info: &mut VarIn
 	}
 	
 	{
-	let mut it = statements[current_index].to_iter(&input);
+	let mut it = statements[current_index].to_iter(&mut input);
 	loop {
 		match it.next() { // for every term
 			StatementResult::Executed(f) => { 

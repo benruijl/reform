@@ -146,7 +146,7 @@ pub fn add_fractions(
     match (*pos, pos1, num2 >= *num) {
         (true, false, true) => {
             *num = num2 - *num;
-            *pos = false;
+            if *num != 0 { *pos = false; }
         }
         (true, false, false) => {
             *num -= num2;

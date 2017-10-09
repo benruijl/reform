@@ -6,8 +6,8 @@ use std::cmp::Ordering;
 use tools::num_cmp;
 
 pub const BUILTIN_FUNCTIONS :  &'static [&'static str] = &["delta_", "nargs_"];
-pub const FUNCTION_DELTA : u64 = 0;
-pub const FUNCTION_NARGS : u64 = 1;
+pub const FUNCTION_DELTA : u32 = 0;
+pub const FUNCTION_NARGS : u32 = 1;
 
 #[derive(Debug)]
 pub struct Program {
@@ -21,8 +21,8 @@ pub struct Program {
 #[derive(Debug)]
 pub struct VarInfo {
     inv_name_map: Vec<String>,
-    name_map: HashMap<String, u64>,
-    local_map: HashMap<u64, u64>, // (temporary) map from ids to new ids in a procedure
+    name_map: HashMap<String, u32>,
+    local_map: HashMap<u32, u32>, // (temporary) map from ids to new ids in a procedure
     pub variables: HashMap<VarName, Element>, // local map of (dollar) variables
     pub global_variables: HashMap<VarName, Element> // global map of (dollar) variables
 }
@@ -38,7 +38,7 @@ impl VarInfo {
         let mut name_map = HashMap::new();
 
         // insert built-in functions
-        let mut i : u64 = 0;
+        let mut i : u32 = 0;
         for x in BUILTIN_FUNCTIONS {
             name_map.insert(x.to_string(), i);
             inv_name_map.push(x.to_string());
@@ -53,9 +53,9 @@ impl VarInfo {
         let inv = &mut self.inv_name_map;
         let lm = &mut self.local_map;
         *name = match *name {
-            VarName::Name(ref mut s) => VarName::ID(*nm.entry(s.clone()).or_insert_with(|| {
+            VarName::Name(ref mut s) => VarName::ID(*nm.entry(*s.clone()).or_insert_with(|| {
                 inv.push(mem::replace(s, String::new()));
-                (inv.len() - 1) as u64
+                (inv.len() - 1) as u32
             })),
             VarName::ID(v) => VarName::ID(*lm.get(&v).unwrap_or(&v)) // map local variable?
         }
@@ -63,9 +63,9 @@ impl VarInfo {
 
     pub fn add_local(&mut self, name: &str) {
         if let Some(y) = self.name_map.get(name) {
-            self.local_map.insert(*y, self.name_map.len() as u64); // we have seen this variable before
+            self.local_map.insert(*y, self.name_map.len() as u32); // we have seen this variable before
         }
-        self.name_map.insert(format!("{}_{}", name, self.inv_name_map.len() as u64), self.inv_name_map.len() as u64);
+        self.name_map.insert(format!("{}_{}", name, self.inv_name_map.len() as u32), self.inv_name_map.len() as u32);
     }
 
     pub fn add_dollar(&mut self, name: VarName, value: Element) {
@@ -142,14 +142,14 @@ pub enum NumOrder {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum VarName {
-    ID(u64),
-    Name(String),
+    ID(u32),
+    Name(Box<String>), // use box to reduce structure size
 }
 
 // all the algebraic elements. A bool as the first
 // argument is the dirty flag, which is set to true
 // if a normalization needs to happen
-#[derive(Debug, Clone, PartialEq, Eq, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Element {
     VariableArgument(VarName),             // ?a
     Wildcard(VarName, Vec<Element>),       // x?{...}
@@ -160,6 +160,12 @@ pub enum Element {
     Term(bool, Vec<Element>),
     SubExpr(bool, Vec<Element>),
     Num(bool, bool, u64, u64), // dirty, fraction (true=positive), make sure it is last for sorting
+}
+
+impl Default for Element {
+    fn default() -> Element {
+        Element::Num(false, true, 1, 1)
+    }
 }
 
 #[macro_export]
@@ -191,6 +197,12 @@ pub enum Statement {
     Eval(Element, usize), // evaluate and jump if eval is false
     JumpIfChanged(usize), // jump and pop change flag
     PushChange,           // push a new change flag
+}
+
+impl Ord for Element {
+    fn cmp(&self, other: &Element) -> Ordering {
+        self.partial_cmp(other).unwrap()
+    }
 }
 
 // implement a custom partial order that puts

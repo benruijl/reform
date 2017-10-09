@@ -15,15 +15,15 @@ impl VarName {
 	fn serialize(&self, buffer: &mut Write) -> usize {
 		match *self {
 			VarName::ID(id) => {
-				buffer.write_u64::<LittleEndian>(id).unwrap();
+				buffer.write_u32::<LittleEndian>(id).unwrap();
 			},
 			_ => unimplemented!("Name not supported in serialization")
 		}
-		8
+		4
 	}
 
 	fn deserialize( buffer: &mut Read) -> VarName {
-		VarName::ID(buffer.read_u64::<LittleEndian>().unwrap())
+		VarName::ID(buffer.read_u32::<LittleEndian>().unwrap())
 	}
 }
 
