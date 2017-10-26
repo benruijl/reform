@@ -271,10 +271,10 @@ impl TermStreamer {
                 }
             }
 
-            while let Some(ElementStreamTuple(mv, i)) = heap.pop() {
+            while let Some(ElementStreamTuple(mut mv, i)) = heap.pop() {
                 // add or merge
                 let shouldadd = match self.mem_buffer.last_mut() {
-                    Some(ref mut x) => !merge_terms(x, &mv),
+                    Some(ref mut x) => !merge_terms(x, &mut mv),
                     _ => true,
                 };
                 if shouldadd {
