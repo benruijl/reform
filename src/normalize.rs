@@ -1,5 +1,5 @@
 use std::mem;
-use structure::{Element,Func,VarName,FUNCTION_DELTA,FUNCTION_NARGS};
+use structure::{Element,Func,VarName,FUNCTION_DELTA,FUNCTION_NARGS, FUNCTION_SUM, FUNCTION_MUL};
 use tools::{mul_fractions,add_fractions,add_one,normalize_fraction,exp_fraction};
 use std::cmp::Ordering;
 use std::ptr;
@@ -23,7 +23,29 @@ impl Element {
                     VarName::ID(x) if x == FUNCTION_NARGS => {
                         // get the number of arguments
                         Element::Num(false, true, a.len() as u64, 1)
-                    }
+                    },
+                    VarName::ID(x) if x == FUNCTION_SUM || x == FUNCTION_MUL => {
+                        if a.len() == 4 {
+                            match (&a[1], &a[2]) {
+                                (&Element::Num(_, true, n1, 1), &Element::Num(_, true, n2, 1)) => {
+                                    let mut terms = vec![];
+                                    for i in n1..n2 {
+                                        let mut ne = a[3].clone();
+                                        ne.replace(&a[0], &Element::Num(false, true, i, 1));
+                                        terms.push(ne);
+                                    }
+                                    if x == FUNCTION_SUM {
+                                        Element::SubExpr(true, terms)
+                                    } else {
+                                        Element::Term(true, terms)
+                                    }
+                                },
+                                _ => return false
+                            }
+                        } else {
+                            return false;
+                        }
+                    },
                     _ => { return false; }
                 }
             },

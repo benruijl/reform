@@ -65,7 +65,7 @@ parser!{
    fn varname[I]()(I) -> (String)
     where [I: Stream<Item=char>]
 {
-   (many1(letter()), many(alpha_num())).skip(spaces())
+   (many1(letter()), many(alpha_num().or(char('_')))).skip(spaces())
         .map(|(mut f, r) : (String, String)| { f.push_str(&r); f}).expected("function or variable name")
 }
 }

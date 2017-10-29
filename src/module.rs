@@ -304,7 +304,7 @@ impl Module {
 							}
 
 							let newmod = p.statements.iter().cloned().map(|mut x| { x.var_to_id(var_info); x}).
-								map(|mut x| {x.replace_var(&map); x}).collect::<Vec<_>>();
+								map(|mut x| {x.replace_vars(&map); x}).collect::<Vec<_>>();
 							
 							Module::to_control_flow_stat(&newmod, var_info, procedures, output);
 						}

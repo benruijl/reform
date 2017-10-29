@@ -5,9 +5,11 @@ use std::mem;
 use std::cmp::Ordering;
 use tools::num_cmp;
 
-pub const BUILTIN_FUNCTIONS :  &'static [&'static str] = &["delta_", "nargs_"];
+pub const BUILTIN_FUNCTIONS :  &'static [&'static str] = &["delta_", "nargs_", "sum_", "mul_"];
 pub const FUNCTION_DELTA : u32 = 0;
 pub const FUNCTION_NARGS : u32 = 1;
+pub const FUNCTION_SUM : u32 = 2;
+pub const FUNCTION_MUL : u32 = 3;
 
 #[derive(Debug)]
 pub struct Program {
@@ -664,7 +666,7 @@ impl Element {
         }
     }
 
-    pub fn replace_var(&mut self, map: &HashMap<VarName, Element>) {
+    pub fn replace_vars(&mut self, map: &HashMap<VarName, Element>) {
         *self = match *self {
             Element::Var(ref mut name) => {
                 if let Some(x) = map.get(name) {
@@ -675,18 +677,18 @@ impl Element {
             },
             Element::Wildcard(_, ref mut restrictions) => {
                 for x in restrictions {
-                    x.replace_var(map);
+                    x.replace_vars(map);
                 }
                 return
             },
             Element::Pow(_, ref mut b, ref mut e) => {
-                b.replace_var(map);
-                e.replace_var(map);
+                b.replace_vars(map);
+                e.replace_vars(map);
                 return
             }
             Element::Term(_, ref mut f) | Element::SubExpr(_, ref mut f) => {
             for x in f {
-                x.replace_var(map);
+                x.replace_vars(map);
             }
             return
             },
@@ -706,12 +708,48 @@ impl Element {
                 }
 
                 for x in args {
-                    x.replace_var(map);
+                    x.replace_vars(map);
                 }
                 return
             }
             _ => return
         }
+    }
+
+    // replace a (sub)element that appears literally by a new element
+    pub fn replace(&mut self, orig: &Element, new: &Element) -> bool {
+        if self == orig {
+            *self = new.clone();
+            return true;
+        }
+
+        *self = match *self {
+            Element::Pow(ref mut dirty, ref mut b, ref mut e) => {
+                *dirty |= b.replace(orig, new);
+                *dirty |= e.replace(orig, new);
+                return *dirty
+            }
+            Element::Term(ref mut dirty, ref mut f) | Element::SubExpr(ref mut dirty, ref mut f) => {
+                for x in f {
+                    *dirty |= x.replace(orig, new);
+                }
+                return *dirty
+            },
+            Element::Fn(
+                ref mut dirty,
+                Func {
+                    ref name,
+                    ref mut args,
+                },
+            ) => {
+                for x in args {
+                    *dirty |= x.replace(orig, new);
+                }
+                return *dirty
+            },
+            _ => return false
+        };
+        return false
     }
 }
 
@@ -760,28 +798,28 @@ impl Statement {
         }
     }
 
-    pub fn replace_var(&mut self, map: &HashMap<VarName, Element>) {
+    pub fn replace_vars(&mut self, map: &HashMap<VarName, Element>) {
         match *self {
             Statement::IdentityStatement(IdentityStatement {
                 mode: _,
                 ref mut lhs,
                 ref mut rhs,
             }) => {
-                lhs.replace_var(map);
-                rhs.replace_var(map);
+                lhs.replace_vars(map);
+                rhs.replace_vars(map);
             },
             Statement::Repeat(ref mut ss) => {
                 for s in ss {
-                    s.replace_var(map);
+                    s.replace_vars(map);
                 }
             },
             Statement::IfElse(ref mut e, ref mut ss, ref mut sse) => {
-                e.replace_var(map);
+                e.replace_vars(map);
                 for s in ss {
-                    s.replace_var(map);
+                    s.replace_vars(map);
                 }
                 for s in sse {
-                    s.replace_var(map);
+                    s.replace_vars(map);
                 }
             },
             Statement::SplitArg(ref mut name) | Statement::Symmetrize(ref mut name)
@@ -795,16 +833,16 @@ impl Statement {
                 }
             }
             Statement::Multiply(ref mut e) => {
-                e.replace_var(map);
+                e.replace_vars(map);
             },
             Statement::Call(_, ref mut es) => {
                 for s in es {
-                    s.replace_var(map);
+                    s.replace_vars(map);
                 }
             },
             Statement::Assign(ref d, ref mut e) => {
                 // TODO: also change dollar variable?
-                e.replace_var(map);
+                e.replace_vars(map);
             }
             _ => {}
         }
