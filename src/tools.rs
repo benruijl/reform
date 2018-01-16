@@ -232,7 +232,7 @@ pub fn num_cmp(
     if (num < den && pos) || (num > den && !pos) {
         return NumOrder::Smaller; // TODO: check
     }
-    return NumOrder::Greater;
+    NumOrder::Greater
 }
 
 pub fn is_number_in_range(

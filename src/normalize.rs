@@ -49,7 +49,7 @@ impl Element {
                     _ => { return false; }
                 }
             },
-            _ => { unreachable!(); }
+            _ => { unreachable!() }
         };
         true
     }
@@ -98,7 +98,7 @@ impl Element {
 
                             if let Some(x) = rv {
                                 x
-                            } else {
+                            } else
                                 // simplify x^a^b = x^(a*b)
                                 // TODO: note the nasty syntax to avoid borrow checker bug
                                 if let Element::Pow(_, ref mut c, ref mut d) = *&mut **b {
@@ -120,7 +120,6 @@ impl Element {
                                 } else {
                                     return changed;
                                 }
-                            }
                         }
                     }
                 } else {
@@ -197,7 +196,7 @@ impl Element {
                     if let Some(&Element::Num(_,pos,num,den)) = ts.last() {
                         match (pos,num,den) {
                             (_, 0, _) => ts.clear(),
-                            (true, 1, 1) if ts.len() > 0 => { ts.pop(); }, // don't add a factor
+                            (true, 1, 1) if ts.len() > 1 => { ts.pop(); }, // don't add a factor
                             _ => {}
                         }
                     }
@@ -265,7 +264,7 @@ impl Element {
                     }
 
                 match ts.len() {
-                    0 => Element::Num(false, true,0,1),
+                    0 => Element::Num(false, true, 0, 1),
                     1 => ts.swap_remove(0),
                     _ => return true
                 }
@@ -478,24 +477,22 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element) -> bool {
                 *dirty = true;
                 changed = true;
             }
-        } else {
-            if *sec == **b2 {
-                // e2 should become e2 + 1
-                // avoid borrow checker error
-                let mut addone = true;
-                if let &mut Element::Num(_, ref mut pos, ref mut num, ref mut den) = &mut **e2 {
-                    add_one(pos, num, den);
-                    addone = false;
-                }
-                if addone {
-                    **e2 = Element::SubExpr(true, vec![
-                        mem::replace(e2, DUMMY_ELEM!()),
-                        Element::Num(false,true,1,1)]);
-                }
-                
-                *dirty = true;
-                changed = true;
+        } else if *sec == **b2 {
+            // e2 should become e2 + 1
+            // avoid borrow checker error
+            let mut addone = true;
+            if let &mut Element::Num(_, ref mut pos, ref mut num, ref mut den) = &mut **e2 {
+                add_one(pos, num, den);
+                addone = false;
             }
+            if addone {
+                **e2 = Element::SubExpr(true, vec![
+                    mem::replace(e2, DUMMY_ELEM!()),
+                    Element::Num(false,true,1,1)]);
+            }
+            
+            *dirty = true;
+            changed = true;
         }
     };
     first.normalize_inplace();

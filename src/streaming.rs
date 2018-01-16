@@ -10,7 +10,7 @@ use std::mem;
 use structure::{Element, VarInfo, ElementPrinter, Func, Statement};
 use normalize::merge_terms;
 
-pub const MAXTERMMEM: usize = 10000000; // maximum number of terms allowed in memory
+pub const MAXTERMMEM: usize = 10_000_000; // maximum number of terms allowed in memory
 
 #[derive(Clone, Eq, PartialEq)]
 struct ElementStreamTuple(Element, usize);

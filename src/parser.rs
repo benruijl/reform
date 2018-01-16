@@ -113,10 +113,12 @@ parser!{
 }
 
 parser!{
-   fn dollarvar[I]()(I) -> (VarName)
+   fn dollarvar[I]()(I) -> (Element)
     where [I: Stream<Item=char>]
 {
-   char('$').with(varname()).map(|x| VarName::Name(Box::new('$'.to_string() + &x)))
+   char('$').with(varname()).
+   and(optional(between(lex_char('('), lex_char(')'), expr()))).   
+   map(|(x,ind)| Element::Dollar(VarName::Name(Box::new('$'.to_string() + &x)), ind.map(|o| Box::new(o))))
 }
 }
 
@@ -211,7 +213,7 @@ parser!{
             res
         });
     
-    choice!(number(), namedfactor, variableargument, parenexpr())
+    choice!(number(), dollarvar(), namedfactor, variableargument, parenexpr())
 }
 }
 

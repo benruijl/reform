@@ -1,4 +1,4 @@
-use structure::{Module,Statement,Element,Func,StatementResult,IdentityStatement,Program,VarName,VarInfo,Procedure};
+use structure::*;
 use id::{MatchIterator,MatchKind};
 use std::mem;
 use streaming::TermStreamer;
@@ -86,10 +86,10 @@ impl<'a> StatementIter<'a> {
 }
 
 impl Statement {
-	fn to_iter<'a>(&'a self, input: &'a mut Element) -> StatementIter<'a> {
+	fn to_iter<'a>(&'a self, input: &'a mut Element, var_info: &'a HashMap<VarName, Element>) -> StatementIter<'a> {
 		match *self {
 	      Statement::IdentityStatement (ref id) => {
-	        StatementIter::IdentityStatement(id.to_iter(input))
+	        StatementIter::IdentityStatement(id.to_iter(input, &var_info))
 	      },
 	      Statement::SplitArg(ref name) => {
 			// TODO: use mutability to prevent unnecessary copy
@@ -138,6 +138,7 @@ impl Statement {
 				(ref mut a, &Element::Term(_,ref xx)) => { let mut r = xx.clone(); r.push(mem::replace(a, DUMMY_ELEM!())); Element::Term(true, r) },
 	      		(ref mut a, aa) => Element::Term(true, vec![mem::replace(a, DUMMY_ELEM!()), aa.clone()])
 	      	};
+			res.replace_vars(var_info); // apply the dollar variables
 			res.normalize_inplace();
 	      	StatementIter::Simple(res, true)
 	      },
@@ -164,7 +165,7 @@ impl Statement {
 	}
 }
 
-fn do_module_rec(mut input: Element, statements: &[Statement],  var_info: &mut VarInfo, current_index: usize, term_affected: &mut Vec<bool>,
+fn do_module_rec(mut input: Element, statements: &[Statement], var_info: &mut VarInfo, current_index: usize, term_affected: &mut Vec<bool>,
 	output: &mut TermStreamer) {
 	if let Element::Num(_, true, 0, 1) = input {
 		return; // drop 0
@@ -195,7 +196,7 @@ fn do_module_rec(mut input: Element, statements: &[Statement],  var_info: &mut V
 		},
 		Statement::Eval(ref cond, i) => { // if statement
 			// do the match
-			if let Some(_) = MatchKind::from_element(cond, &input).next() {
+			if let Some(_) = MatchKind::from_element(cond, &input, &var_info.variables).next() {
 				return do_module_rec(input, statements, var_info, current_index + 1, term_affected, output);
 			} else {
 				return do_module_rec(input, statements, var_info, i, term_affected, output);
@@ -206,19 +207,25 @@ fn do_module_rec(mut input: Element, statements: &[Statement],  var_info: &mut V
 		},
 		// TODO: not a control flow instruction
 		// move to iter if we decide how to propagate the var_info
-		Statement::Assign(ref d, ref e) => {
-			var_info.add_dollar(d.clone(), e.clone());
+		Statement::Assign(ref dollar, ref e) => {
+			let mut ee = e.clone();
+			ee.replace_vars(&var_info.variables);
+			if let &Element::Dollar(ref d, ..) = dollar {
+				var_info.add_dollar(d.clone(), ee);
+			}
 			return do_module_rec(input, statements, var_info, current_index + 1, term_affected, output);
 		},
-		Statement::Maximum(ref d) => {
-			match var_info.variables.get_mut(d) {
-				Some(x) => {
-					match var_info.global_variables.entry(d.clone()) {
-						Entry::Occupied(mut y) => { if *y.get() < *x { mem::swap(x, y.get_mut()); } }
-						Entry::Vacant(y) => { y.insert(mem::replace(x, DUMMY_ELEM!())); }
-					};
-				},
-				None => {}
+		Statement::Maximum(ref dollar) => {
+			if let &Element::Dollar(ref d, ..) = dollar {
+				match var_info.variables.get_mut(d) {
+					Some(x) => {
+						match var_info.global_variables.entry(d.clone()) {
+							Entry::Occupied(mut y) => { if *y.get() < *x { mem::swap(x, y.get_mut()); } }
+							Entry::Vacant(y) => { y.insert(mem::replace(x, DUMMY_ELEM!())); }
+						};
+					},
+					None => {}
+				}
 			}
 			return do_module_rec(input, statements, var_info, current_index + 1, term_affected, output);
 		}
@@ -226,13 +233,15 @@ fn do_module_rec(mut input: Element, statements: &[Statement],  var_info: &mut V
 	}
 	
 	{
-	let mut it = statements[current_index].to_iter(&mut input);
+	let oldvarinfo = var_info.variables.clone(); // TODO: prevent clone somehow?
+	let mut it = statements[current_index].to_iter(&mut input, &oldvarinfo);
 	loop {
 		match it.next() { // for every term
 			StatementResult::Executed(f) => { 
 				// make a copy that will be modified further in the recursion. FIXME: is this the only way?
-				let mut newtermaff = term_affected.clone();
-				*newtermaff.last_mut().unwrap() = true; 
+				let mut newtermaff = term_affected.clone(); // TODO: reserve this memory in advance
+				*newtermaff.last_mut().unwrap() = true;
+
 				do_module_rec(f, statements, var_info, current_index + 1, &mut newtermaff, output);
 			},
 			StatementResult::NotExecuted(f) => do_module_rec(f, statements, var_info, current_index + 1, term_affected, output),
@@ -348,6 +357,10 @@ impl Module {
 // execute the module
 pub fn do_program(program : &mut Program, write_log: bool) {
 	for module in program.modules.iter_mut() {
+		// move global statements from the previous module into the new one
+		// TODO: do swap instead of clone?
+		program.var_info.variables = program.var_info.global_variables.clone();
+
 		module.normalize_module(&mut program.var_info, &mut program.procedures);
 		debug!("{}", module); // print module code
 

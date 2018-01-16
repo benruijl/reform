@@ -5,8 +5,9 @@ use std::mem;
 use itertools;
 use itertools::Itertools;
 use tools::{SliceRef,Heap,add_terms,is_number_in_range};
+use std::collections::HashMap;
 
-pub const MAXMATCH: usize = 1000000; // maximum number of matches
+pub const MAXMATCH: usize = 1_000_000; // maximum number of matches
 
 #[derive(Debug,Clone,Eq,PartialEq)]
 pub enum MatchOpt<'a> {
@@ -136,7 +137,7 @@ pub enum ElementIterSingle<'a> {
     FnIter(FuncIterator<'a>), // match function
     Once, // matching without wildcard, ie number vs number
     OnceMatch(&'a VarName, &'a Element), // simple match of variable
-    PermIter(&'a [Element], Heap<&'a Element>, SequenceIter<'a>), // term and arg combinations,
+    PermIter(&'a [Element], Heap<&'a Element>, SequenceIter<'a>, &'a HashMap<VarName, Element>), // term and arg combinations,
     SeqIt(Vec<&'a Element>, SequenceIter<'a>), // target and iterator
     None
 }
@@ -172,13 +173,17 @@ impl<'a>  ElementIterSingle<'a> {
                 }
             },
             ElementIterSingle::FnIter(ref mut f) => f.next(m),
-            ElementIterSingle::PermIter(ref pat, ref mut heap, ref mut termit) => {
+            ElementIterSingle::PermIter(ref pat, ref mut heap, ref mut termit, ref var_info) => {
+                if pat.len() != heap.data.len() {
+                    return None;
+                }
+
                 loop {
                     if let Some(x) = termit.next(&heap.data, m) {
                         return Some(x);
                     }
                     if let Some(x) = heap.next_permutation() {
-                        *termit = SequenceIter::new(SliceRef::BorrowedSlice(pat), x[0]);
+                        *termit = SequenceIter::new(SliceRef::BorrowedSlice(pat), x[0], var_info);
                     } else {
                         break;
                     }
@@ -237,7 +242,7 @@ impl<'a>  ElementIter<'a> {
 
 impl Element {
     // create an iterator over a pattern
-    fn to_iter<'a>(&'a self, target: &'a [Element]) -> ElementIter<'a> {
+    fn to_iter<'a>(&'a self, target: &'a [Element], var_info: &'a HashMap<VarName, Element>) -> ElementIter<'a> {
 
         // go through all possible options (slice sizes) for the variable argument
         if let &Element::VariableArgument(ref name) = self {
@@ -246,17 +251,24 @@ impl Element {
 
         // is the slice non-zero length?
         match target.first() {
-            Some(x) => ElementIter::SingleArg(&target[1..], self.to_iter_single(x)),
+            Some(x) => ElementIter::SingleArg(&target[1..], self.to_iter_single(x, var_info)),
             None => ElementIter::None
         }
     }
 
     // create an iterator over a pattern
-    fn to_iter_single<'a>(&'a self, target: &'a Element) -> ElementIterSingle<'a> {
+    fn to_iter_single<'a>(&'a self, target: &'a Element, var_info: &'a HashMap<VarName, Element>) -> ElementIterSingle<'a> {
         match (target, self) {
             (&Element::Pow(_, ref b1, ref p1), &Element::Pow(_, ref b2, ref p2)) => {
                 ElementIterSingle::SeqIt(vec![b1, p1], 
-                    SequenceIter::new(SliceRef::OwnedSlice(vec![b2, p2]), b1))
+                    SequenceIter::new(SliceRef::OwnedSlice(vec![b2, p2]), b1, var_info))
+            },
+            (i1, &Element::Dollar(ref i2, _))  => {
+                if var_info.get(i2) == Some(i1) {
+                    ElementIterSingle::Once
+                } else {
+                    ElementIterSingle::None
+                }
             },
             (&Element::Var(ref i1), &Element::Var(ref i2)) if i1 == i2 =>
                             ElementIterSingle::Once,
@@ -292,11 +304,11 @@ impl Element {
                 }
             },
             (&Element::Fn(_, ref f1), &Element::Fn(_, ref f2)) =>
-                        ElementIterSingle::FnIter(f2.to_iter(&f1)),
+                        ElementIterSingle::FnIter(f2.to_iter(&f1, var_info)),
             (&Element::Term(_, ref f1), &Element::Term(_, ref f2)) |
             (&Element::SubExpr(_, ref f1), &Element::SubExpr(_, ref f2)) => {
                 ElementIterSingle::PermIter(f2, Heap::new(f1.iter().map(|x| x).collect::<Vec<_>>()),
-                    SequenceIter::dummy(f2))
+                    SequenceIter::dummy(f2, var_info), var_info)
             },
             _ =>  ElementIterSingle::None
         }
@@ -305,24 +317,25 @@ impl Element {
 
 impl Func {
 
-  fn to_iter<'a>(&'a self, target: &'a Func) -> FuncIterator<'a> {
-    if self.name != target.name { return FuncIterator { pattern: self, iterators: vec![], matches : vec![] }; }
+  fn to_iter<'a>(&'a self, target: &'a Func, var_info: &'a HashMap<VarName, Element>) -> FuncIterator<'a> {
+    if self.name != target.name { return FuncIterator { pattern: self, iterators: vec![], matches : vec![], 
+        var_info: var_info }; }
 
     // shortcut if the number of arguments is wrong
     let varargcount = self.args.iter().filter(|x| match *x { &Element::VariableArgument {..} => true, _ => false } ).count();
     if self.args.len() - varargcount > target.args.len() { 
-        return FuncIterator { pattern: self, iterators: vec![], matches : vec![] }; 
+        return FuncIterator { pattern: self, iterators: vec![], matches : vec![], var_info: var_info }; 
     };
     if varargcount == 0 && self.args.len() != target.args.len() {
-        return FuncIterator { pattern: self, iterators: vec![], matches : vec![] }; 
+        return FuncIterator { pattern: self, iterators: vec![], matches : vec![], var_info: var_info }; 
     };
 
     let mut iterator = (0..self.args.len()).map(|_| { ElementIter::None }).collect::<Vec<_>>(); // create placeholder iterators
-    iterator[0] = self.args[0].to_iter(&target.args); // initialize the first iterator
+    iterator[0] = self.args[0].to_iter(&target.args, var_info); // initialize the first iterator
 
     let matches = vec![(&target.args[..], MAXMATCH); self.args.len()]; // placeholder matches
 
-    FuncIterator { pattern: self, iterators: iterator, matches : matches }
+    FuncIterator { pattern: self, iterators: iterator, matches : matches, var_info: var_info }
   }
 }
 
@@ -332,6 +345,7 @@ pub struct FuncIterator<'a> {
     pattern: &'a Func,
     iterators: Vec<ElementIter<'a>>,
     matches: Vec<(&'a [Element], usize)>, // keep track of stack depth
+    var_info: &'a HashMap<VarName, Element>
 }
 
 impl<'a>FuncIterator<'a> {
@@ -355,7 +369,7 @@ impl<'a>FuncIterator<'a> {
                 let mut j = i + 1;
                 while j < self.iterators.len() {
                     // create a new iterator at j based on the previous match dictionary and slice
-                    self.iterators[j] = self.pattern.args[j].to_iter(self.matches[j-1].0);
+                    self.iterators[j] = self.pattern.args[j].to_iter(self.matches[j-1].0, self.var_info);
 
                     match self.iterators[j].next(m) {
                         Some(y) => { self.matches[j] = y; },
@@ -397,17 +411,19 @@ pub struct SequenceIter<'a> {
     pattern: SliceRef<'a,Element>, // input term
     iterators: Vec<ElementIterSingle<'a>>,
     matches: Vec<usize>, // keep track of stack depth
+    var_info: &'a HashMap<VarName, Element>
 }
 
 impl<'a> SequenceIter<'a> {
-    fn dummy(pattern: &'a [Element]) -> SequenceIter<'a> {
-        SequenceIter { pattern: SliceRef::BorrowedSlice(pattern), iterators: vec![], matches: vec![] }
+    fn dummy(pattern: &'a [Element], var_info: &'a HashMap<VarName, Element>) -> SequenceIter<'a> {
+        SequenceIter { pattern: SliceRef::BorrowedSlice(pattern), iterators: vec![], matches: vec![], var_info }
     }
 
-    fn new(pattern: SliceRef<'a,Element>, first: &'a Element) -> SequenceIter<'a> {
+    fn new(pattern: SliceRef<'a,Element>, first: &'a Element, var_info: &'a HashMap<VarName, Element>) -> SequenceIter<'a> {
         let mut its =  (0..pattern.len()).map(|_| { ElementIterSingle::None }).collect::<Vec<_>>();
-        its[0] = pattern.index(0).to_iter_single(first);
-        SequenceIter { pattern: pattern.clone(), iterators: its, matches: vec![MAXMATCH; pattern.len()] }
+        its[0] = pattern.index(0).to_iter_single(first, var_info);
+        SequenceIter { pattern: pattern.clone(), iterators: its, matches: vec![MAXMATCH; pattern.len()],
+            var_info }
     }
 
     fn next(&mut self, target: &[&'a Element], m: &mut MatchObject<'a>) -> Option<usize> {
@@ -427,7 +443,7 @@ impl<'a> SequenceIter<'a> {
                 let mut j = i + 1;
                 while j < self.iterators.len() {
                     // create a new iterator at j based on the previous match dictionary and slice
-                    self.iterators[j] = self.pattern.index(j).to_iter_single(target[j]);
+                    self.iterators[j] = self.pattern.index(j).to_iter_single(target[j], self.var_info);
 
                     match self.iterators[j].next(m) {
                         Some(y) => { self.matches[j] = y; },
@@ -460,15 +476,16 @@ pub struct MatchTermIterator<'a> {
     remaining: Option<Vec<&'a Element>>,
     m : MatchObject<'a>,
     combinator: itertools::Combinations<std::slice::Iter<'a, Element>>,
-    permutator: ElementIterSingle<'a>
+    permutator: ElementIterSingle<'a>,
+    var_info: &'a HashMap<VarName, Element>
 }
 
 impl<'a> MatchTermIterator<'a> {
-    fn new(pattern: &'a [Element], target: &'a [Element]) -> MatchTermIterator<'a> {
+    fn new(pattern: &'a [Element], target: &'a [Element], var_info: &'a HashMap<VarName, Element>) -> MatchTermIterator<'a> {
         let combinator = target.iter().combinations(pattern.len());
 
         MatchTermIterator { pattern: pattern, target: target, subtarget: None, remaining: None, m: vec![],
-        combinator: combinator, permutator: ElementIterSingle::None  }
+        combinator: combinator, permutator: ElementIterSingle::None, var_info  }
 
     }
 
@@ -488,9 +505,9 @@ impl<'a> MatchTermIterator<'a> {
             
             if let Some(x) = self.combinator.next() {
                 self.permutator = ElementIterSingle::PermIter(self.pattern, Heap::new(x.iter().map(|x| *x).collect::<Vec<_>>()),
-                        SequenceIter::dummy(self.pattern));
+                        SequenceIter::dummy(self.pattern, self.var_info), self.var_info);
 
-                SequenceIter::new(SliceRef::BorrowedSlice(self.pattern), x[0]);
+                SequenceIter::new(SliceRef::BorrowedSlice(self.pattern), x[0], self.var_info);
 
                 // construct the factors that are not affected
                 let mut rem = vec![];
@@ -512,17 +529,17 @@ impl<'a> MatchTermIterator<'a> {
 #[derive(Debug)]
 pub enum MatchKind<'a> {
     Single(MatchObject<'a>, ElementIterSingle<'a>),
-    SinglePat(&'a Element, MatchObject<'a>, ElementIterSingle<'a>, &'a [Element], usize),
+    SinglePat(&'a Element, MatchObject<'a>, ElementIterSingle<'a>, &'a [Element], usize, &'a HashMap<VarName, Element>),
     Many(MatchTermIterator<'a>),
     None
 }
 
 impl<'a> MatchKind<'a> {
-    pub fn from_element(pattern: &'a Element, target: &'a Element) -> MatchKind<'a> {
+    pub fn from_element(pattern: &'a Element, target: &'a Element, var_info: &'a HashMap<VarName, Element>) -> MatchKind<'a> {
         match (pattern, target) {
-            (&Element::Term(_, ref x), &Element::Term(_, ref y)) => MatchKind::Many(MatchTermIterator::new(x, y)),
-            (ref a, &Element::Term(_, ref y)) => MatchKind::SinglePat(a, vec![], ElementIterSingle::None, y, 0),
-            (a,b) => MatchKind::Single(vec![], a.to_iter_single(b)) 
+            (&Element::Term(_, ref x), &Element::Term(_, ref y)) => MatchKind::Many(MatchTermIterator::new(x, y, var_info)),
+            (ref a, &Element::Term(_, ref y)) => MatchKind::SinglePat(a, vec![], ElementIterSingle::None, y, 0,var_info),
+            (a,b) => MatchKind::Single(vec![], a.to_iter_single(b, var_info)) 
         }
     }
 
@@ -530,7 +547,7 @@ impl<'a> MatchKind<'a> {
         match *self {
             MatchKind::Single(ref mut m, ref mut x) => x.next(m).map(|_| { (vec![], m.clone()) }),
             MatchKind::Many(ref mut x) => x.next(),
-            MatchKind::SinglePat(ref pat, ref mut m, ref mut it, ref target, ref mut index) => {
+            MatchKind::SinglePat(ref pat, ref mut m, ref mut it, ref target, ref mut index, ref var_info) => {
                 loop {
                     if let Some(_) = it.next(m) {
                         let rem = target.iter().enumerate().filter_map(|(i,x)| 
@@ -539,7 +556,7 @@ impl<'a> MatchKind<'a> {
                     }
 
                     if *index == target.len() { return None; }
-                    *it = pat.to_iter_single(&target[*index]);
+                    *it = pat.to_iter_single(&target[*index], var_info);
                     *index += 1;
                 }                
             },
@@ -557,7 +574,8 @@ pub struct MatchIterator<'a> {
     it: MatchKind<'a>,
     rhsp: usize, // current rhs index,
     hasmatch: bool,
-    input: &'a Element
+    input: &'a Element,
+    var_info: &'a HashMap<VarName, Element>
 }
 
 // iterate over the output terms of a match
@@ -594,6 +612,7 @@ impl<'a> MatchIterator<'a> {
                     if self.remaining.len() > 0 {
                         add_terms(&mut res, self.remaining.clone());
                     }
+                    res.replace_vars(&self.var_info); // subsitute dollars in rhs
                     res.normalize_inplace();
                     res
                 },
@@ -603,6 +622,7 @@ impl<'a> MatchIterator<'a> {
                     if self.remaining.len() > 0 {
                         add_terms(&mut res, self.remaining.clone());
                     }
+                    res.replace_vars(&self.var_info); // subsitute dollars in rhs
                     res.normalize_inplace();
                     res
                 }
@@ -612,9 +632,9 @@ impl<'a> MatchIterator<'a> {
 }
 
 impl IdentityStatement {
-    pub fn to_iter<'a>(&'a self, input: &'a Element) -> MatchIterator<'a> {
+    pub fn to_iter<'a>(&'a self, input: &'a Element, var_info: &'a HashMap<VarName, Element>) -> MatchIterator<'a> {
         MatchIterator { input: input, hasmatch: false, m: vec![], remaining: vec![], mode: self.mode.clone(), rhs: &self.rhs, rhsp: 0, it:
-            MatchKind::from_element(&self.lhs, input) }
+            MatchKind::from_element(&self.lhs, input, var_info), var_info }
         
     }
 }
