@@ -9,6 +9,9 @@ extern crate byteorder; // for serialization
 extern crate log;
 extern crate env_logger;
 
+#[cfg(feature = "profile")]
+extern crate cpuprofiler;
+
 #[macro_use]
 mod structure;
 mod parser;
@@ -22,8 +25,20 @@ mod serialize;
 
 use clap::{Arg, App};
 
+#[cfg(feature = "profile")]
+use cpuprofiler::PROFILER;
+
 fn main() {
   env_logger::init().unwrap();
+
+  #[cfg(feature = "profile")]
+  let do_profile = match std::env::var("CPUPROFILE") {
+    Ok(val) => {
+      PROFILER.lock().unwrap().start(val).unwrap();
+      true
+    },
+    _ => false,
+  };
 
   let matches = App::new("reFORM")
                           .version("0.1.0")
@@ -52,4 +67,11 @@ fn main() {
 
   let mut program = parser::parse_file(matches.value_of("INPUT").unwrap());
   module::do_program(&mut program, matches.is_present("log"));
+
+  #[cfg(feature = "profile")]
+  {
+    if do_profile {
+      PROFILER.lock().unwrap().stop().unwrap();
+    }
+  }
 }

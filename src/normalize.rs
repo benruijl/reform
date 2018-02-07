@@ -208,7 +208,7 @@ impl Element {
                     match ts.len() {
                         0 => Element::Num(false, true, 0, 1),
                         1 => ts.swap_remove(0), // downgrade
-                        _ => return false
+                        _ => return false // TODO: why is there a false here?
                     }
                 } else {
                     unreachable!()

@@ -239,8 +239,8 @@ impl Ord for Element {
 
 // implement a custom partial order that puts
 // x and x*2 next to each other for term sorting
-// and x*x^2 next to each other for 
-// numbers are partially ignored and sorted at the back
+// and x and x^2 next to each other for 
+// coefficients are partially ignored and sorted at the back
 impl PartialOrd for Element {
     fn partial_cmp(&self, other: &Element) -> Option<Ordering> {
         match (self, other) {

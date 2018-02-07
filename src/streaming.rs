@@ -76,7 +76,7 @@ impl TermStreamer {
     // write it to file
     pub fn add_term(&mut self, element: Element) {
         // print intermediate statistics
-        if self.termcounter >= 100000 && self.termcounter % 100000 == 0 {
+        if self.termcounter >= 100_000 && self.termcounter % 100_000 == 0 {
             println!("    -- generated: {}", self.termcounter);
         }
 
