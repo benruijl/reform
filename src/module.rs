@@ -181,16 +181,11 @@ fn do_module_rec(mut input: Element, statements: &[Statement], var_info: &mut Va
 			term_affected.push(false);
 			return do_module_rec(input, statements, var_info, current_index + 1, term_affected, output)
 		},
-		Statement::JumpIfChanged(i) => { // the i should be one after the PushChange
-			let l = term_affected.len();
-			let repeat = term_affected[l - 1];
-
-			if repeat {
-				term_affected[l - 2] = true;
-				term_affected[l - 1] = false;
+		Statement::JumpIfChanged(i) => {
+			if Some(&true) == term_affected.last() {
 				return do_module_rec(input, statements, var_info, i, term_affected, output);
 			} else {
-				term_affected.pop();
+				term_affected.pop(); // it should be as if the repeated wasn't there
 				return do_module_rec(input, statements, var_info, current_index + 1, term_affected, output);
 			}
 		},
@@ -238,11 +233,10 @@ fn do_module_rec(mut input: Element, statements: &[Statement], var_info: &mut Va
 	loop {
 		match it.next() { // for every term
 			StatementResult::Executed(f) => { 
-				// make a copy that will be modified further in the recursion. FIXME: is this the only way?
-				let mut newtermaff = term_affected.clone(); // TODO: reserve this memory in advance
-				*newtermaff.last_mut().unwrap() = true;
-
-				do_module_rec(f, statements, var_info, current_index + 1, &mut newtermaff, output);
+				*term_affected.last_mut().unwrap() = true;
+				let d = term_affected.len(); // store the depth of the stack
+				do_module_rec(f, statements, var_info, current_index + 1, term_affected, output);
+				term_affected.truncate(d);
 			},
 			StatementResult::NotExecuted(f) => do_module_rec(f, statements, var_info, current_index + 1, term_affected, output),
 			StatementResult::NoChange => {  break; },
@@ -252,7 +246,6 @@ fn do_module_rec(mut input: Element, statements: &[Statement], var_info: &mut Va
 	}
 
 	// only reached when the input was not changed
-	// TODO: is that really the case?
 	do_module_rec(input, statements, var_info, current_index + 1, term_affected, output);
 }
 
@@ -266,7 +259,7 @@ impl Module {
 					output.push(Statement::PushChange);
 					let pos = output.len();
 					Module::to_control_flow_stat(ss, var_info, procedures, output);
-					output.push(Statement::JumpIfChanged(pos));
+					output.push(Statement::JumpIfChanged(pos - 1));
 				},
 				&Statement::IfElse(ref prod, ref m, ref nm) => {
 					let pos = output.len();
@@ -364,7 +357,7 @@ pub fn do_program(program : &mut Program, write_log: bool) {
 		module.normalize_module(&mut program.var_info, &mut program.procedures);
 		debug!("{}", module); // print module code
 
-		let mut executed = vec![false];
+		let mut executed = vec![];
 
 		let mut inpcount = 0u64;
 		while let Some(x) = program.input.read_term() {
