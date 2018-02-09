@@ -34,10 +34,14 @@ fn main() {
   #[cfg(feature = "profile")]
   let do_profile = match std::env::var("CPUPROFILE") {
     Ok(val) => {
+      info!("Using profiler");
       PROFILER.lock().unwrap().start(val).unwrap();
       true
     },
-    _ => false,
+    _ => {
+      info!("Not using profiler");
+      false
+    },
   };
 
   let matches = App::new("reFORM")

@@ -357,7 +357,7 @@ pub fn do_program(program : &mut Program, write_log: bool) {
 		module.normalize_module(&mut program.var_info, &mut program.procedures);
 		debug!("{}", module); // print module code
 
-		let mut executed = vec![];
+		let mut executed = vec![false];
 
 		let mut inpcount = 0u64;
 		while let Some(x) = program.input.read_term() {
