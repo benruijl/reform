@@ -34,7 +34,7 @@ fn main() {
   #[cfg(feature = "profile")]
   let do_profile = match std::env::var("CPUPROFILE") {
     Ok(val) => {
-      info!("Using profiler");
+      info!("Using profiler: saving in {}", val);
       PROFILER.lock().unwrap().start(val).unwrap();
       true
     },

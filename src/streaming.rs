@@ -11,6 +11,7 @@ use structure::{Element, VarInfo, ElementPrinter, Func, Statement};
 use normalize::merge_terms;
 
 pub const MAXTERMMEM: usize = 10_000_000; // maximum number of terms allowed in memory
+pub const SMALL_BUFFER: u64 = 100_000; // number of terms before sorting
 
 #[derive(Clone, Eq, PartialEq)]
 struct ElementStreamTuple(Element, usize);
@@ -76,8 +77,19 @@ impl TermStreamer {
     // write it to file
     pub fn add_term(&mut self, element: Element) {
         // print intermediate statistics
-        if self.termcounter >= 100_000 && self.termcounter % 100_000 == 0 {
+        if self.termcounter >= SMALL_BUFFER && self.termcounter % SMALL_BUFFER == 0 {
             println!("    -- generated: {}", self.termcounter);
+
+            // sort to potentially reduce the memory footprint
+            let mut tmp = vec![];
+            mem::swap(&mut self.mem_buffer, &mut tmp);
+            let mut a = Element::SubExpr(true, tmp);
+            a.normalize_inplace();
+
+            match a {
+                Element::SubExpr(_, ref mut x) => mem::swap(&mut self.mem_buffer, x),
+                x => self.mem_buffer_input = vec![x],
+            }
         }
 
         if self.mem_buffer.len() < MAXTERMMEM {
