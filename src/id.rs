@@ -17,23 +17,23 @@ pub enum MatchOpt<'a> {
 
 #[derive(Debug,Clone,Eq,PartialEq)]
 pub enum MatchOptOwned {
-    Single(Element),
+    Single(Element, bool), // bool is the changed flag
     Multiple(Vec<Element>)
 }
 
 impl<'a> MatchOpt<'a> {
     fn to_owned(&self) -> MatchOptOwned {
         match *self {
-            MatchOpt::Single(x) => MatchOptOwned::Single(x.clone()),
+            MatchOpt::Single(x) => MatchOptOwned::Single(x.clone(), true),
             MatchOpt::Multiple(x) => MatchOptOwned::Multiple(x.iter().map(|y| (*y).clone()).collect())
         }
     }
 }
 
 impl MatchOptOwned {
-    fn to_single(self) -> Element {
+    fn to_single(self) -> (Element, bool) {
         match self {
-            MatchOptOwned::Single(x) => x,
+            MatchOptOwned::Single(x, c) => (x, c),
             _ => panic!("Trying to get single element from a multiple")
         }
     }
@@ -106,29 +106,55 @@ impl Element {
         match *self {
             Element::VariableArgument(ref name) => find_match(m, name).unwrap().to_owned(),
             Element::Wildcard(ref name, ..) => find_match(m, name).unwrap().to_owned(),
-            Element::Pow(_, ref b, ref p) => MatchOptOwned::Single(Element::Pow(true,
-                Box::new(b.apply_map(m).to_single()), Box::new(p.apply_map(m).to_single()))),
-            Element::Fn(_, ref f) => MatchOptOwned::Single(Element::Fn(true, f.apply_map(m))),
-            Element::Term(_, ref f) => MatchOptOwned::Single(Element::Term(true, 
-                f.iter().map(|x| x.apply_map(m).to_single()).collect())),
-            Element::SubExpr(_, ref f) => MatchOptOwned::Single(Element::SubExpr(true, 
-                f.iter().map(|x| x.apply_map(m).to_single()).collect())),
-            _ => MatchOptOwned::Single(self.clone())
+            Element::Pow(_, ref b, ref p) => {
+                let mut changed = false;
+                let (bb, mut c) = b.apply_map(m).to_single();
+                changed |= c;
+                let (pp, c) = p.apply_map(m).to_single();
+                changed |= c;
+                MatchOptOwned::Single(Element::Pow(changed, Box::new(bb), Box::new(pp)), changed)
+            },
+            Element::Fn(_, ref f) => {
+                let(ff, c) = f.apply_map(m);
+                MatchOptOwned::Single(Element::Fn(c, ff), c)
+            } ,
+            Element::Term(_, ref f) => {
+                let mut changed = false;
+                let mut args = vec![];
+                for x in f.iter() {
+                    let (xx, c) = x.apply_map(m).to_single();
+                    changed |= c;
+                    args.push(xx);
+                }
+                MatchOptOwned::Single(Element::Term(changed, args), changed)
+            },
+            Element::SubExpr(_, ref f) => {
+                let mut changed = false;
+                let mut args = vec![];
+                for x in f.iter() {
+                    let (xx, c) = x.apply_map(m).to_single();
+                    changed |= c;
+                    args.push(xx);
+                }
+                MatchOptOwned::Single(Element::SubExpr(changed, args), changed)
+            },
+            _ => MatchOptOwned::Single(self.clone(), false) // no match, so no change
         }
     }
 }
 
 impl Func {
-    fn apply_map<'a>(&self, m: &MatchObject<'a>) -> Func {
+    fn apply_map<'a>(&self, m: &MatchObject<'a>) -> (Func, bool) {
+        let mut changed = false;
         let mut args = vec![];
         for a in self.args.iter() {
             match a.apply_map(m) {
-                MatchOptOwned::Single(x) => args.push(x),
-                MatchOptOwned::Multiple(x) => args.extend(x)
+                MatchOptOwned::Single(x, c) => { changed |= c; args.push(x)},
+                MatchOptOwned::Multiple(x) => { changed = true; args.extend(x) }
             }
         }
 
-        Func { name: self.name.clone(), args : args }
+        (Func { name: self.name.clone(), args : args }, changed)
     }
 }
 
@@ -608,21 +634,21 @@ impl<'a> MatchIterator<'a> {
                         self.rhsp = 0;
                     }
 
-                    let mut res = r.to_single();
+                    let (mut res, changed) = r.to_single();
                     if self.remaining.len() > 0 {
-                        add_terms(&mut res, self.remaining.clone());
+                        add_terms(&mut res, &self.remaining);
                     }
-                    res.replace_vars(&self.var_info); // subsitute dollars in rhs
+                    res.replace_vars(&self.var_info, true); // subsitute dollars in rhs
                     res.normalize_inplace();
                     res
                 },
                 x => {
                     let r = x.apply_map(&self.m);
-                    let mut res = r.to_single();
+                    let (mut res, changed) = r.to_single();
                     if self.remaining.len() > 0 {
-                        add_terms(&mut res, self.remaining.clone());
+                        add_terms(&mut res, &self.remaining);
                     }
-                    res.replace_vars(&self.var_info); // subsitute dollars in rhs
+                    res.replace_vars(&self.var_info, true); // subsitute dollars in rhs
                     res.normalize_inplace();
                     res
                 }

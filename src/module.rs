@@ -138,7 +138,8 @@ impl Statement {
 				(ref mut a, &Element::Term(_,ref xx)) => { let mut r = xx.clone(); r.push(mem::replace(a, DUMMY_ELEM!())); Element::Term(true, r) },
 	      		(ref mut a, aa) => Element::Term(true, vec![mem::replace(a, DUMMY_ELEM!()), aa.clone()])
 	      	};
-			res.replace_vars(var_info); // apply the dollar variables
+
+			res.replace_vars(var_info, true); // apply the dollar variables
 			res.normalize_inplace();
 	      	StatementIter::Simple(res, true)
 	      },
@@ -204,7 +205,7 @@ fn do_module_rec(mut input: Element, statements: &[Statement], var_info: &mut Va
 		// move to iter if we decide how to propagate the var_info
 		Statement::Assign(ref dollar, ref e) => {
 			let mut ee = e.clone();
-			ee.replace_vars(&var_info.variables);
+			ee.replace_vars(&var_info.variables, true);
 			if let &Element::Dollar(ref d, ..) = dollar {
 				var_info.add_dollar(d.clone(), ee);
 			}
@@ -306,7 +307,7 @@ impl Module {
 							}
 
 							let newmod = p.statements.iter().cloned().map(|mut x| { x.var_to_id(var_info); x}).
-								map(|mut x| {x.replace_vars(&map); x}).collect::<Vec<_>>();
+								map(|mut x| {x.replace_vars(&map, false); x}).collect::<Vec<_>>();
 							
 							Module::to_control_flow_stat(&newmod, var_info, procedures, output);
 						}

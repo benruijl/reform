@@ -295,6 +295,7 @@ impl PartialOrd for Element {
             }
             (&Element::Term(_, ref ta), &Element::Term(_, ref tb)) => {
                 // ignore coefficients
+                // FIXME: only ignore coefficients on ground level
                 // we can assume the coefficients are at the end and that the term is in proper order
                 let tamin = if let Some(&Element::Num(..)) = ta.last() {
                     ta.len() -1
@@ -697,91 +698,70 @@ impl Element {
         }
     }
 
-    pub fn replace_vars(&mut self, map: &HashMap<VarName, Element>) {
+    pub fn replace_vars(&mut self, map: &HashMap<VarName, Element>, dollar_only: bool) -> bool {
+        let mut changed = false;
         *self = match *self {
             Element::Var(ref mut name) => {
+                if dollar_only { return false; }
                 if let Some(x) = map.get(name) {
                     x.clone()
                 } else {
-                    return
+                    return false
                 }
             },
             Element::Dollar(ref mut name, ..) => {
                 if let Some(x) = map.get(name) {
                     x.clone()
                 } else {
-                    return
+                    return false
                 }
             },
             Element::Wildcard(_, ref mut restrictions) => {
                 for x in restrictions {
-                    x.replace_vars(map);
+                    changed |= x.replace_vars(map, dollar_only);
                 }
-                return
+                return changed
             },
-            Element::Pow(_, ref mut b, ref mut e) => {
-                b.replace_vars(map);
-                e.replace_vars(map);
-                return
+            Element::Pow(ref mut dirty, ref mut b, ref mut e) => {
+                changed |= b.replace_vars(map, dollar_only);
+                changed |= e.replace_vars(map, dollar_only);
+                *dirty |= changed;
+                return changed
             }
-            Element::Term(_, ref mut f) | Element::SubExpr(_, ref mut f) => {
-            for x in f {
-                x.replace_vars(map);
-            }
-            return
+            Element::Term(ref mut dirty, ref mut f) | Element::SubExpr(ref mut dirty, ref mut f) => {
+                for x in f {
+                    changed |= x.replace_vars(map, dollar_only);
+                }
+                *dirty |= changed;
+                return changed
             },
             Element::Fn(
-                _,
+                ref mut dirty,
                 Func {
                     ref mut name,
                     ref mut args,
                 },
             ) => {
-                if let Some(x) = map.get(name) {
-                    if let &Element::Var(ref y) = x {
-                        *name = y.clone();
-                    } else {
-                        panic!("Cannot replace function name by generic expression");
+                if !dollar_only {
+                    if let Some(x) = map.get(name) {
+                        if let &Element::Var(ref y) = x {
+                            *name = y.clone();
+                            changed = true
+                        } else {
+                            panic!("Cannot replace function name by generic expression");
+                        }
                     }
                 }
 
                 for x in args {
-                    x.replace_vars(map);
+                    changed |= x.replace_vars(map, dollar_only);
                 }
-                return
+                *dirty |= changed;
+                return changed
             }
-            _ => return
-        }
-    }
-
-    pub fn replace_vars_needed(&self, map: &HashMap<VarName, Element>) -> bool {
-        match *self {
-            Element::Var(ref name) => {
-                map.contains_key(name)
-            },
-            Element::Dollar(ref name, ..) => {
-                map.contains_key(name)
-            },
-            Element::Wildcard(_, ref restrictions) => {
-                restrictions.iter().any(|x| x.replace_vars_needed(map))
-            },
-            Element::Pow(_, ref b, ref e) => {
-                b.replace_vars_needed(map) || e.replace_vars_needed(map)
-            }
-            Element::Term(_, ref f) | Element::SubExpr(_, ref f) => {
-                f.iter().any(|x| x.replace_vars_needed(map))
-            },
-            Element::Fn(
-                _,
-                Func {
-                    ref name,
-                    ref args,
-                },
-            ) => {
-                map.contains_key(name) || args.iter().any(|x| x.replace_vars_needed(map))
-            }
-            _ => false
-        }
+            _ => return false
+        };
+        true
     }
 
     // replace a (sub)element that appears literally by a new element
@@ -865,28 +845,29 @@ impl Statement {
         }
     }
 
-    pub fn replace_vars(&mut self, map: &HashMap<VarName, Element>) {
+    pub fn replace_vars(&mut self, map: &HashMap<VarName, Element>, dollar_only: bool) -> bool {
+        let mut changed = false;
         match *self {
             Statement::IdentityStatement(IdentityStatement {
                 mode: _,
                 ref mut lhs,
                 ref mut rhs,
             }) => {
-                lhs.replace_vars(map);
-                rhs.replace_vars(map);
+                changed |= lhs.replace_vars(map, dollar_only);
+                changed |= rhs.replace_vars(map, dollar_only);
             },
             Statement::Repeat(ref mut ss) => {
                 for s in ss {
-                    s.replace_vars(map);
+                    changed |= s.replace_vars(map, dollar_only);
                 }
             },
             Statement::IfElse(ref mut e, ref mut ss, ref mut sse) => {
-                e.replace_vars(map);
+                changed |= e.replace_vars(map, dollar_only);
                 for s in ss {
-                    s.replace_vars(map);
+                    changed |= s.replace_vars(map, dollar_only);
                 }
                 for s in sse {
-                    s.replace_vars(map);
+                    changed |= s.replace_vars(map, dollar_only);
                 }
             },
             Statement::SplitArg(ref mut name) | Statement::Symmetrize(ref mut name)
@@ -900,51 +881,19 @@ impl Statement {
                 }
             }
             Statement::Multiply(ref mut e) => {
-                e.replace_vars(map);
+                changed |= e.replace_vars(map, dollar_only);
             },
             Statement::Call(_, ref mut es) => {
                 for s in es {
-                    s.replace_vars(map);
+                    changed |= s.replace_vars(map, dollar_only);
                 }
             },
             Statement::Assign(ref d, ref mut e) => {
                 // TODO: also change dollar variable?
-                e.replace_vars(map);
+                changed |= e.replace_vars(map, dollar_only);
             }
             _ => {}
-        }
-    }
-
-    pub fn replace_vars_needed(&self, map: &HashMap<VarName, Element>) -> bool {
-        match *self {
-            Statement::IdentityStatement(IdentityStatement {
-                mode: _,
-                ref lhs,
-                ref rhs,
-            }) => {
-                lhs.replace_vars_needed(map) || rhs.replace_vars_needed(map)
-            },
-            Statement::Repeat(ref ss) => {
-                ss.iter().any(|x| x.replace_vars_needed(map))
-            },
-            Statement::IfElse(ref e, ref ss, ref sse) => {
-                e.replace_vars_needed(map) || ss.iter().any(|x| x.replace_vars_needed(map)) || sse.iter().any(|x| x.replace_vars_needed(map))
-            },
-            Statement::SplitArg(ref name) | Statement::Symmetrize(ref name)
-            | Statement::Collect(ref name) => {
-                map.contains_key(name)
-            }
-            Statement::Multiply(ref e) => {
-                e.replace_vars_needed(map)
-            },
-            Statement::Call(_, ref es) => {
-                es.iter().any(|x| x.replace_vars_needed(map))
-            },
-            Statement::Assign(ref d, ref e) => {
-                // TODO: also change dollar variable?
-                e.replace_vars_needed(map)
-            }
-            _ => false
-        }
+        };
+        changed
     }
 }

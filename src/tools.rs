@@ -193,18 +193,21 @@ pub fn add_one(pos: &mut bool, num: &mut u64, den: &mut u64) {
     }
 }
 
-pub fn add_terms(dest: &mut Element, mut to_add: Vec<Element>) {
+pub fn add_terms(dest: &mut Element, to_add: &Vec<Element>) {
     match *dest {
         Element::SubExpr(..) => {
             unreachable!("Subexpression should be filtered earlier");
         },
         Element::Term(ref mut dirty, ref mut t) => {
-            t.append(&mut to_add);
+            for x in to_add.iter() {
+                t.push(x.clone());
+            }
             *dirty = true;
         },
         ref mut a => {
-            to_add.push(mem::replace(a, DUMMY_ELEM!()));
-            *a = Element::Term(true, to_add);
+            let mut res = to_add.clone();
+            res.push(mem::replace(a, DUMMY_ELEM!()));
+            *a = Element::Term(true, res);
         }
     }
 }
@@ -226,6 +229,15 @@ pub fn num_cmp(
     }
     if pos && !pos1 {
         return NumOrder::Greater;
+    }
+
+    if den == den1 {
+        if num < num1 {
+            return NumOrder::Smaller;
+        }
+        else {
+            return NumOrder::Greater;
+        }
     }
 
     mul_fractions(&mut pos, &mut num, &mut den, true, den1, num1);
