@@ -3,6 +3,7 @@ use streaming::TermStreamer;
 use std::collections::HashMap;
 use std::mem;
 use std::cmp::Ordering;
+use std::sync::Mutex;
 use tools::num_cmp;
 
 pub const BUILTIN_FUNCTIONS :  &'static [&'static str] = &["delta_", "nargs_", "sum_", "mul_"];
@@ -13,7 +14,7 @@ pub const FUNCTION_MUL : u32 = 3;
 
 #[derive(Debug)]
 pub struct Program {
-    pub input: TermStreamer,
+    pub input: Mutex<TermStreamer>,
     pub modules: Vec<Module>,
     pub procedures: Vec<Procedure>,
     pub var_info: VarInfo,
@@ -82,7 +83,7 @@ impl VarInfo {
 impl Program {
     pub fn new(input: Element, mut modules: Vec<Module>, mut procedures: Vec<Procedure>) -> Program {
         let mut prog =  Program {
-            input: TermStreamer::new(),
+            input: Mutex::new(TermStreamer::new()),
             modules: vec![],
             procedures: vec![],
             var_info: VarInfo::new()
@@ -91,11 +92,11 @@ impl Program {
         match input {
             Element::SubExpr(_, t) => for mut x in t {
                 x.var_to_id(&mut prog.var_info);
-                prog.input.add_term_input(x.normalize());
+                prog.input.lock().unwrap().add_term_input(x.normalize());
             },
             mut x => {
                 x.var_to_id(&mut prog.var_info);
-                prog.input.add_term_input(x.normalize());
+                prog.input.lock().unwrap().add_term_input(x.normalize());
             }
         }
 

@@ -15,4 +15,5 @@ env_logger = "0.4.3"
 rand = "0.3.16"
 combine = "2.5.1"
 byteorder = "1"
+crossbeam = "0.3.2"
 cpuprofiler = { version = "0.0.3", optional = true }

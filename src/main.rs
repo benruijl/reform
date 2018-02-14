@@ -4,6 +4,7 @@ extern crate itertools;
 extern crate clap; // command line argument options
 //extern crate rand;
 extern crate byteorder; // for serialization
+extern crate crossbeam;
 
 #[macro_use]
 extern crate log;
@@ -58,6 +59,12 @@ fn main() {
                                .short("l")
                                .long("log")
                                .help("Create a log file with the output"))
+                          .arg(Arg::with_name("workers")
+                               .short("w")
+                               .long("workers")
+                               .help("Number of workers (threads)")
+                               .default_value("1")
+                               .takes_value(true))
                           .arg(Arg::with_name("INPUT")
                                .help("Sets the input file to use")
                                .required(true)
@@ -70,7 +77,7 @@ fn main() {
                           .get_matches();
 
   let mut program = parser::parse_file(matches.value_of("INPUT").unwrap());
-  module::do_program(&mut program, matches.is_present("log"));
+  module::do_program(&mut program, matches.is_present("log"), matches.value_of("workers").unwrap().parse().unwrap());
 
   #[cfg(feature = "profile")]
   {
