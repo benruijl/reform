@@ -7,7 +7,7 @@ use std::collections::BinaryHeap;
 use std::cmp::Ordering;
 use std::mem;
 
-use structure::{Element, VarInfo, ElementPrinter, Func, Statement};
+use structure::{Element, ElementPrinter, Func, Statement, VarInfo};
 use normalize::merge_terms;
 
 pub const MAXTERMMEM: usize = 10_000_000; // maximum number of terms allowed in memory
@@ -33,12 +33,12 @@ impl PartialOrd for ElementStreamTuple {
 // stream from file or from memory
 #[derive(Debug)]
 pub struct TermStreamer {
-    input: Option<BufReader<File>>,        // the input file
-    mem_buffer_input: Vec<Element>,        // the memory buffer, storing unserialized terms
-    sortfiles: Vec<File>,                  // the sort files, a buffer for each file
-    mem_buffer: Vec<Element>,              // the memory buffer, storing unserialized terms
-    termcounter_input: u64,                // input term count
-    termcounter: u64,                      // current term count
+    input: Option<BufReader<File>>, // the input file
+    mem_buffer_input: Vec<Element>, // the memory buffer, storing unserialized terms
+    sortfiles: Vec<File>,           // the sort files, a buffer for each file
+    mem_buffer: Vec<Element>,       // the memory buffer, storing unserialized terms
+    termcounter_input: u64,         // input term count
+    termcounter: u64,               // current term count
 }
 
 impl TermStreamer {
@@ -155,7 +155,12 @@ impl TermStreamer {
 		}
     }*/
 
-    pub fn sort(&mut self, var_info: &mut VarInfo, global_statements: &[Statement], write_log: bool) {
+    pub fn sort(
+        &mut self,
+        var_info: &mut VarInfo,
+        global_statements: &[Statement],
+        write_log: bool,
+    ) {
         let inpterm = self.termcounter_input;
         let genterm = self.termcounter;
 
@@ -178,14 +183,20 @@ impl TermStreamer {
             for s in global_statements {
                 match s {
                     &Statement::Collect(ref v) => {
-                        a = Element::Fn(false, Func { name: v.clone(), args: vec![a] } );
-                    },
-                    _ => unreachable!()
+                        a = Element::Fn(
+                            false,
+                            Func {
+                                name: v.clone(),
+                                args: vec![a],
+                            },
+                        );
+                    }
+                    _ => unreachable!(),
                 }
             }
 
             // for now, print the dollar variables
-            for (k,v) in &var_info.global_variables {
+            for (k, v) in &var_info.global_variables {
                 println!("GLOB {} = {}", k, v);
             }
 
@@ -196,16 +207,20 @@ impl TermStreamer {
             }
 
             for x in self.mem_buffer_input.iter() {
-                println!("\t+{}", ElementPrinter { element: x, var_info });
+                println!(
+                    "\t+{}",
+                    ElementPrinter {
+                        element: x,
+                        var_info,
+                    }
+                );
             }
 
             self.termcounter_input = self.mem_buffer_input.len() as u64;
 
             println!(
                 "sort -- \t terms in: {}\tgenerated: {}\tterms out: {}",
-                inpterm,
-                genterm,
-                self.termcounter_input
+                inpterm, genterm, self.termcounter_input
             );
 
             return;
@@ -239,7 +254,9 @@ impl TermStreamer {
             self.mem_buffer.clear();
 
             self.sortfiles[x].seek(SeekFrom::Start(0)).unwrap(); // go back to start
-            if x == 0 { break; }
+            if x == 0 {
+                break;
+            }
             x -= 1;
         }
 
@@ -276,10 +293,7 @@ impl TermStreamer {
             // populate the heap with an element from each bucket
             for (i, mut s) in streamer.iter_mut().enumerate() {
                 if let Ok(e) = Element::deserialize(&mut s) {
-                    heap.push(ElementStreamTuple(
-                        e,
-                        i,
-                    ));
+                    heap.push(ElementStreamTuple(e, i));
                 }
             }
 
@@ -296,7 +310,13 @@ impl TermStreamer {
                 if self.mem_buffer.len() == maxsortmem {
                     self.termcounter_input += maxsortmem as u64 - 1;
                     for x in &self.mem_buffer[..maxsortmem - 1] {
-                        println!("\t+{}", ElementPrinter { element: x, var_info });
+                        println!(
+                            "\t+{}",
+                            ElementPrinter {
+                                element: x,
+                                var_info,
+                            }
+                        );
                         x.serialize(&mut ofb);
                     }
 
@@ -306,35 +326,43 @@ impl TermStreamer {
 
                 // push new objects to the queue
                 if let Ok(e) = Element::deserialize(&mut streamer[i]) {
-                    heap.push(ElementStreamTuple(
-                        e,
-                        i,
-                    ))
+                    heap.push(ElementStreamTuple(e, i))
                 }
             }
 
-             // execute the global statements
+            // execute the global statements
             for s in global_statements {
                 match s {
                     &Statement::Collect(ref v) => {
                         // does the output fit in memory?
                         if self.termcounter_input == 0 {
                             self.mem_buffer = vec![
-                                Element::Fn(false, Func { name: v.clone(), args:
-                                    mem::replace(&mut self.mem_buffer, vec![])})
+                                Element::Fn(
+                                    false,
+                                    Func {
+                                        name: v.clone(),
+                                        args: mem::replace(&mut self.mem_buffer, vec![]),
+                                    },
+                                ),
                             ];
                         } else {
                             panic!("Cannot collect, since output does not fit in memory.");
                         }
-                    },
-                    _ => unreachable!()
+                    }
+                    _ => unreachable!(),
                 }
             }
 
             self.termcounter_input += self.mem_buffer.len() as u64;
 
             for x in &self.mem_buffer {
-                println!("\t+{}", ElementPrinter { element: x, var_info });
+                println!(
+                    "\t+{}",
+                    ElementPrinter {
+                        element: x,
+                        var_info,
+                    }
+                );
             }
 
             // move the mem_buffer to the input buffer
@@ -346,9 +374,7 @@ impl TermStreamer {
 
             println!(
                 "sort -- \t terms in: {}\tgenerated: {}\tterms out: {}",
-                inpterm,
-                genterm,
-                self.termcounter_input
+                inpterm, genterm, self.termcounter_input
             );
         }
 

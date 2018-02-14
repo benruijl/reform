@@ -5,11 +5,11 @@ use std::mem;
 use std::cmp::Ordering;
 use tools::num_cmp;
 
-pub const BUILTIN_FUNCTIONS :  &'static [&'static str] = &["delta_", "nargs_", "sum_", "mul_"];
-pub const FUNCTION_DELTA : u32 = 0;
-pub const FUNCTION_NARGS : u32 = 1;
-pub const FUNCTION_SUM : u32 = 2;
-pub const FUNCTION_MUL : u32 = 3;
+pub const BUILTIN_FUNCTIONS: &'static [&'static str] = &["delta_", "nargs_", "sum_", "mul_"];
+pub const FUNCTION_DELTA: u32 = 0;
+pub const FUNCTION_NARGS: u32 = 1;
+pub const FUNCTION_SUM: u32 = 2;
+pub const FUNCTION_MUL: u32 = 3;
 
 #[derive(Debug)]
 pub struct Program {
@@ -20,19 +20,24 @@ pub struct Program {
 }
 
 // keeps track of global state
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone)]
 pub struct VarInfo {
     inv_name_map: Vec<String>,
     name_map: HashMap<String, u32>,
     local_map: HashMap<u32, u32>, // (temporary) map from ids to new ids in a procedure
     pub variables: HashMap<VarName, Element>, // local map of (dollar) variables
-    pub global_variables: HashMap<VarName, Element> // global map of (dollar) variables
+    pub global_variables: HashMap<VarName, Element>, // global map of (dollar) variables
 }
 
 impl VarInfo {
     pub fn empty() -> VarInfo {
-        VarInfo { inv_name_map: vec![], name_map: HashMap::new(), local_map: HashMap::new(),
-        variables: HashMap::new(), global_variables: HashMap::new() }
+        VarInfo {
+            inv_name_map: vec![],
+            name_map: HashMap::new(),
+            local_map: HashMap::new(),
+            variables: HashMap::new(),
+            global_variables: HashMap::new(),
+        }
     }
 
     pub fn new() -> VarInfo {
@@ -40,14 +45,19 @@ impl VarInfo {
         let mut name_map = HashMap::new();
 
         // insert built-in functions
-        let mut i : u32 = 0;
+        let mut i: u32 = 0;
         for x in BUILTIN_FUNCTIONS {
             name_map.insert(x.to_string(), i);
             inv_name_map.push(x.to_string());
             i += 1;
         }
-        VarInfo { inv_name_map, name_map, local_map: HashMap::new(), variables: HashMap::new(),
-            global_variables: HashMap::new() }
+        VarInfo {
+            inv_name_map,
+            name_map,
+            local_map: HashMap::new(),
+            variables: HashMap::new(),
+            global_variables: HashMap::new(),
+        }
     }
 
     pub fn replace_name(&mut self, name: &mut VarName) {
@@ -59,7 +69,7 @@ impl VarInfo {
                 inv.push(mem::replace(s, String::new()));
                 (inv.len() - 1) as u32
             })),
-            VarName::ID(v) => VarName::ID(*lm.get(&v).unwrap_or(&v)) // map local variable?
+            VarName::ID(v) => VarName::ID(*lm.get(&v).unwrap_or(&v)), // map local variable?
         }
     }
 
@@ -67,7 +77,10 @@ impl VarInfo {
         if let Some(y) = self.name_map.get(name) {
             self.local_map.insert(*y, self.name_map.len() as u32); // we have seen this variable before
         }
-        self.name_map.insert(format!("{}_{}", name, self.inv_name_map.len() as u32), self.inv_name_map.len() as u32);
+        self.name_map.insert(
+            format!("{}_{}", name, self.inv_name_map.len() as u32),
+            self.inv_name_map.len() as u32,
+        );
     }
 
     pub fn add_dollar(&mut self, name: VarName, value: Element) {
@@ -80,12 +93,16 @@ impl VarInfo {
 }
 
 impl Program {
-    pub fn new(input: Element, mut modules: Vec<Module>, mut procedures: Vec<Procedure>) -> Program {
-        let mut prog =  Program {
+    pub fn new(
+        input: Element,
+        mut modules: Vec<Module>,
+        mut procedures: Vec<Procedure>,
+    ) -> Program {
+        let mut prog = Program {
             input: TermStreamer::new(),
             modules: vec![],
             procedures: vec![],
-            var_info: VarInfo::new()
+            var_info: VarInfo::new(),
         };
 
         match input {
@@ -122,7 +139,7 @@ impl Program {
 pub struct Module {
     pub name: String,
     pub statements: Vec<Statement>,
-    pub global_statements: Vec<Statement>
+    pub global_statements: Vec<Statement>,
 }
 
 #[derive(Debug)]
@@ -229,8 +246,6 @@ impl PartialEq for Element {
      }
 }*/
 
-
-
 impl Ord for Element {
     fn cmp(&self, other: &Element) -> Ordering {
         self.partial_cmp(other).unwrap()
@@ -239,26 +254,41 @@ impl Ord for Element {
 
 // implement a custom partial order that puts
 // x and x*2 next to each other for term sorting
-// and x and x^2 next to each other for 
+// and x and x^2 next to each other for
 // coefficients are partially ignored and sorted at the back
 impl PartialOrd for Element {
     fn partial_cmp(&self, other: &Element) -> Option<Ordering> {
         match (self, other) {
-            (&Element::Fn(_, Func{name: ref namea, args: ref argsa}), &Element::Fn(_, Func{name: ref nameb, args: ref argsb})) => {
+            (
+                &Element::Fn(
+                    _,
+                    Func {
+                        name: ref namea,
+                        args: ref argsa,
+                    },
+                ),
+                &Element::Fn(
+                    _,
+                    Func {
+                        name: ref nameb,
+                        args: ref argsb,
+                    },
+                ),
+            ) => {
                 let k = namea.partial_cmp(nameb);
                 match k {
-                    Some(Ordering::Equal) => {},
-                    _ => return k
+                    Some(Ordering::Equal) => {}
+                    _ => return k,
                 }
                 if argsa.len() != argsb.len() {
                     return argsa.len().partial_cmp(&argsb.len());
                 }
 
-                for (argsaa,argsbb) in argsa.iter().zip(argsb) {
+                for (argsaa, argsbb) in argsa.iter().zip(argsb) {
                     let k = argsaa.partial_cmp(argsbb);
                     match k {
-                        Some(Ordering::Equal) => {},
-                        _ => return k
+                        Some(Ordering::Equal) => {}
+                        _ => return k,
                     }
                 }
                 Some(Ordering::Equal)
@@ -267,30 +297,30 @@ impl PartialOrd for Element {
                 Some(match num_cmp(pos, num, den, posa, numa, dena) {
                     NumOrder::SmallerEqual | NumOrder::Smaller => Ordering::Less,
                     NumOrder::GreaterEqual | NumOrder::Greater => Ordering::Greater,
-                    NumOrder::Equal => Ordering::Equal
+                    NumOrder::Equal => Ordering::Equal,
                 })
-            },
+            }
             (_, &Element::Num(..)) => Some(Ordering::Less),
             (&Element::Num(..), _) => Some(Ordering::Greater),
             (&Element::Pow(_, ref b, ref p), &Element::Pow(_, ref b1, ref p1)) => {
                 let k = (**b).partial_cmp(&**b1);
                 match k {
                     Some(Ordering::Equal) => (**p).partial_cmp(&**p1),
-                    _ => return k
+                    _ => return k,
                 }
-            },
+            }
             (&Element::Pow(_, ref b, _), _) => {
                 let k = (**b).partial_cmp(other);
                 match k {
                     Some(Ordering::Equal) => Some(Ordering::Less),
-                    _ => return k
+                    _ => return k,
                 }
-            },
+            }
             (_, &Element::Pow(_, ref b, _)) => {
                 let k = self.partial_cmp(&**b);
                 match k {
                     Some(Ordering::Equal) => Some(Ordering::Greater),
-                    _ => return k
+                    _ => return k,
                 }
             }
             (&Element::Term(_, ref ta), &Element::Term(_, ref tb)) => {
@@ -298,17 +328,21 @@ impl PartialOrd for Element {
                 // FIXME: only ignore coefficients on ground level
                 // we can assume the coefficients are at the end and that the term is in proper order
                 let tamin = if let Some(&Element::Num(..)) = ta.last() {
-                    ta.len() -1
-                } else { ta.len() };
+                    ta.len() - 1
+                } else {
+                    ta.len()
+                };
                 let tbmin = if let Some(&Element::Num(..)) = tb.last() {
-                    tb.len() -1
-                } else { tb.len() };
+                    tb.len() - 1
+                } else {
+                    tb.len()
+                };
                 if tamin != tbmin {
                     return tamin.partial_cmp(&tbmin);
                 }
 
-                for (taa,tbb) in ta.iter().zip(tb) {
-                    if let& Element::Num(..) = taa {
+                for (taa, tbb) in ta.iter().zip(tb) {
+                    if let &Element::Num(..) = taa {
                         if let &Element::Num(..) = tbb {
                             continue; // don't compare numbers
                         }
@@ -316,12 +350,12 @@ impl PartialOrd for Element {
 
                     let k = taa.partial_cmp(tbb);
                     match k {
-                        Some(Ordering::Equal) => {},
-                        _ => return k
+                        Some(Ordering::Equal) => {}
+                        _ => return k,
                     }
                 }
                 Some(Ordering::Equal)
-            },
+            }
             (_, &Element::Term(_, ref t)) => {
                 if t.len() == 2 {
                     if let Element::Num(..) = t[1] {
@@ -329,7 +363,7 @@ impl PartialOrd for Element {
                     }
                 }
                 Some(Ordering::Less)
-            },
+            }
             (&Element::Term(_, ref t), _) => {
                 if t.len() == 2 {
                     if let Element::Num(..) = t[1] {
@@ -337,7 +371,7 @@ impl PartialOrd for Element {
                     }
                 }
                 Some(Ordering::Greater)
-            },
+            }
             (&Element::Fn(..), _) => Some(Ordering::Less),
             (_, &Element::Fn(..)) => Some(Ordering::Greater),
             (&Element::SubExpr(_, ref ta), &Element::SubExpr(_, ref tb)) => {
@@ -345,18 +379,18 @@ impl PartialOrd for Element {
                     return ta.len().partial_cmp(&tb.len());
                 }
 
-                for (taa,tbb) in ta.iter().zip(tb) {
+                for (taa, tbb) in ta.iter().zip(tb) {
                     let k = taa.partial_cmp(tbb);
                     match k {
-                        Some(Ordering::Equal) => {},
-                        _ => return k
+                        Some(Ordering::Equal) => {}
+                        _ => return k,
                     }
                 }
                 Some(Ordering::Equal)
-            },
+            }
             (&Element::SubExpr(..), _) => Some(Ordering::Less),
             (&Element::Var(ref a), &Element::Var(ref b)) => a.partial_cmp(b),
-            _ => Some(Ordering::Less)
+            _ => Some(Ordering::Less),
         }
     }
 }
@@ -375,7 +409,6 @@ pub struct IdentityStatement {
     pub lhs: Element,
     pub rhs: Element,
 }
-
 
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
 pub enum IdentityStatementMode {
@@ -482,7 +515,7 @@ impl fmt::Display for Statement {
                 }
 
                 writeln!(f, ");")
-            },
+            }
             Statement::Assign(ref d, ref e) => writeln!(f, "{}={};", d, e),
             Statement::Maximum(ref d) => writeln!(f, "Maximum {};", d),
             Statement::Jump(ref i) => writeln!(f, "JMP {}", i),
@@ -502,10 +535,10 @@ impl VarName {
                 } else {
                     write!(f, "{}", var_info.inv_name_map[id as usize])
                 }
-            },
+            }
             VarName::Name(ref s) => write!(f, "{}", s),
         }
-    }    
+    }
 }
 
 impl fmt::Display for VarName {
@@ -547,7 +580,7 @@ impl fmt::Display for IdentityStatementMode {
 
 pub struct ElementPrinter<'a> {
     pub element: &'a Element,
-    pub var_info: &'a VarInfo
+    pub var_info: &'a VarInfo,
 }
 
 impl<'a> fmt::Display for ElementPrinter<'a> {
@@ -559,7 +592,10 @@ impl<'a> fmt::Display for ElementPrinter<'a> {
 impl Element {
     pub fn fmt_output(&self, f: &mut fmt::Formatter, var_info: &VarInfo) -> fmt::Result {
         match self {
-            &Element::VariableArgument(ref name) => {write!(f, "?")?; name.fmt_output(f, var_info) },
+            &Element::VariableArgument(ref name) => {
+                write!(f, "?")?;
+                name.fmt_output(f, var_info)
+            }
             &Element::Wildcard(ref name, ref restriction) => if restriction.len() == 0 {
                 name.fmt_output(f, var_info)?;
                 write!(f, "?")
@@ -592,25 +628,47 @@ impl Element {
             }
             &Element::Pow(_, ref e, ref p) => {
                 match **e {
-                    Element::SubExpr(..) | Element::Term(..) => { write!(f, "(")?; e.fmt_output(f, var_info)?; write!(f, ")")?  },
+                    Element::SubExpr(..) | Element::Term(..) => {
+                        write!(f, "(")?;
+                        e.fmt_output(f, var_info)?;
+                        write!(f, ")")?
+                    }
                     _ => e.fmt_output(f, var_info)?,
                 };
                 match **p {
-                    Element::SubExpr(..) | Element::Term(..) => { write!(f, "^(")?; p.fmt_output(f, var_info)?; write!(f, ")")  },
-                    _ => { write!(f, "^")?; p.fmt_output(f, var_info) },
+                    Element::SubExpr(..) | Element::Term(..) => {
+                        write!(f, "^(")?;
+                        p.fmt_output(f, var_info)?;
+                        write!(f, ")")
+                    }
+                    _ => {
+                        write!(f, "^")?;
+                        p.fmt_output(f, var_info)
+                    }
                 }
             }
             &Element::Fn(_, ref func) => func.fmt_output(f, var_info),
             &Element::Term(_, ref factors) => {
                 match factors.first() {
-                    Some(s @ &Element::SubExpr(..)) if factors.len() > 1 => { write!(f, "(")?; s.fmt_output(f, var_info)?; write!(f, ")")?  },
+                    Some(s @ &Element::SubExpr(..)) if factors.len() > 1 => {
+                        write!(f, "(")?;
+                        s.fmt_output(f, var_info)?;
+                        write!(f, ")")?
+                    }
                     Some(x) => x.fmt_output(f, var_info)?,
                     None => {}
                 }
                 for t in factors.iter().skip(1) {
                     match t {
-                        s @ &Element::SubExpr(..) => { write!(f, "*(")?; s.fmt_output(f, var_info)?; write!(f, ")")? },
-                        _ => { write!(f, "*")?; t.fmt_output(f, var_info)? },
+                        s @ &Element::SubExpr(..) => {
+                            write!(f, "*(")?;
+                            s.fmt_output(f, var_info)?;
+                            write!(f, ")")?
+                        }
+                        _ => {
+                            write!(f, "*")?;
+                            t.fmt_output(f, var_info)?
+                        }
                     }
                 }
                 write!(f, "")
@@ -666,21 +724,19 @@ impl Element {
         match *self {
             Element::Var(ref mut name) | Element::VariableArgument(ref mut name) => {
                 var_info.replace_name(name);
-            },
+            }
             Element::Wildcard(ref mut name, ref mut restrictions) => {
                 var_info.replace_name(name);
                 for x in restrictions {
                     x.var_to_id(var_info);
                 }
-            },
+            }
             Element::Pow(_, ref mut b, ref mut e) => {
                 b.var_to_id(var_info);
                 e.var_to_id(var_info);
-            },
-            Element::Term(_, ref mut f) | Element::SubExpr(_, ref mut f) => {
-                for x in f {
-                    x.var_to_id(var_info);
-                }
+            }
+            Element::Term(_, ref mut f) | Element::SubExpr(_, ref mut f) => for x in f {
+                x.var_to_id(var_info);
             },
             Element::Fn(
                 _,
@@ -702,39 +758,42 @@ impl Element {
         let mut changed = false;
         *self = match *self {
             Element::Var(ref mut name) => {
-                if dollar_only { return false; }
+                if dollar_only {
+                    return false;
+                }
                 if let Some(x) = map.get(name) {
                     x.clone()
                 } else {
-                    return false
+                    return false;
                 }
-            },
+            }
             Element::Dollar(ref mut name, ..) => {
                 if let Some(x) = map.get(name) {
                     x.clone()
                 } else {
-                    return false
+                    return false;
                 }
-            },
+            }
             Element::Wildcard(_, ref mut restrictions) => {
                 for x in restrictions {
                     changed |= x.replace_vars(map, dollar_only);
                 }
-                return changed
-            },
+                return changed;
+            }
             Element::Pow(ref mut dirty, ref mut b, ref mut e) => {
                 changed |= b.replace_vars(map, dollar_only);
                 changed |= e.replace_vars(map, dollar_only);
                 *dirty |= changed;
-                return changed
+                return changed;
             }
-            Element::Term(ref mut dirty, ref mut f) | Element::SubExpr(ref mut dirty, ref mut f) => {
+            Element::Term(ref mut dirty, ref mut f)
+            | Element::SubExpr(ref mut dirty, ref mut f) => {
                 for x in f {
                     changed |= x.replace_vars(map, dollar_only);
                 }
                 *dirty |= changed;
-                return changed
-            },
+                return changed;
+            }
             Element::Fn(
                 ref mut dirty,
                 Func {
@@ -757,9 +816,9 @@ impl Element {
                     changed |= x.replace_vars(map, dollar_only);
                 }
                 *dirty |= changed;
-                return changed
+                return changed;
             }
-            _ => return false
+            _ => return false,
         };
         true
     }
@@ -776,13 +835,14 @@ impl Element {
                 *dirty |= b.replace(orig, new);
                 *dirty |= e.replace(orig, new);
                 *dirty
-            },
-            Element::Term(ref mut dirty, ref mut f) | Element::SubExpr(ref mut dirty, ref mut f) => {
+            }
+            Element::Term(ref mut dirty, ref mut f)
+            | Element::SubExpr(ref mut dirty, ref mut f) => {
                 for x in f {
                     *dirty |= x.replace(orig, new);
                 }
                 *dirty
-            },
+            }
             Element::Fn(
                 ref mut dirty,
                 Func {
@@ -794,8 +854,8 @@ impl Element {
                     *dirty |= x.replace(orig, new);
                 }
                 *dirty
-            },
-            _ => false
+            }
+            _ => false,
         }
     }
 }
@@ -810,11 +870,9 @@ impl Statement {
             }) => {
                 lhs.var_to_id(var_info);
                 rhs.var_to_id(var_info);
-            },
-            Statement::Repeat(ref mut ss) => {
-                for s in ss {
-                    s.var_to_id(var_info);
-                }
+            }
+            Statement::Repeat(ref mut ss) => for s in ss {
+                s.var_to_id(var_info);
             },
             Statement::IfElse(ref mut e, ref mut ss, ref mut sse) => {
                 e.var_to_id(var_info);
@@ -824,18 +882,17 @@ impl Statement {
                 for s in sse {
                     s.var_to_id(var_info);
                 }
-            },
-            Statement::SplitArg(ref mut name) | Statement::Symmetrize(ref mut name)
+            }
+            Statement::SplitArg(ref mut name)
+            | Statement::Symmetrize(ref mut name)
             | Statement::Collect(ref mut name) => {
                 var_info.replace_name(name);
-            },
+            }
             Statement::Multiply(ref mut e) => {
                 e.var_to_id(var_info);
-            },
-            Statement::Call(_, ref mut es) => {
-                for s in es {
-                    s.var_to_id(var_info);
-                }
+            }
+            Statement::Call(_, ref mut es) => for s in es {
+                s.var_to_id(var_info);
             },
             Statement::Assign(ref d, ref mut e) => {
                 // TODO: also change dollar variable to id?
@@ -855,11 +912,9 @@ impl Statement {
             }) => {
                 changed |= lhs.replace_vars(map, dollar_only);
                 changed |= rhs.replace_vars(map, dollar_only);
-            },
-            Statement::Repeat(ref mut ss) => {
-                for s in ss {
-                    changed |= s.replace_vars(map, dollar_only);
-                }
+            }
+            Statement::Repeat(ref mut ss) => for s in ss {
+                changed |= s.replace_vars(map, dollar_only);
             },
             Statement::IfElse(ref mut e, ref mut ss, ref mut sse) => {
                 changed |= e.replace_vars(map, dollar_only);
@@ -869,8 +924,9 @@ impl Statement {
                 for s in sse {
                     changed |= s.replace_vars(map, dollar_only);
                 }
-            },
-            Statement::SplitArg(ref mut name) | Statement::Symmetrize(ref mut name)
+            }
+            Statement::SplitArg(ref mut name)
+            | Statement::Symmetrize(ref mut name)
             | Statement::Collect(ref mut name) => {
                 if let Some(x) = map.get(name) {
                     if let &Element::Var(ref y) = x {
@@ -882,11 +938,9 @@ impl Statement {
             }
             Statement::Multiply(ref mut e) => {
                 changed |= e.replace_vars(map, dollar_only);
-            },
-            Statement::Call(_, ref mut es) => {
-                for s in es {
-                    changed |= s.replace_vars(map, dollar_only);
-                }
+            }
+            Statement::Call(_, ref mut es) => for s in es {
+                changed |= s.replace_vars(map, dollar_only);
             },
             Statement::Assign(ref d, ref mut e) => {
                 // TODO: also change dollar variable?

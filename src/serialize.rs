@@ -1,6 +1,6 @@
 use structure::*;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
-use std::io::{Write, Read, Error};
+use std::io::{Error, Read, Write};
 
 // TODO: replace by mem::discriminant when it stabilizes
 const NUM_ID: u8 = 1;
@@ -16,13 +16,13 @@ impl VarName {
 		match *self {
 			VarName::ID(id) => {
 				buffer.write_u32::<LittleEndian>(id).unwrap();
-			},
-			_ => unimplemented!("Name not supported in serialization")
+			}
+			_ => unimplemented!("Name not supported in serialization"),
 		}
 		4
 	}
 
-	fn deserialize( buffer: &mut Read) -> VarName {
+	fn deserialize(buffer: &mut Read) -> VarName {
 		VarName::ID(buffer.read_u32::<LittleEndian>().unwrap())
 	}
 }
@@ -56,61 +56,58 @@ impl Element {
 				buffer.write_u64::<LittleEndian>(num).unwrap();
 				buffer.write_u64::<LittleEndian>(den).unwrap();
 				18
-			},
-			Element::Fn(false, Func{ ref name, ref args }) => {
+			}
+			Element::Fn(false, Func { ref name, ref args }) => {
 				buffer.write_u8(FN_ID).unwrap();
 				name.serialize(buffer);
 				9 + serialize_list(args, buffer)
-			},
+			}
 			Element::Var(ref name) => {
 				buffer.write_u8(VAR_ID).unwrap();
 				name.serialize(buffer);
 				9
-			},
+			}
 			Element::Term(false, ref args) => {
 				buffer.write_u8(TERM_ID).unwrap();
 				1 + serialize_list(args, buffer)
-			},
+			}
 			Element::SubExpr(false, ref args) => {
 				buffer.write_u8(EXPR_ID).unwrap();
 				1 + serialize_list(args, buffer)
-			},
+			}
 			Element::Pow(false, ref b, ref e) => {
 				buffer.write_u8(POW_ID).unwrap();
 				let len = b.serialize(buffer);
 				1 + len + e.serialize(buffer)
-			}		
-			_ => unreachable!()
+			}
+			_ => unreachable!(),
 		}
 	}
 
 	pub fn deserialize(buffer: &mut Read) -> Result<Element, Error> {
-		Ok(
-		match buffer.read_u8()? {
-			NUM_ID => {
-				Element::Num(false, 
-					buffer.read_u8().unwrap() != 0u8,
-					buffer.read_u64::<LittleEndian>().unwrap(),
-					buffer.read_u64::<LittleEndian>().unwrap()
-				)
-			},
-			FN_ID => {
-				Element::Fn(false, Func{ name: VarName::deserialize(buffer), args: deserialize_list(buffer) })
-			},
-			VAR_ID => {
-				Element::Var(VarName::deserialize(buffer))
-			},
-			TERM_ID => {
-				Element::Term(false, deserialize_list(buffer))
-			},
-			EXPR_ID => {
-				Element::SubExpr(false, deserialize_list(buffer))
-			},
-			POW_ID => {
-				Element::Pow(false, Box::new(Element::deserialize(buffer).unwrap()), 
-					Box::new(Element::deserialize(buffer).unwrap()))
-			},
-			_ => unreachable!()
+		Ok(match buffer.read_u8()? {
+			NUM_ID => Element::Num(
+				false,
+				buffer.read_u8().unwrap() != 0u8,
+				buffer.read_u64::<LittleEndian>().unwrap(),
+				buffer.read_u64::<LittleEndian>().unwrap(),
+			),
+			FN_ID => Element::Fn(
+				false,
+				Func {
+					name: VarName::deserialize(buffer),
+					args: deserialize_list(buffer),
+				},
+			),
+			VAR_ID => Element::Var(VarName::deserialize(buffer)),
+			TERM_ID => Element::Term(false, deserialize_list(buffer)),
+			EXPR_ID => Element::SubExpr(false, deserialize_list(buffer)),
+			POW_ID => Element::Pow(
+				false,
+				Box::new(Element::deserialize(buffer).unwrap()),
+				Box::new(Element::deserialize(buffer).unwrap()),
+			),
+			_ => unreachable!(),
 		})
 	}
 }
