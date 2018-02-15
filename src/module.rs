@@ -583,22 +583,20 @@ pub fn do_program(program: &mut Program, write_log: bool, num_threads: usize) {
 		let mut output = Arc::new(Mutex::new(OutputTermStreamer::new()));
 
 		if num_threads > 1 {
-			let queue: Arc<MsQueue<Option<Element>>> = Arc::new(MsQueue::new());
+			let queue: MsQueue<Option<Element>> = MsQueue::new();
 			let thread_varinfo = program.var_info.clone();
 
 			// create threads that process terms
 			crossbeam::scope(|scope| {
 				for _ in 0..num_threads {
-					let queue = queue.clone();
-					let m = module.statements.clone(); // TODO: why do we need to do this?
-					let mut thread_varinfo = thread_varinfo.clone();
-					let mut executed = vec![false];
-					let mut output = output.clone();
-					scope.spawn(move || {
+					scope.spawn(|| {
+						let mut thread_varinfo = thread_varinfo.clone();
+						let mut executed = vec![false];
+						let mut output = output.clone();
 						while let Some(x) = queue.pop() {
 							do_module_rec(
 								x,
-								&m,
+								&module.statements,
 								&mut thread_varinfo,
 								0,
 								&mut executed,
