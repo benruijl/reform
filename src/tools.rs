@@ -99,10 +99,13 @@ pub fn lcm(a: u64, b: u64) -> u64 {
     (a / gcd(a, b)) * b
 }
 
-// multiple two normalized fractions
 pub fn normalize_fraction(pos: &mut bool, num: &mut u64, den: &mut u64) {
     if *num == 0 {
         *pos = true;
+    }
+
+    if *den == 0 {
+        panic!("Division by 0 in fraction: {}/0", *num);
     }
 
     let gcd = gcd(*num, *den);
@@ -110,7 +113,7 @@ pub fn normalize_fraction(pos: &mut bool, num: &mut u64, den: &mut u64) {
     *den /= gcd;
 }
 
-// multiple two normalized fractions
+// multiply two normalized fractions
 pub fn mul_fractions(
     pos: &mut bool,
     num: &mut u64,

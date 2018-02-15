@@ -1,6 +1,6 @@
 use std::mem;
-use structure::{Element,Func,VarName,FUNCTION_DELTA,FUNCTION_NARGS, FUNCTION_SUM, FUNCTION_MUL};
-use tools::{mul_fractions,add_fractions,add_one,normalize_fraction,exp_fraction};
+use structure::{Element, Func, VarName, FUNCTION_DELTA, FUNCTION_MUL, FUNCTION_NARGS, FUNCTION_SUM};
+use tools::{add_fractions, add_one, exp_fraction, mul_fractions, normalize_fraction};
 use std::cmp::Ordering;
 use std::ptr;
 
@@ -8,22 +8,28 @@ impl Element {
     // TODO: return iterator over Elements for ground level?
     pub fn apply_builtin_functions(&mut self, ground_level: bool) -> bool {
         *self = match *self {
-            Element::Fn(_, Func { name: ref mut n, args: ref mut a } ) => {
+            Element::Fn(
+                _,
+                Func {
+                    name: ref mut n,
+                    args: ref mut a,
+                },
+            ) => {
                 match *n {
                     VarName::ID(x) if x == FUNCTION_DELTA => {
                         if a.len() == 1 {
                             match a[0] {
-                                Element::Num(_, _, 0, _) => Element::Num(false, true,1,1),
-                                _ =>  Element::Num(false, true,0,1)
+                                Element::Num(_, _, 0, _) => Element::Num(false, true, 1, 1),
+                                _ => Element::Num(false, true, 0, 1),
                             }
                         } else {
                             return false;
                         }
-                    },
+                    }
                     VarName::ID(x) if x == FUNCTION_NARGS => {
                         // get the number of arguments
                         Element::Num(false, true, a.len() as u64, 1)
-                    },
+                    }
                     VarName::ID(x) if x == FUNCTION_SUM || x == FUNCTION_MUL => {
                         if a.len() == 4 {
                             match (&a[1], &a[2]) {
@@ -39,17 +45,19 @@ impl Element {
                                     } else {
                                         Element::Term(true, terms)
                                     }
-                                },
-                                _ => return false
+                                }
+                                _ => return false,
                             }
                         } else {
                             return false;
                         }
-                    },
-                    _ => { return false; }
+                    }
+                    _ => {
+                        return false;
+                    }
                 }
-            },
-            _ => { unreachable!() }
+            }
+            _ => unreachable!(),
         };
         true
     }
@@ -63,15 +71,13 @@ impl Element {
                     *dirty = false;
                     changed = true;
                 }
-            },
-            Element::Wildcard(_, ref mut restriction) => {
-                for x in restriction {
-                    changed |= x.normalize_inplace();
-                }
+            }
+            Element::Wildcard(_, ref mut restriction) => for x in restriction {
+                changed |= x.normalize_inplace();
             },
             Element::Pow(dirty, ..) => {
                 if !dirty {
-                    return false
+                    return false;
                 }
 
                 *self = if let Element::Pow(ref mut dirty, ref mut b, ref mut p) = *self {
@@ -81,7 +87,7 @@ impl Element {
 
                     // x^0 = 1
                     match **p {
-                        Element::Num(_,_, 0, _) => Element::Num(false, true, 1, 1),
+                        Element::Num(_, _, 0, _) => Element::Num(false, true, 1, 1),
                         Element::Num(_, true, 1, 1) => mem::replace(&mut **b, DUMMY_ELEM!()),
                         _ => {
                             // simplify numbers if exponent is a positive integer
@@ -92,53 +98,70 @@ impl Element {
                                 } else {
                                     None
                                 }
-                            }  else {
-                                    None
+                            } else {
+                                None
                             };
 
                             if let Some(x) = rv {
                                 x
                             } else
-                                // simplify x^a^b = x^(a*b)
-                                // TODO: note the nasty syntax to avoid borrow checker bug
-                                if let Element::Pow(_, ref mut c, ref mut d) = *&mut **b {
-                                    match (&mut **p, &mut **d) {
-                                        (&mut Element::Term(ref mut dirty, ref mut f), &mut Element::Term(_, ref mut f1)) => {*dirty = true; f.append(f1);},
-                                        (&mut Element::Term(ref mut dirty, ref mut f), ref mut b) => {*dirty = true; f.push(mem::replace(b, DUMMY_ELEM!()))},
-                                        (a,b) => { *a = 
-                                            Element::Term(true, vec![mem::replace(a, DUMMY_ELEM!()), 
-                                                mem::replace(b, DUMMY_ELEM!())]);
-                                            }
+                            // simplify x^a^b = x^(a*b)
+                            // TODO: note the nasty syntax to avoid borrow checker bug
+                            if let Element::Pow(_, ref mut c, ref mut d) = *&mut **b {
+                                match (&mut **p, &mut **d) {
+                                    (
+                                        &mut Element::Term(ref mut dirty, ref mut f),
+                                        &mut Element::Term(_, ref mut f1),
+                                    ) => {
+                                        *dirty = true;
+                                        f.append(f1);
                                     }
-
-                                    // TODO: is this the best way? can the box be avoided?
-                                    // can we recycle the old box and move a new pointer in there?
-                                    let mut res = Element::Pow(true, mem::replace(c, Box::new(DUMMY_ELEM!())),
-                                        mem::replace(p, Box::new(DUMMY_ELEM!())));
-                                    res.normalize_inplace();
-                                    res
-                                } else {
-                                    return changed;
+                                    (&mut Element::Term(ref mut dirty, ref mut f), ref mut b) => {
+                                        *dirty = true;
+                                        f.push(mem::replace(b, DUMMY_ELEM!()))
+                                    }
+                                    (a, b) => {
+                                        *a = Element::Term(
+                                            true,
+                                            vec![
+                                                mem::replace(a, DUMMY_ELEM!()),
+                                                mem::replace(b, DUMMY_ELEM!()),
+                                            ],
+                                        );
+                                    }
                                 }
+
+                                // TODO: is this the best way? can the box be avoided?
+                                // can we recycle the old box and move a new pointer in there?
+                                let mut res = Element::Pow(
+                                    true,
+                                    mem::replace(c, Box::new(DUMMY_ELEM!())),
+                                    mem::replace(p, Box::new(DUMMY_ELEM!())),
+                                );
+                                res.normalize_inplace();
+                                res
+                            } else {
+                                return changed;
+                            }
                         }
                     }
                 } else {
                     unreachable!();
                 };
                 changed = true;
-            },
+            }
             Element::Fn(dirty, _) => {
                 if dirty {
                     if let Element::Fn(ref mut dirty, ref mut f) = *self {
                         for x in f.args.iter_mut() {
-                            changed |= x.normalize_inplace();   
+                            changed |= x.normalize_inplace();
                         }
                         *dirty = false; // TODO: or should this be done by builtin_functions?
-                        //f.args.shrink_to_fit(); // make sure we keep memory in check 
+                                        //f.args.shrink_to_fit(); // make sure we keep memory in check
                     }
                 }
-                changed |= self.apply_builtin_functions(false);  
-            },
+                changed |= self.apply_builtin_functions(false);
+            }
             Element::Term(dirty, _) => {
                 if !dirty {
                     return false;
@@ -164,7 +187,7 @@ impl Element {
                         for x in ts.iter_mut() {
                             match *x {
                                 Element::Term(_, ref mut tss) => tmp.append(tss),
-                                _ => tmp.push(mem::replace(x, DUMMY_ELEM!()))
+                                _ => tmp.push(mem::replace(x, DUMMY_ELEM!())),
                             }
                         }
                         *ts = tmp;
@@ -173,34 +196,34 @@ impl Element {
                     // sort and merge the terms at the same time
                     if cfg!(_NO_) {
                         expr_sort(ts, merge_factors);
-                    } else{
+                    } else {
+                        // TODO: this is faster than expr_sort. presumable because there are fewer merge_factor calls
+                        ts.sort_unstable();
 
-                    // TODO: this is faster than expr_sort. presumable because there are fewer merge_factor calls
-                    ts.sort_unstable();
+                        // now merge pows: x^a*x^b = x^(a*b)
+                        // x*x^a and x*x, all should be side by side now
+                        let mut lastindex = 0;
 
-                    // now merge pows: x^a*x^b = x^(a*b)
-                    // x*x^a and x*x, all should be side by side now
-                    let mut lastindex = 0;
-
-                    for i in 1..ts.len() {
-                        let (a, b) = ts.split_at_mut(i);
-                        if !merge_factors(&mut a[lastindex], &mut b[0]) {
-                            if lastindex + 1 < i {
-                                a[lastindex + 1] = mem::replace(&mut b[0], DUMMY_ELEM!());
+                        for i in 1..ts.len() {
+                            let (a, b) = ts.split_at_mut(i);
+                            if !merge_factors(&mut a[lastindex], &mut b[0]) {
+                                if lastindex + 1 < i {
+                                    a[lastindex + 1] = mem::replace(&mut b[0], DUMMY_ELEM!());
+                                }
+                                lastindex += 1;
                             }
-                            lastindex += 1;
                         }
-                    }
-                    ts.truncate(lastindex + 1);
+                        ts.truncate(lastindex + 1);
 
-                    if let Some(&Element::Num(_,pos,num,den)) = ts.last() {
-                        match (pos,num,den) {
-                            (_, 0, _) => ts.clear(),
-                            (true, 1, 1) if ts.len() > 1 => { ts.pop(); }, // don't add a factor
-                            _ => {}
+                        if let Some(&Element::Num(_, pos, num, den)) = ts.last() {
+                            match (pos, num, den) {
+                                (_, 0, _) => ts.clear(),
+                                (true, 1, 1) if ts.len() > 1 => {
+                                    ts.pop();
+                                } // don't add a factor
+                                _ => {}
+                            }
                         }
-                    }
-
                     }
 
                     //ts.shrink_to_fit(); // make sure we keep memory in check
@@ -208,12 +231,12 @@ impl Element {
                     match ts.len() {
                         0 => Element::Num(false, true, 0, 1),
                         1 => ts.swap_remove(0), // downgrade
-                        _ => return true // TODO: only return true when actually changed
+                        _ => return true,       // TODO: only return true when actually changed
                     }
                 } else {
                     unreachable!()
                 }
-            },
+            }
             Element::SubExpr(dirty, _) => {
                 if !dirty {
                     return false;
@@ -237,7 +260,7 @@ impl Element {
                         for x in ts.iter_mut() {
                             match *x {
                                 Element::SubExpr(_, ref mut tss) => tmp.append(tss),
-                                _ => tmp.push(mem::replace(x, DUMMY_ELEM!()))
+                                _ => tmp.push(mem::replace(x, DUMMY_ELEM!())),
                             }
                         }
                         *ts = tmp;
@@ -248,7 +271,7 @@ impl Element {
                         expr_sort(ts, merge_terms);
                     } else {
                         ts.sort_unstable(); // TODO: slow!
-                        // merge coefficients of similar terms
+                                            // merge coefficients of similar terms
                         let mut lastindex = 0;
 
                         for i in 1..ts.len() {
@@ -263,16 +286,15 @@ impl Element {
                         ts.truncate(lastindex + 1);
                     }
 
-                match ts.len() {
-                    0 => Element::Num(false, true, 0, 1),
-                    1 => ts.swap_remove(0),
-                    _ => return true // TODO: only return true when actually changed
-                }
+                    match ts.len() {
+                        0 => Element::Num(false, true, 0, 1),
+                        1 => ts.swap_remove(0),
+                        _ => return true, // TODO: only return true when actually changed
+                    }
                 } else {
                     unreachable!();
                 }
-
-            },
+            }
             _ => {}
         };
         changed
@@ -286,14 +308,14 @@ impl Element {
                     normalize_fraction(&mut pos, &mut num, &mut den);
                 }
                 Element::Num(false, pos, num, den)
-            },
+            }
             &Element::Wildcard(ref name, ref restriction) => {
                 let mut r = vec![];
                 for x in restriction {
                     r.push(x.normalize());
                 }
                 Element::Wildcard(name.clone(), r)
-            },
+            }
             &Element::Pow(dirty, ref b, ref p) => {
                 if !dirty {
                     return self.clone();
@@ -303,7 +325,7 @@ impl Element {
                 let mut newp = p.normalize();
 
                 // x^0 = 1
-                if let Element::Num(_,_, 0, _) = newp {
+                if let Element::Num(_, _, 0, _) = newp {
                     return Element::Num(false, true, 1, 1);
                 }
                 // return x if x^1
@@ -323,23 +345,28 @@ impl Element {
                 if let Element::Pow(_, c, d) = newb {
                     match newp {
                         Element::Term(_, ref mut f) => f.push(*d),
-                        _ => newp = Element::Term(true, vec![newp.clone(), *d]).normalize()
+                        _ => newp = Element::Term(true, vec![newp.clone(), *d]).normalize(),
                     }
                     Element::Pow(false, c, Box::new(newp))
                 } else {
                     Element::Pow(false, Box::new(newb), Box::new(newp))
                 }
-            },
+            }
             &Element::Fn(dirty, ref f) => {
                 if dirty {
-                    let mut new_fun = Element::Fn(false, 
-                        Func { name: f.name.clone(), args: f.args.iter().map(|x| x.normalize()).collect() });
+                    let mut new_fun = Element::Fn(
+                        false,
+                        Func {
+                            name: f.name.clone(),
+                            args: f.args.iter().map(|x| x.normalize()).collect(),
+                        },
+                    );
                     new_fun.apply_builtin_functions(false);
                     new_fun
                 } else {
                     self.clone()
                 }
-            },
+            }
             &Element::Term(dirty, ref ts) => {
                 if !dirty {
                     // TODO: this means we have to back propagate
@@ -354,7 +381,7 @@ impl Element {
                 for x in ts {
                     match x.normalize() {
                         Element::Term(_, ref mut tt) => factors.append(tt),
-                        t => factors.push(t)
+                        t => factors.push(t),
                     }
                 }
 
@@ -379,35 +406,40 @@ impl Element {
 
                 while let Some(x) = factors.pop() {
                     match x {
-                        Element::Num(_,pos1,num1,den1) => mul_fractions(&mut pos, &mut num,&mut den,pos1,num1,den1),
-                        _ => { factors.push(x); break; }
+                        Element::Num(_, pos1, num1, den1) => {
+                            mul_fractions(&mut pos, &mut num, &mut den, pos1, num1, den1)
+                        }
+                        _ => {
+                            factors.push(x);
+                            break;
+                        }
                     }
                 }
 
                 match (pos, num, den) {
                     (_, 0, _) => return Element::Num(false, true, 0, 1),
-                    (true, 1, 1) if factors.len() > 0 => {}, // don't add a factor
-                    x => factors.push(Element::Num(false, x.0, x.1, x.2))
+                    (true, 1, 1) if factors.len() > 0 => {} // don't add a factor
+                    x => factors.push(Element::Num(false, x.0, x.1, x.2)),
                 }
 
                 match factors.len() {
                     0 => Element::Num(false, true, 0, 1),
                     1 => factors.swap_remove(0), // downgrade
-                    _ => Element::Term(false, factors)
+                    _ => Element::Term(false, factors),
                 }
-            },
+            }
             // TODO: drop +0?
             &Element::SubExpr(dirty, ref ts) => {
                 if !dirty {
-                    return self.clone()
-                }    
+                    return self.clone();
+                }
                 let mut terms = vec![];
 
                 // normalize terms and flatten
                 for x in ts {
                     match x.normalize() {
                         Element::SubExpr(_, ref mut tt) => terms.append(tt),
-                        t => terms.push(t)
+                        t => terms.push(t),
                     }
                 }
                 terms.sort_unstable();
@@ -431,12 +463,12 @@ impl Element {
                 terms.truncate(lastindex + 1);
 
                 match terms.len() {
-                    0 => Element::Num(false, true,0,1),
+                    0 => Element::Num(false, true, 0, 1),
                     1 => terms.swap_remove(0),
-                    _ => Element::SubExpr(false, terms)
+                    _ => Element::SubExpr(false, terms),
                 }
-            },
-            &ref o => o.clone() 
+            }
+            &ref o => o.clone(),
         }
     }
 }
@@ -446,11 +478,11 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element) -> bool {
     let mut changed = false;
 
     if let &mut Element::Num(_, ref mut pos, ref mut num, ref mut den) = first {
-         if let &mut Element::Num(_, pos1, num1, den1) = sec {
-             mul_fractions(pos, num, den, pos1, num1, den1);
-             return true;
-         }
-         return false;
+        if let &mut Element::Num(_, pos1, num1, den1) = sec {
+            mul_fractions(pos, num, den, pos1, num1, den1);
+            return true;
+        }
+        return false;
     }
 
     if let &mut Element::Num(..) = sec {
@@ -459,8 +491,11 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element) -> bool {
 
     // x*x => x^2
     if first == sec {
-        *first = Element::Pow(true, Box::new(mem::replace(first, DUMMY_ELEM!())), 
-            Box::new(Element::Num(false,true,2,1)));
+        *first = Element::Pow(
+            true,
+            Box::new(mem::replace(first, DUMMY_ELEM!())),
+            Box::new(Element::Num(false, true, 2, 1)),
+        );
         first.normalize_inplace();
         return true;
     }
@@ -470,9 +505,26 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element) -> bool {
         if let &mut Element::Pow(_, ref b1, ref mut e1) = sec {
             if b1 == b2 {
                 match (&mut **e1, &mut **e2) {
-                    (&mut Element::SubExpr(_, ref mut a1), &mut Element::SubExpr(ref mut d2, ref mut a2)) => {*d2 = true; a2.append(a1)},
-                    (ref mut a1, &mut Element::SubExpr(ref mut d2, ref mut a2)) => {*d2 = true; a2.push(mem::replace(*a1, DUMMY_ELEM!()))},
-                    (ref mut a, ref mut b) => **b = Element::SubExpr(true, vec![mem::replace(a, DUMMY_ELEM!()), mem::replace(b, DUMMY_ELEM!())])
+                    (
+                        &mut Element::SubExpr(_, ref mut a1),
+                        &mut Element::SubExpr(ref mut d2, ref mut a2),
+                    ) => {
+                        *d2 = true;
+                        a2.append(a1)
+                    }
+                    (ref mut a1, &mut Element::SubExpr(ref mut d2, ref mut a2)) => {
+                        *d2 = true;
+                        a2.push(mem::replace(*a1, DUMMY_ELEM!()))
+                    }
+                    (ref mut a, ref mut b) => {
+                        **b = Element::SubExpr(
+                            true,
+                            vec![
+                                mem::replace(a, DUMMY_ELEM!()),
+                                mem::replace(b, DUMMY_ELEM!()),
+                            ],
+                        )
+                    }
                 }
                 *dirty = true;
                 changed = true;
@@ -486,11 +538,15 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element) -> bool {
                 addone = false;
             }
             if addone {
-                **e2 = Element::SubExpr(true, vec![
-                    mem::replace(e2, DUMMY_ELEM!()),
-                    Element::Num(false,true,1,1)]);
+                **e2 = Element::SubExpr(
+                    true,
+                    vec![
+                        mem::replace(e2, DUMMY_ELEM!()),
+                        Element::Num(false, true, 1, 1),
+                    ],
+                );
             }
-            
+
             *dirty = true;
             changed = true;
         }
@@ -503,7 +559,9 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element) -> bool {
 pub fn merge_terms(first: &mut Element, sec: &mut Element) -> bool {
     // filter +0
     match sec {
-        &mut Element::Num(_, _, 0, _) => { return true; },
+        &mut Element::Num(_, _, 0, _) => {
+            return true;
+        }
         _ => {}
     }
 
@@ -518,39 +576,49 @@ pub fn merge_terms(first: &mut Element, sec: &mut Element) -> bool {
             {
                 let (mut l1, l11) = t1.split_at(t1.len() - 1);
                 match l11[0] {
-                    Element::Num(_, pos,num,den) => { pos1 = pos; num1 = num; den1 = den; },
-                    _ => { l1 = t1; pos1 = true; num1 = 1; den1 = 1; }
+                    Element::Num(_, pos, num, den) => {
+                        pos1 = pos;
+                        num1 = num;
+                        den1 = den;
+                    }
+                    _ => {
+                        l1 = t1;
+                        pos1 = true;
+                        num1 = 1;
+                        den1 = 1;
+                    }
                 }
 
                 {
                     let l2 = match t2.last() {
                         Some(&Element::Num(..)) => &t2[..t2.len() - 1],
-                        _ => &t2[..]
+                        _ => &t2[..],
                     };
 
-                    if l1 != l2 { return false; }
+                    if l1 != l2 {
+                        return false;
+                    }
                 }
             }
             t1.clear(); // remove the old data
             *d2 = false;
             // should we add the terms?
             match t2.last_mut() {
-                Some(&mut Element::Num(_,ref mut pos, ref mut num, ref mut den)) => 
-                    {
-                        add_fractions(pos, num, den, pos1, num1, den1);
-                        return true
-                    },
+                Some(&mut Element::Num(_, ref mut pos, ref mut num, ref mut den)) => {
+                    add_fractions(pos, num, den, pos1, num1, den1);
+                    return true;
+                }
                 _ => {}
             }
 
             // add 1
             add_one(&mut pos1, &mut num1, &mut den1);
-            t2.push(Element::Num(false, pos1, num1 ,den1));
-            if t2.capacity() - t2.len() > 10 { // FIXME: what value?
-               // t2.shrink_to_fit(); // make sure the term doesn't grow too much
+            t2.push(Element::Num(false, pos1, num1, den1));
+            if t2.capacity() - t2.len() > 10 {
+                // FIXME: what value?
+                // t2.shrink_to_fit(); // make sure the term doesn't grow too much
             }
-            
-        },
+        }
         // x + x/2
         // (1+x) + (1+x)/2
         (ref a, &mut Element::Term(_, ref mut t2)) => {
@@ -558,45 +626,69 @@ pub fn merge_terms(first: &mut Element, sec: &mut Element) -> bool {
 
             if **a == t2[0] && t2.len() == 2 {
                 match t2[1] {
-                    Element::Num(_, ref mut pos, ref mut num, ref mut den) => { add_one(pos, num, den); },
-                    _ => { return false; }
+                    Element::Num(_, ref mut pos, ref mut num, ref mut den) => {
+                        add_one(pos, num, den);
+                    }
+                    _ => {
+                        return false;
+                    }
                 }
             } else {
                 return false;
             }
-        },
-        (&mut Element::Term(_, ref t2), ref mut a) => {          
+        }
+        (&mut Element::Term(_, ref t2), ref mut a) => {
             assert!(t2.len() > 0);
 
             if **a == t2[0] && t2.len() == 2 {
                 match t2[1] {
                     Element::Num(_, mut pos, mut num, mut den) => {
                         add_one(&mut pos, &mut num, &mut den);
-                        **a = Element::Term(false, vec![mem::replace(a, DUMMY_ELEM!()), Element::Num(false, pos, num, den)]);
-                    },
-                    _ => { return false; }
+                        **a = Element::Term(
+                            false,
+                            vec![
+                                mem::replace(a, DUMMY_ELEM!()),
+                                Element::Num(false, pos, num, den),
+                            ],
+                        );
+                    }
+                    _ => {
+                        return false;
+                    }
                 }
             } else {
                 return false;
             }
-        },
-        (&mut Element::Num(_, pos1, num1, den1), 
-            &mut Element::Num(_, ref mut pos, ref mut num, ref mut den)) => {
+        }
+        (
+            &mut Element::Num(_, pos1, num1, den1),
+            &mut Element::Num(_, ref mut pos, ref mut num, ref mut den),
+        ) => {
             add_fractions(pos, num, den, pos1, num1, den1);
-        },
+        }
         (ref a1, ref mut a2) if a1 == a2 => {
-                **a2 = Element::Term(false, vec![mem::replace(a2, DUMMY_ELEM!()), Element::Num(false, true, 2, 1)] ) 
-            },
-        _ => {return false}
+            **a2 = Element::Term(
+                false,
+                vec![
+                    mem::replace(a2, DUMMY_ELEM!()),
+                    Element::Num(false, true, 2, 1),
+                ],
+            )
+        }
+        _ => return false,
     }
 
     true
 }
 
 // returns true if a and b should be swapped
-pub fn expr_sort<'a,T: PartialOrd,F>(a: &mut Vec<T>, merger: F)
-        where F: Fn(&mut T, &mut T) -> bool  {
-    if a.len() == 0 { return; }
+pub fn expr_sort<'a, T: PartialOrd, F>(a: &mut Vec<T>, merger: F)
+where
+    F: Fn(&mut T, &mut T) -> bool,
+{
+    if a.len() == 0 {
+        return;
+    }
 
     // also count ascending runs and reverse them!
     let mut grouplen = vec![];
@@ -610,7 +702,7 @@ pub fn expr_sort<'a,T: PartialOrd,F>(a: &mut Vec<T>, merger: F)
                 continue;
             }
         }
-        
+
         a.swap(writepos, x);
         writepos += 1;
 
@@ -626,13 +718,13 @@ pub fn expr_sort<'a,T: PartialOrd,F>(a: &mut Vec<T>, merger: F)
                     }
                     groupcount += 1;
                 }
-            },
+            }
             _ => {
                 if ascenddescendmode == 2 {
                     // TODO: first check if the reversed array can join the last group?
                     grouplen.push(groupcount);
                     // change direction of last group, problem: writepos not included in this array yet..
-                    a[writepos - groupcount-1..writepos-1].reverse();
+                    a[writepos - groupcount - 1..writepos - 1].reverse();
                     ascenddescendmode = 0;
                     groupcount = 1;
                 } else {
@@ -652,7 +744,7 @@ pub fn expr_sort<'a,T: PartialOrd,F>(a: &mut Vec<T>, merger: F)
 
     a.truncate(writepos);
 
-    let mut b : Vec<T> = Vec::with_capacity(a.len()); // allocate buffer, TODO: could be half the size
+    let mut b: Vec<T> = Vec::with_capacity(a.len()); // allocate buffer, TODO: could be half the size
     grouplen.push(groupcount);
 
     //a.shrink_to_fit(); // slow!
@@ -666,36 +758,59 @@ pub fn expr_sort<'a,T: PartialOrd,F>(a: &mut Vec<T>, merger: F)
         while groupcount * 2 < grouplen.len() {
             let newsize;
             unsafe {
-            if groupcount * 2 + 1 == grouplen.len() { // odd number?
-                newsize = sub_merge_sort(a, startpos, startpos + grouplen[groupcount * 2],
-                            startpos + grouplen[groupcount * 2],
-                            &mut b, writepos, &merger);
-            } else {
-                newsize = sub_merge_sort(a, startpos, startpos + grouplen[groupcount * 2],
-                            startpos + grouplen[groupcount * 2] + grouplen[groupcount * 2 + 1],
-                            &mut b, writepos, &merger);
-                startpos += grouplen[groupcount * 2] + grouplen[groupcount * 2 + 1];
-            }
-            
-            writepos = writepos.offset(newsize as isize);
+                if groupcount * 2 + 1 == grouplen.len() {
+                    // odd number?
+                    newsize = sub_merge_sort(
+                        a,
+                        startpos,
+                        startpos + grouplen[groupcount * 2],
+                        startpos + grouplen[groupcount * 2],
+                        &mut b,
+                        writepos,
+                        &merger,
+                    );
+                } else {
+                    newsize = sub_merge_sort(
+                        a,
+                        startpos,
+                        startpos + grouplen[groupcount * 2],
+                        startpos + grouplen[groupcount * 2] + grouplen[groupcount * 2 + 1],
+                        &mut b,
+                        writepos,
+                        &merger,
+                    );
+                    startpos += grouplen[groupcount * 2] + grouplen[groupcount * 2 + 1];
+                }
+
+                writepos = writepos.offset(newsize as isize);
             }
             grouplen[groupcount] = newsize;
             groupcount += 1;
         }
 
         grouplen.truncate(groupcount);
-        unsafe { a.set_len(*grouplen.last().unwrap()); } // don't drop, but resize
+        unsafe {
+            a.set_len(*grouplen.last().unwrap());
+        } // don't drop, but resize
     }
 }
 
-unsafe fn sub_merge_sort<T: PartialOrd, F>(a: &mut [T], left: usize, right: usize,
-        end: usize, buf: &mut [T], mut writepos: *mut T, merger: &F) -> usize
-where F: Fn(&mut T, &mut T) -> bool  {
+unsafe fn sub_merge_sort<T: PartialOrd, F>(
+    a: &mut [T],
+    left: usize,
+    right: usize,
+    end: usize,
+    buf: &mut [T],
+    mut writepos: *mut T,
+    merger: &F,
+) -> usize
+where
+    F: Fn(&mut T, &mut T) -> bool,
+{
     let mut i = left;
     let mut j = right;
     let mut lastsource = 0; // 0: none, 1: left, 2: right
     let origwritepos = writepos;
-
 
     // copy left part to array
     let mut leftp = buf.as_mut_ptr();
@@ -709,14 +824,14 @@ where F: Fn(&mut T, &mut T) -> bool  {
                 Some(Ordering::Greater) => {
                     if lastsource != 1 || !merger(&mut *writepos.offset(-1), &mut *rightp) {
                         // FIXME: it should drop at writep! does this cause leaks?
-                        assert!(writepos!= rightp);
+                        assert!(writepos != rightp);
                         ptr::copy_nonoverlapping(rightp, writepos, 1);
                         writepos = writepos.offset(1);
                         lastsource = 2;
                     }
                     j += 1;
-                    rightp = rightp.offset(1);   
-                },
+                    rightp = rightp.offset(1);
+                }
                 // TODO: special case if they are equal/mergeable
                 _ => {
                     if lastsource != 2 || !merger(&mut *writepos.offset(-1), &mut *leftp) {
@@ -739,7 +854,7 @@ where F: Fn(&mut T, &mut T) -> bool  {
                 leftp = leftp.offset(1);
             } else {
                 if lastsource != 1 || !merger(&mut *writepos.offset(-1), &mut *rightp) {
-                    assert!(writepos!= rightp);
+                    assert!(writepos != rightp);
                     ptr::copy_nonoverlapping(rightp, writepos, 1);
                     writepos = writepos.offset(1);
                     lastsource = 2;

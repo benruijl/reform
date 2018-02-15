@@ -13,10 +13,13 @@ pub fn parse_file(filename: &str) -> Program {
     let mut f = File::open(filename).expect(&format!("Unable to open file {:?}", filename));
     let mut s = String::new();
     f.read_to_string(&mut s).expect("Unable to read file");
-  
+
     match program().parse(State::new(&s[..])) {
         Ok((v, _)) => v,
-        Err(err) => { error!("{}", err); panic!(); }
+        Err(err) => {
+            error!("{}", err);
+            panic!();
+        }
     }
 }
 
@@ -70,7 +73,6 @@ parser!{
 }
 }
 
-
 parser!{
    fn program[I]()(I) -> Program
     where [I: Stream<Item=char>]
@@ -80,7 +82,7 @@ parser!{
             _: keyword("procedure"),
             name: varname(),
             args: lex_char('(').with(sep_by(expr(), lex_char(','))).skip(skipnocode()),
-            local_args: optional(lex_char(';').with(sep_by(expr(), lex_char(',')))).map(|x : Option<Vec<Element>>| 
+            local_args: optional(lex_char(';').with(sep_by(expr(), lex_char(',')))).map(|x : Option<Vec<Element>>|
                 x.unwrap_or(vec![])).skip(skipnocode()),
             _: lex_char(')').with(lex_char(';')),
             statements: many(statement()),
@@ -117,7 +119,7 @@ parser!{
     where [I: Stream<Item=char>]
 {
    char('$').with(varname()).
-   and(optional(between(lex_char('('), lex_char(')'), expr()))).   
+   and(optional(between(lex_char('('), lex_char(')'), expr()))).
    map(|(x,ind)| Element::Dollar(VarName::Name(Box::new('$'.to_string() + &x)), ind.map(|o| Box::new(o))))
 }
 }
@@ -167,7 +169,7 @@ parser!{
         statement().map(|x: Statement| vec![x])))).map(|x : Option<Vec<Statement>>| x.unwrap_or(vec![]))). // parse the else
         map(|(q,x,e) : (Element, Vec<Statement>, Vec<Statement>)| Statement::IfElse(q, x, e));
 
-    choice!(call_procedure, maximum, assign, print, ifelse, expand, multiply, 
+    choice!(call_procedure, maximum, assign, print, ifelse, expand, multiply,
         repeat, idstatement, collect, splitarg, symmetrize.skip(skipnocode()))
 }
 }
@@ -176,9 +178,9 @@ parser!{
    fn number[I]()(I) -> Element
     where [I: Stream<Item=char>]
 {
-    (optional(char('-')).map(|x| x.is_none()), 
-        many1(digit()).map(|d : String| d.parse::<u64>().unwrap()), 
-        optional(char('/').with(many1(digit()))).map(|x| x.map(|y : String| y.parse::<u64>().unwrap()).unwrap_or(1) 
+    (optional(char('-')).map(|x| x.is_none()),
+        many1(digit()).map(|d : String| d.parse::<u64>().unwrap()),
+        optional(char('/').with(many1(digit()))).map(|x| x.map(|y : String| y.parse::<u64>().unwrap()).unwrap_or(1)
     )).map(|(sign, num, den): (bool, u64, u64)| Element::Num(true, sign, num, den))
 }
 }
@@ -189,8 +191,8 @@ parser!{
 {
     let funcarg = between(lex_char('('), lex_char(')'), sep_by(expr(), lex_char(',')));
 
-    let numorder = choice!(try(string(">=")).map(|_| NumOrder::GreaterEqual), 
-    string(">").map(|_| NumOrder::Greater), string("==").map(|_| NumOrder::Equal), 
+    let numorder = choice!(try(string(">=")).map(|_| NumOrder::GreaterEqual),
+    string(">").map(|_| NumOrder::Greater), string("==").map(|_| NumOrder::Equal),
     try(string("<=")).map(|_| NumOrder::SmallerEqual), string("<").map(|_| NumOrder::Smaller)).skip(spaces());
     let numrange = (numorder, number()).map(|(r,b)| match b {
         Element::Num(_,pos,num,den) => Element::NumberRange(pos,num,den,r),
@@ -212,7 +214,7 @@ parser!{
             }
             res
         });
-    
+
     choice!(number(), dollarvar(), namedfactor, variableargument, parenexpr())
 }
 }
