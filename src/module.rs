@@ -11,7 +11,7 @@ use crossbeam::sync::MsQueue;
 use structure::*;
 use id::{MatchIterator, MatchKind};
 use streaming::MAXTERMMEM;
-use streaming::TermStreamer;
+use streaming::{InputTermStreamer, OutputTermStreamer};
 use tools::exponentiate;
 
 impl Element {
@@ -282,7 +282,7 @@ fn do_module_rec(
 	var_info: &mut VarInfo,
 	current_index: usize,
 	term_affected: &mut Vec<bool>,
-	output: &mut Arc<&mut Mutex<TermStreamer>>,
+	output: &mut Arc<Mutex<OutputTermStreamer>>,
 ) {
 	if let Element::Num(_, true, 0, 1) = input {
 		return; // drop 0
@@ -565,6 +565,9 @@ impl Module {
 
 // execute the module
 pub fn do_program(program: &mut Program, write_log: bool, num_threads: usize) {
+	// extract the initial input stream from the program
+	let mut input_stream = mem::replace(&mut program.input, InputTermStreamer::new(None));
+
 	for module in program.modules.iter_mut() {
 		// move global statements from the previous module into the new one
 		// TODO: do swap instead of clone?
@@ -575,10 +578,12 @@ pub fn do_program(program: &mut Program, write_log: bool, num_threads: usize) {
 
 		let mut inpcount = 0u64;
 
+		// TODO: avoid the arc mutex if we only have one thread
+		// the arc does not have overhead since it is not cloned, but the mutex does
+		let mut output = Arc::new(Mutex::new(OutputTermStreamer::new()));
+
 		if num_threads > 1 {
 			let queue: Arc<MsQueue<Option<Element>>> = Arc::new(MsQueue::new());
-			let mut output = Arc::new(&mut program.input); // TODO: split in input and output stream
-
 			let thread_varinfo = program.var_info.clone();
 
 			// create threads that process terms
@@ -609,8 +614,7 @@ pub fn do_program(program: &mut Program, write_log: bool, num_threads: usize) {
 					if queue.is_empty() {
 						debug!("Loading new batch");
 						for _ in 0..MAXTERMMEM {
-							// FIXME: this lock now interferes with the output lock
-							if let Some(x) = output.lock().unwrap().read_term() {
+							if let Some(x) = input_stream.read_term() {
 								queue.push(Some(x));
 							} else {
 								// post exist signal to all threads
@@ -629,38 +633,31 @@ pub fn do_program(program: &mut Program, write_log: bool, num_threads: usize) {
 		} else {
 			let mut executed = vec![false];
 
-			loop {
-				// note: while let Some(x) = program.input.lock().unwrap().read_term() keeps the lock
-				let r = program.input.lock().unwrap().read_term();
-				match r {
-					Some(x) => {
-						let mut output = Arc::new(&mut program.input);
-						do_module_rec(
-							x,
-							&module.statements,
-							&mut program.var_info,
-							0,
-							&mut executed,
-							&mut output.clone(),
-						);
-						let output = output.lock().unwrap();
-						if output.termcount() > 100_000 && output.termcount() % 100_000 == 0 {
-							println!(
-								"{} -- generated: {}\tterms left: {}",
-								module.name,
-								output.termcount(),
-								output.input_termcount() - inpcount
-							);
-						}
-
-						inpcount += 1;
-					}
-					None => break,
+			while let Some(x) = input_stream.read_term() {
+				do_module_rec(
+					x,
+					&module.statements,
+					&mut program.var_info,
+					0,
+					&mut executed,
+					&mut output,
+				);
+				let output = output.lock().unwrap();
+				if output.termcount() > 100_000 && output.termcount() % 100_000 == 0 {
+					println!(
+						"{} -- generated: {}\tterms left: {}",
+						module.name,
+						output.termcount(),
+						input_stream.termcount() - inpcount
+					);
 				}
+
+				inpcount += 1;
 			}
 		}
 
-		program.input.lock().unwrap().sort(
+		output.lock().unwrap().sort(
+			&mut input_stream,
 			&mut program.var_info,
 			&module.global_statements,
 			write_log,

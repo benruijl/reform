@@ -767,7 +767,7 @@ impl<'a> MatchIterator<'a> {
                     self.rhsp = 0;
                 }
 
-                let (mut res, changed) = r.to_single();
+                let (mut res, _changed) = r.to_single();
                 if self.remaining.len() > 0 {
                     add_terms(&mut res, &self.remaining);
                 }
@@ -777,7 +777,7 @@ impl<'a> MatchIterator<'a> {
             }
             x => {
                 let r = x.apply_map(&self.m);
-                let (mut res, changed) = r.to_single();
+                let (mut res, _changed) = r.to_single();
                 if self.remaining.len() > 0 {
                     add_terms(&mut res, &self.remaining);
                 }
