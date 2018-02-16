@@ -14,6 +14,31 @@ use streaming::MAXTERMMEM;
 use streaming::{InputTermStreamer, OutputTermStreamer};
 use tools::exponentiate;
 
+/*
+Abstract away the difference between a threaded term streamer
+and a single-core streamer.
+*/
+enum TermStreamWrapper {
+	Threaded(Arc<Mutex<OutputTermStreamer>>),
+	Single(OutputTermStreamer),
+}
+
+impl TermStreamWrapper {
+	fn extract(self) -> OutputTermStreamer {
+		match self {
+			TermStreamWrapper::Threaded(x) => Arc::try_unwrap(x).unwrap().into_inner().unwrap(),
+			TermStreamWrapper::Single(x) => x,
+		}
+	}
+
+	fn add_term(&mut self, e: Element) {
+		match self {
+			&mut TermStreamWrapper::Threaded(ref mut x) => x.lock().unwrap().add_term(e),
+			&mut TermStreamWrapper::Single(ref mut x) => x.add_term(e),
+		}
+	}
+}
+
 impl Element {
 	fn expand(&self) -> Element {
 		match self {
@@ -276,19 +301,19 @@ impl Statement {
 	}
 }
 
-fn do_module_rec(
+fn do_module_rec<'a>(
 	mut input: Element,
 	statements: &[Statement],
 	var_info: &mut VarInfo,
 	current_index: usize,
 	term_affected: &mut Vec<bool>,
-	output: &mut Arc<Mutex<OutputTermStreamer>>,
+	output: &mut TermStreamWrapper,
 ) {
 	if let Element::Num(_, true, 0, 1) = input {
 		return; // drop 0
 	}
 	if current_index == statements.len() {
-		output.lock().unwrap().add_term(input);
+		output.add_term(input);
 		return;
 	}
 
@@ -578,11 +603,11 @@ pub fn do_program(program: &mut Program, write_log: bool, num_threads: usize) {
 
 		let mut inpcount = 0u64;
 
-		// TODO: avoid the arc mutex if we only have one thread
-		// the arc does not have overhead since it is not cloned, but the mutex does
-		let mut output = Arc::new(Mutex::new(OutputTermStreamer::new()));
+		let mut output = OutputTermStreamer::new();
 
-		if num_threads > 1 {
+		output = if num_threads > 1 {
+			let mut output_mutarc = Arc::new(Mutex::new(output));
+
 			let queue: MsQueue<Option<Element>> = MsQueue::new();
 			let thread_varinfo = program.var_info.clone();
 
@@ -592,7 +617,7 @@ pub fn do_program(program: &mut Program, write_log: bool, num_threads: usize) {
 					scope.spawn(|| {
 						let mut thread_varinfo = thread_varinfo.clone();
 						let mut executed = vec![false];
-						let mut output = output.clone();
+						let mut output = TermStreamWrapper::Threaded(output_mutarc.clone());
 						while let Some(x) = queue.pop() {
 							do_module_rec(
 								x,
@@ -625,11 +650,17 @@ pub fn do_program(program: &mut Program, write_log: bool, num_threads: usize) {
 							}
 						}
 					}
-					thread::sleep(time::Duration::from_millis(10));
+					thread::sleep(time::Duration::from_millis(50));
 				}
 			});
+
+			Arc::try_unwrap(output_mutarc)
+				.unwrap()
+				.into_inner()
+				.unwrap()
 		} else {
 			let mut executed = vec![false];
+			let mut output_wrapped = TermStreamWrapper::Single(output);
 
 			while let Some(x) = input_stream.read_term() {
 				do_module_rec(
@@ -638,9 +669,10 @@ pub fn do_program(program: &mut Program, write_log: bool, num_threads: usize) {
 					&mut program.var_info,
 					0,
 					&mut executed,
-					&mut output,
+					&mut output_wrapped,
 				);
-				let output = output.lock().unwrap();
+
+				/*
 				if output.termcount() > 100_000 && output.termcount() % 100_000 == 0 {
 					println!(
 						"{} -- generated: {}\tterms left: {}",
@@ -648,15 +680,17 @@ pub fn do_program(program: &mut Program, write_log: bool, num_threads: usize) {
 						output.termcount(),
 						input_stream.termcount() - inpcount
 					);
-				}
+				}*/
 
 				inpcount += 1;
 			}
-		}
 
-		output.lock().unwrap().sort(
+			output_wrapped.extract()
+		};
+
+		output.sort(
 			&mut input_stream,
-			&mut program.var_info,
+			&mut program.var_info, // TODO: this is not correct in the parallel case
 			&module.global_statements,
 			write_log,
 		);

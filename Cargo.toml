@@ -4,6 +4,9 @@ version = "0.1.0"
 readme = "README.md"
 authors = ["Ben Ruijl <benruyl@gmail.com>"]
 
+[profile.release]
+codegen-units = 1
+
 [features]
 profile = ["cpuprofiler"]
 
