@@ -93,9 +93,8 @@ parser!{
     let module = struct_parser!{
         Module {
             name: value("test".to_string()),
-            statements: many(statement()),
-            global_statements: value(vec![]),
-            _: keyword("sort").with(lex_char(';'))
+            global_statements: many(global_statement()),
+            statements: between(lex_char('{'), lex_char('}'), many(statement())),
         }
     };
 
@@ -125,6 +124,17 @@ parser!{
 }
 
 parser!{
+   fn global_statement[I]()(I) -> Statement
+    where [I: Stream<Item=char>]
+{
+    let assign = (dollarvar(), lex_char('=').with(expr()).skip(statementend())).map(|(d,e)| Statement::Assign(d, e));
+    let collect = keyword("collect").with(varname()).skip(statementend()).map(|x| Statement::Collect(VarName::Name(Box::new(x))));
+
+    choice!(assign, collect)
+}
+}
+
+parser!{
    fn statement[I]()(I) -> Statement
     where [I: Stream<Item=char>]
 {
@@ -135,7 +145,6 @@ parser!{
     let expand = keyword("expand").skip(statementend()).map(|_| Statement::Expand);
     let print = keyword("print").skip(statementend()).map(|_| Statement::Print);
     let maximum = keyword("maximum").with(dollarvar()).skip(statementend()).map(|x| Statement::Maximum(x));
-    let collect = keyword("collect").with(varname()).skip(statementend()).map(|x| Statement::Collect(VarName::Name(Box::new(x))));
     let call_procedure = (keyword("call").with(varname()), between(lex_char('('), lex_char(')'), sep_by(expr(), lex_char(',')))).
         skip(statementend()).map(|(name, args) : (String, Vec<Element>)| Statement::Call(name, args));
 
@@ -169,8 +178,8 @@ parser!{
         statement().map(|x: Statement| vec![x])))).map(|x : Option<Vec<Statement>>| x.unwrap_or(vec![]))). // parse the else
         map(|(q,x,e) : (Element, Vec<Statement>, Vec<Statement>)| Statement::IfElse(q, x, e));
 
-    choice!(call_procedure, maximum, assign, print, ifelse, expand, multiply,
-        repeat, idstatement, collect, splitarg, symmetrize.skip(skipnocode()))
+    choice!(call_procedure, assign, maximum, print, ifelse, expand, multiply,
+        repeat, idstatement, splitarg, symmetrize.skip(skipnocode()))
 }
 }
 

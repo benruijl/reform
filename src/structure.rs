@@ -419,13 +419,14 @@ pub enum IdentityStatementMode {
 
 impl fmt::Display for Module {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for (i, x) in self.global_statements.iter().enumerate() {
+            write!(f, "{}: {}", i, x)?;
+        }
+        writeln!(f, "{{")?;
         for (i, x) in self.statements.iter().enumerate() {
             write!(f, "{}: {}", i, x)?;
         }
-        for (i, x) in self.global_statements.iter().enumerate() {
-            write!(f, "G{}: {}", i, x)?;
-        }
-        writeln!(f, "")
+        writeln!(f, "}}")
     }
 }
 

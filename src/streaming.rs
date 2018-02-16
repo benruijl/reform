@@ -206,7 +206,7 @@ impl OutputTermStreamer {
                             },
                         );
                     }
-                    _ => unreachable!(),
+                    _ => {}
                 }
             }
 

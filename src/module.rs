@@ -368,7 +368,9 @@ fn do_module_rec<'a>(
 		// move to iter if we decide how to propagate the var_info
 		Statement::Assign(ref dollar, ref e) => {
 			let mut ee = e.clone();
-			ee.replace_vars(&var_info.variables, true);
+			if ee.replace_vars(&var_info.variables, true) {
+				ee.normalize_inplace();
+			}
 			if let &Element::Dollar(ref d, ..) = dollar {
 				var_info.add_dollar(d.clone(), ee);
 			}
@@ -548,20 +550,25 @@ impl Module {
 		}
 	}
 
-	// normalize all expressions in statements
+	// normalize all expressions in statements and execute global
+	// operations
 	fn normalize_module(&mut self, var_info: &mut VarInfo, procedures: &[Procedure]) {
-		let oldstat = mem::replace(&mut self.statements, vec![]);
-		let mut newstat = vec![];
-
-		// split off global statements
-		for x in oldstat {
+		for x in &self.global_statements {
 			match x {
-				Statement::Collect(_) => self.global_statements.push(x),
-				_ => newstat.push(x),
+				&Statement::Assign(ref dollar, ref e) => {
+					let mut ee = e.clone();
+					ee.replace_vars(&var_info.variables, true);
+					ee.normalize_inplace();
+					if let &Element::Dollar(ref d, ..) = dollar {
+						var_info.add_dollar(d.clone(), ee);
+					}
+				}
+				_ => unimplemented!(),
 			}
 		}
 
-		Module::to_control_flow_stat(&newstat, var_info, procedures, &mut self.statements);
+		let old_statements = mem::replace(&mut self.statements, vec![]);
+		Module::to_control_flow_stat(&old_statements, var_info, procedures, &mut self.statements);
 
 		for x in self.statements.iter_mut() {
 			match *x {
