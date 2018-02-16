@@ -385,16 +385,16 @@ fn do_module_rec<'a>(
 		}
 		Statement::Maximum(ref dollar) => {
 			if let &Element::Dollar(ref d, ..) = dollar {
-				match var_info.variables.get_mut(d) {
+				match var_info.variables.get(d) {
 					Some(x) => {
 						match var_info.global_variables.entry(d.clone()) {
 							Entry::Occupied(mut y) => {
 								if *y.get() < *x {
-									mem::swap(x, y.get_mut());
+									*y.get_mut() = x.clone();
 								}
 							}
 							Entry::Vacant(y) => {
-								y.insert(mem::replace(x, DUMMY_ELEM!()));
+								y.insert(x.clone());
 							}
 						};
 					}
