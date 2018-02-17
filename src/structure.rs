@@ -94,7 +94,7 @@ impl VarInfo {
 
 impl Program {
     pub fn new(
-        input: Element,
+        mut input: Element,
         mut modules: Vec<Module>,
         mut procedures: Vec<Procedure>,
     ) -> Program {
@@ -105,14 +105,15 @@ impl Program {
             var_info: VarInfo::new(),
         };
 
+        input.var_to_id(&mut prog.var_info);
+        input.normalize_inplace();
+
         match input {
             Element::SubExpr(_, t) => for mut x in t {
-                x.var_to_id(&mut prog.var_info);
-                prog.input.add_term_input(x.normalize());
+                prog.input.add_term_input(x);
             },
-            mut x => {
-                x.var_to_id(&mut prog.var_info);
-                prog.input.add_term_input(x.normalize());
+            x => {
+                prog.input.add_term_input(x);
             }
         }
 
