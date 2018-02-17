@@ -6,6 +6,7 @@ use std::io::{BufReader, BufWriter, SeekFrom};
 use std::collections::BinaryHeap;
 use std::cmp::Ordering;
 use std::mem;
+use std::collections::VecDeque;
 
 use structure::{Element, ElementPrinter, Func, Statement, VarInfo};
 use normalize::merge_terms;
@@ -33,7 +34,7 @@ impl PartialOrd for ElementStreamTuple {
 #[derive(Debug)]
 pub struct InputTermStreamer {
     input: Option<BufReader<File>>, // the input file
-    mem_buffer_input: Vec<Element>, // the memory buffer, storing unserialized terms
+    mem_buffer_input: VecDeque<Element>, // the memory buffer, storing unserialized terms
     termcounter_input: u64,         // input term count
 }
 
@@ -41,31 +42,31 @@ impl InputTermStreamer {
     pub fn new(source: Option<BufReader<File>>) -> InputTermStreamer {
         InputTermStreamer {
             input: source,
-            mem_buffer_input: vec![],
+            mem_buffer_input: VecDeque::with_capacity(SMALL_BUFFER as usize),
             termcounter_input: 0,
         }
     }
 
     // get the next term from the input
     pub fn read_term(&mut self) -> Option<Element> {
-        // TODO: decrease termcounter?
         if self.mem_buffer_input.len() > 0 {
-            return self.mem_buffer_input.pop();
+            self.termcounter_input -= 1;
+            return self.mem_buffer_input.pop_front();
         } else {
             // read the next terms from the input file,
             // so that the membuffer is filled
             if let Some(ref mut x) = self.input {
                 for _ in 0..MAXTERMMEM {
                     if let Ok(e) = Element::deserialize(x) {
-                        self.mem_buffer_input.push(e);
+                        self.mem_buffer_input.push_front(e);
                     } else {
                         break;
                     }
                 }
 
-                self.mem_buffer_input.reverse(); // FIXME: wasteful...
                 if self.mem_buffer_input.len() > 0 {
-                    return self.mem_buffer_input.pop();
+                    self.termcounter_input -= 1;
+                    return self.mem_buffer_input.pop_front();
                 }
             }
         }
@@ -73,7 +74,7 @@ impl InputTermStreamer {
     }
 
     pub fn add_term_input(&mut self, element: Element) {
-        self.mem_buffer_input.push(element);
+        self.mem_buffer_input.push_back(element);
         self.termcounter_input += 1;
     }
 
@@ -217,8 +218,8 @@ impl OutputTermStreamer {
 
             // move to input buffer
             match a {
-                Element::SubExpr(_, x) => input_streamer.mem_buffer_input = x,
-                x => input_streamer.mem_buffer_input = vec![x],
+                Element::SubExpr(_, x) => input_streamer.mem_buffer_input = VecDeque::from(x),
+                x => input_streamer.mem_buffer_input = { let mut v = VecDeque::new(); v.push_back(x); v},
             }
 
             for x in input_streamer.mem_buffer_input.iter() {
@@ -381,7 +382,8 @@ impl OutputTermStreamer {
             }
 
             // move the mem_buffer to the input buffer
-            mem::swap(&mut self.mem_buffer, &mut input_streamer.mem_buffer_input);
+            //mem::swap(&mut self.mem_buffer, &mut input_streamer.mem_buffer_input);
+            input_streamer.mem_buffer_input = VecDeque::from(mem::replace(&mut self.mem_buffer, vec![]));
 
             let mut of = ofb.into_inner().unwrap();
             of.seek(SeekFrom::Start(0)).unwrap();
