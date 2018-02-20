@@ -306,9 +306,9 @@ impl PartialOrd for Element {
             (&Element::Pow(_, ref be1), &Element::Pow(_, ref be2)) => {
                 let (ref b1, ref e1) = **be1;
                 let (ref b2, ref e2) = **be2;
-                let c = b1.partial_cmp(&b2);
+                let c = b1.partial_cmp(b2);
                 match c {
-                    Some(Ordering::Equal) => e1.partial_cmp(&e2),
+                    Some(Ordering::Equal) => e1.partial_cmp(e2),
                     _ => c,
                 }
             }
@@ -322,7 +322,7 @@ impl PartialOrd for Element {
             }
             (_, &Element::Pow(_, ref be)) => {
                 let (ref b, _) = **be;
-                let c = self.partial_cmp(&b);
+                let c = self.partial_cmp(b);
                 match c {
                     Some(Ordering::Equal) => Some(Ordering::Greater),
                     _ => c,

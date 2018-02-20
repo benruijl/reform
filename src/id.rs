@@ -309,10 +309,10 @@ impl Element {
         match (target, self) {
             (&Element::Pow(_, ref be1), &Element::Pow(_, ref be2)) => {
                 let (ref b1, ref e1) = **be1;
-                let (ref b2, ref e2) = **be1;
+                let (ref b2, ref e2) = **be2;
                 ElementIterSingle::SeqIt(
-                    vec![&b1, &e1],
-                    SequenceIter::new(SliceRef::OwnedSlice(vec![&b2, &e2]), &b1, var_info),
+                    vec![b1, e1],
+                    SequenceIter::new(SliceRef::OwnedSlice(vec![b2, e2]), b1, var_info),
                 )
             }
             (i1, &Element::Dollar(ref i2, _)) => {

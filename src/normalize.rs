@@ -359,7 +359,7 @@ impl Element {
                 }
                 Element::Wildcard(name.clone(), r)
             }
-            &Element::Pow(dirty, ref be) => {
+            &Element::Pow(dirty, _) => {
                 if !dirty {
                     return self.clone();
                 }
@@ -367,7 +367,7 @@ impl Element {
                 // What is wrong with this??? The optimizer may eliminate temporary redundant/objects.
                 let mut x = self.clone();
                 x.normalize_inplace();
-                return x;
+                x
                 /*
                 let newb = b.normalize();
                 let mut newp = p.normalize();
