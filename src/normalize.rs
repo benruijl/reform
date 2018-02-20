@@ -86,6 +86,7 @@ impl Element {
                     changed |= e.normalize_inplace();
                     *dirty = false;
 
+                    // TODO: Clippy doesn't like loops that never actually loop #[warn(never_loop)]
                     loop {
                         match *e {
                             Element::Num(_, _, 0, _) => {
@@ -105,14 +106,21 @@ impl Element {
                                     break Element::Num(false, pos, num, den);
                                 }
                             }
-                            _ => {
-                                // TODO: The old code contained reduction of (x^a)^b = x^(a*b).
-                                // This may be mathematically wrong, e.g.,
-                                //   for x = (-1+i), a = 2, b = 3/2,
-                                //   (x^a)^b = - x^(a*b).
-                                // We need more conditions.
+                            Element::Num(_, false, n, 1) => {
+                                // exponent is a negative integer
+                                if let Element::Num(_, mut pos, mut num, mut den) = *b {
+                                    // base is a rational number: (p/q)^(-n) = q^n/p^n
+                                    exp_fraction(&mut pos, &mut num, &mut den, n);
+                                    break Element::Num(false, pos, den, num);
+                                }
                             }
+                            _ => {}
                         };
+                        // TODO: The old code contained reduction of (x^a)^b = x^(a*b).
+                        // This may be mathematically wrong, e.g.,
+                        //   for x = (-1+i), a = 2, b = 3/2,
+                        //   (x^a)^b = - x^(a*b).
+                        // We need more conditions.
                         return changed;
                     }
                 } else {
