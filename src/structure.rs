@@ -175,7 +175,7 @@ pub enum Element {
     Wildcard(VarName, Vec<Element>),       // x?{...}
     Dollar(VarName, Option<Box<Element>>), // $x[y]
     Var(VarName),                          // x
-    Pow(bool, Box<Element>, Box<Element>), // (1+x)^3
+    Pow(bool, Box<(Element, Element)>),    // (1+x)^3; dirty, base, exponent
     NumberRange(bool, u64, u64, NumOrder), // >0, <=-5/2
     Fn(bool, Func),                        // f(...)
     Term(bool, Vec<Element>),
@@ -303,25 +303,29 @@ impl PartialOrd for Element {
             }
             (_, &Element::Num(..)) => Some(Ordering::Less),
             (&Element::Num(..), _) => Some(Ordering::Greater),
-            (&Element::Pow(_, ref b, ref p), &Element::Pow(_, ref b1, ref p1)) => {
-                let k = (**b).partial_cmp(&**b1);
-                match k {
-                    Some(Ordering::Equal) => (**p).partial_cmp(&**p1),
-                    _ => return k,
+            (&Element::Pow(_, ref be1), &Element::Pow(_, ref be2)) => {
+                let (b1, e1) = **be1;
+                let (b2, e2) = **be2;
+                let c = b1.partial_cmp(&b2);
+                match c {
+                    Some(Ordering::Equal) => e1.partial_cmp(&e2),
+                    _ => c,
                 }
             }
-            (&Element::Pow(_, ref b, _), _) => {
-                let k = (**b).partial_cmp(other);
-                match k {
+            (&Element::Pow(_, ref be), _) => {
+                let (b, _) = **be;
+                let c = b.partial_cmp(other);
+                match c {
                     Some(Ordering::Equal) => Some(Ordering::Less),
-                    _ => return k,
+                    _ => c,
                 }
             }
-            (_, &Element::Pow(_, ref b, _)) => {
-                let k = self.partial_cmp(&**b);
-                match k {
+            (_, &Element::Pow(_, ref be)) => {
+                let (b, _) = **be;
+                let c = self.partial_cmp(&b);
+                match c {
                     Some(Ordering::Equal) => Some(Ordering::Greater),
-                    _ => return k,
+                    _ => c,
                 }
             }
             (&Element::Term(_, ref ta), &Element::Term(_, ref tb)) => {
@@ -631,24 +635,25 @@ impl Element {
                     write!(f, "{}{}/{}", if *pos { "" } else { "-" }, num, den)
                 }
             }
-            &Element::Pow(_, ref e, ref p) => {
-                match **e {
+            &Element::Pow(_, ref be) => {
+                let (b, e) = **be;
+                match b {
                     Element::SubExpr(..) | Element::Term(..) => {
                         write!(f, "(")?;
-                        e.fmt_output(f, var_info)?;
+                        b.fmt_output(f, var_info)?;
                         write!(f, ")")?
                     }
-                    _ => e.fmt_output(f, var_info)?,
+                    _ => b.fmt_output(f, var_info)?,
                 };
-                match **p {
+                match e {
                     Element::SubExpr(..) | Element::Term(..) => {
                         write!(f, "^(")?;
-                        p.fmt_output(f, var_info)?;
+                        e.fmt_output(f, var_info)?;
                         write!(f, ")")
                     }
                     _ => {
                         write!(f, "^")?;
-                        p.fmt_output(f, var_info)
+                        e.fmt_output(f, var_info)
                     }
                 }
             }
@@ -736,7 +741,8 @@ impl Element {
                     x.var_to_id(var_info);
                 }
             }
-            Element::Pow(_, ref mut b, ref mut e) => {
+            Element::Pow(_, ref mut be) => {
+                let (b, e) = **be;
                 b.var_to_id(var_info);
                 e.var_to_id(var_info);
             }
@@ -785,7 +791,8 @@ impl Element {
                 }
                 return changed;
             }
-            Element::Pow(ref mut dirty, ref mut b, ref mut e) => {
+            Element::Pow(ref mut dirty, ref mut be) => {
+                let (b, e) = **be;
                 changed |= b.replace_vars(map, dollar_only);
                 changed |= e.replace_vars(map, dollar_only);
                 *dirty |= changed;
@@ -836,7 +843,8 @@ impl Element {
         }
 
         match *self {
-            Element::Pow(ref mut dirty, ref mut b, ref mut e) => {
+            Element::Pow(ref mut dirty, ref mut be) => {
+                let (b, e) = **be;
                 *dirty |= b.replace(orig, new);
                 *dirty |= e.replace(orig, new);
                 *dirty

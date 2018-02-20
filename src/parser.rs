@@ -256,7 +256,7 @@ parser!{
 {
     // TODO: support a^b^c? use chainl?
     factor().and(optional(lex_char('^').with(factor()))).map(|(b, e)| match e {
-        Some(ee) => Element::Pow(true, Box::new(b), Box::new(ee)),
+        Some(ee) => Element::Pow(true, Box::new((b, ee))),
         _ => b
     })
 }
