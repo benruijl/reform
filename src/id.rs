@@ -111,13 +111,14 @@ impl Element {
             Element::VariableArgument(ref name) | Element::Wildcard(ref name, ..) => {
                 find_match(m, name).unwrap().to_owned()
             }
-            Element::Pow(_, ref b, ref p) => {
+            Element::Pow(_, ref be) => {
+                let (ref b, ref e) = **be;
                 let mut changed = false;
-                let (bb, mut c) = b.apply_map(m).into_single();
+                let (bb, c) = b.apply_map(m).into_single();
                 changed |= c;
-                let (pp, c) = p.apply_map(m).into_single();
+                let (pp, c) = e.apply_map(m).into_single();
                 changed |= c;
-                MatchOptOwned::Single(Element::Pow(changed, Box::new(bb), Box::new(pp)), changed)
+                MatchOptOwned::Single(Element::Pow(changed, Box::new((bb, pp))), changed)
             }
             Element::Fn(_, ref f) => {
                 let (ff, c) = f.apply_map(m);
@@ -307,10 +308,12 @@ impl Element {
         var_info: &'a HashMap<VarName, Element>,
     ) -> ElementIterSingle<'a> {
         match (target, self) {
-            (&Element::Pow(_, ref b1, ref p1), &Element::Pow(_, ref b2, ref p2)) => {
+            (&Element::Pow(_, ref be1), &Element::Pow(_, ref be2)) => {
+                let (ref b1, ref e1) = **be1;
+                let (ref b2, ref e2) = **be2;
                 ElementIterSingle::SeqIt(
-                    vec![b1, p1],
-                    SequenceIter::new(&SliceRef::OwnedSlice(vec![b2, p2]), b1, var_info),
+                    vec![b1, e1],
+                    SequenceIter::new(&SliceRef::OwnedSlice(vec![b2, e2]), b1, var_info),
                 )
             }
             (i1, &Element::Dollar(ref i2, _)) => {

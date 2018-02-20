@@ -83,75 +83,55 @@ impl Element {
                     return false;
                 }
 
-                *self = if let Element::Pow(ref mut dirty, ref mut b, ref mut p) = *self {
+                *self = if let Element::Pow(ref mut dirty, ref mut be) = *self {
+                    let (ref mut b, ref mut e) = *&mut **be;
                     changed |= b.normalize_inplace();
-                    changed |= p.normalize_inplace();
+                    changed |= e.normalize_inplace();
                     *dirty = false;
 
-                    // x^0 = 1
-                    match **p {
-                        Element::Num(_, _, 0, _) => Element::Num(false, true, 1, 1),
-                        Element::Num(_, true, 1, 1) => mem::replace(&mut **b, DUMMY_ELEM!()),
-                        _ => {
-                            // simplify numbers if exponent is a positive integer
-                            let rv = if let Element::Num(_, true, n, 1) = **p {
-                                if let Element::Num(_, mut pos, mut num, mut den) = **b {
-                                    exp_fraction(&mut pos, &mut num, &mut den, n);
-                                    Some(Element::Num(false, pos, num, den))
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            };
-
-                            if let Some(x) = rv {
-                                x
-                            } else
-                            // simplify x^a^b = x^(a*b)
-                            // TODO: note the nasty syntax to avoid borrow checker bug
-                            if let Element::Pow(_, ref mut c, ref mut d) = *&mut **b {
-                                match (&mut **p, &mut **d) {
-                                    (
-                                        &mut Element::Term(ref mut dirty, ref mut f),
-                                        &mut Element::Term(_, ref mut f1),
-                                    ) => {
-                                        *dirty = true;
-                                        f.append(f1);
-                                    }
-                                    (&mut Element::Term(ref mut dirty, ref mut f), ref mut b) => {
-                                        *dirty = true;
-                                        f.push(mem::replace(b, DUMMY_ELEM!()))
-                                    }
-                                    (a, b) => {
-                                        *a = Element::Term(
-                                            true,
-                                            vec![
-                                                mem::replace(a, DUMMY_ELEM!()),
-                                                mem::replace(b, DUMMY_ELEM!()),
-                                            ],
-                                        );
-                                    }
-                                }
-
-                                // TODO: is this the best way? can the box be avoided?
-                                // can we recycle the old box and move a new pointer in there?
-                                let mut res = Element::Pow(
-                                    true,
-                                    mem::replace(c, Box::new(DUMMY_ELEM!())),
-                                    mem::replace(p, Box::new(DUMMY_ELEM!())),
-                                );
-                                res.normalize_inplace();
-                                res
-                            } else {
-                                return changed;
+                    // TODO: Clippy doesn't like loops that never actually loop #[warn(never_loop)]
+                    // though imho it looks the best way to make "goto" or "early-exit in match"
+                    // for now. (See also rust-lang/rfcs#2046.)
+                    loop {
+                        match *e {
+                            Element::Num(_, _, 0, _) => {
+                                // x^0 = 1
+                                break Element::Num(false, true, 1, 1);
                             }
-                        }
+                            Element::Num(_, true, 1, 1) => {
+                                // x^1 = x
+                                break mem::replace(b, DUMMY_ELEM!());
+                            }
+                            Element::Num(_, true, n, 1) => {
+                                // exponent is a positive integer
+                                // check if some simplification can be made
+                                if let Element::Num(_, mut pos, mut num, mut den) = *b {
+                                    // base is a rational number: (p/q)^n = p^n/q^n
+                                    exp_fraction(&mut pos, &mut num, &mut den, n);
+                                    break Element::Num(false, pos, num, den);
+                                }
+                            }
+                            Element::Num(_, false, n, 1) => {
+                                // exponent is a negative integer
+                                if let Element::Num(_, mut pos, mut num, mut den) = *b {
+                                    // base is a rational number: (p/q)^(-n) = q^n/p^n
+                                    exp_fraction(&mut pos, &mut num, &mut den, n);
+                                    break Element::Num(false, pos, den, num);
+                                }
+                            }
+                            _ => {}
+                        };
+                        // TODO: The old code contained reduction of (x^a)^b = x^(a*b).
+                        // This may be mathematically wrong, e.g.,
+                        //   for x = (-1+i), a = 2, b = 3/2,
+                        //   (x^a)^b = - x^(a*b).
+                        // We need more detailed conditions for such a reduction.
+                        return changed;
                     }
                 } else {
                     unreachable!();
                 };
-                changed = true;
+                return changed;
             }
             Element::Fn(dirty, _) => {
                 if dirty {
@@ -322,41 +302,47 @@ impl Element {
                 }
                 Element::Wildcard(name.clone(), r)
             }
-            &Element::Pow(dirty, ref b, ref p) => {
+            &Element::Pow(dirty, ref be) => {
                 if !dirty {
                     return self.clone();
                 }
 
-                let newb = b.normalize();
-                let mut newp = p.normalize();
+                let (ref b, ref e) = **be;
+                let b = b.normalize();
+                let e = e.normalize();
 
-                // x^0 = 1
-                if let Element::Num(_, _, 0, _) = newp {
-                    return Element::Num(false, true, 1, 1);
-                }
-                // return x if x^1
-                if let Element::Num(_, true, 1, 1) = newp {
-                    return newb;
-                }
-
-                // simplify numbers if exponent is a positive integer
-                if let Element::Num(_, true, n, 1) = newp {
-                    if let Element::Num(_, mut pos, mut num, mut den) = newb {
-                        exp_fraction(&mut pos, &mut num, &mut den, n);
-                        return Element::Num(false, pos, num, den);
+                match e {
+                    Element::Num(_, _, 0, _) => {
+                        // x^0 = 1
+                        return Element::Num(false, true, 1, 1);
                     }
-                }
-
-                // simplify x^a^b = x^(a*b)
-                if let Element::Pow(_, c, d) = newb {
-                    match newp {
-                        Element::Term(_, ref mut f) => f.push(*d),
-                        _ => newp = Element::Term(true, vec![newp.clone(), *d]).normalize(),
+                    Element::Num(_, true, 1, 1) => {
+                        // x^1 = x
+                        return b;
                     }
-                    Element::Pow(false, c, Box::new(newp))
-                } else {
-                    Element::Pow(false, Box::new(newb), Box::new(newp))
+                    Element::Num(_, true, n, 1) => {
+                        // exponent is a positive integer
+                        // check if some simplification can be made
+                        if let Element::Num(_, mut pos, mut num, mut den) = b {
+                            // base is a rational number: (p/q)^n = p^n/q^n
+                            exp_fraction(&mut pos, &mut num, &mut den, n);
+                            return Element::Num(false, pos, num, den);
+                        }
+                    }
+                    Element::Num(_, false, n, 1) => {
+                        // exponent is a negative integer
+                        if let Element::Num(_, mut pos, mut num, mut den) = b {
+                            // base is a rational number: (p/q)^n = p^n/q^n
+                            exp_fraction(&mut pos, &mut num, &mut den, n);
+                            return Element::Num(false, pos, den, num);
+                        }
+                    }
+                    _ => {}
                 }
+                // TODO: The old code contained reduction of (x^a)^b = x^(a*b), which may be
+                // mathematically wrong in general. We need more investigation.
+
+                Element::Pow(false, Box::new((b, e)))
             }
             &Element::Fn(dirty, ref f) => {
                 if dirty {
@@ -499,18 +485,23 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element) -> bool {
     if first == sec {
         *first = Element::Pow(
             true,
-            Box::new(mem::replace(first, DUMMY_ELEM!())),
-            Box::new(Element::Num(false, true, 2, 1)),
+            Box::new((
+                mem::replace(first, DUMMY_ELEM!()),
+                Element::Num(false, true, 2, 1),
+            )),
         );
         first.normalize_inplace();
         return true;
     }
 
     // x^a*x^b = x^(a+b)
-    if let &mut Element::Pow(ref mut dirty, ref mut b2, ref mut e2) = first {
-        if let &mut Element::Pow(_, ref b1, ref mut e1) = sec {
+    if let &mut Element::Pow(ref mut dirty, ref mut be2) = first {
+        let (ref mut b2, ref mut e2) = *&mut **be2;
+        if let &mut Element::Pow(_, ref mut be1) = sec {
+            let (ref b1, ref mut e1) = *&mut **be1;
             if b1 == b2 {
-                match (&mut **e1, &mut **e2) {
+                match (e1, e2) {
+                    // TODO: can we remove many "&mut"?
                     (
                         &mut Element::SubExpr(_, ref mut a1),
                         &mut Element::SubExpr(ref mut d2, ref mut a2),
@@ -520,10 +511,10 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element) -> bool {
                     }
                     (ref mut a1, &mut Element::SubExpr(ref mut d2, ref mut a2)) => {
                         *d2 = true;
-                        a2.push(mem::replace(*a1, DUMMY_ELEM!()))
+                        a2.push(mem::replace(a1, DUMMY_ELEM!()))
                     }
-                    (ref mut a, ref mut b) => {
-                        **b = Element::SubExpr(
+                    (a, b) => {
+                        *b = Element::SubExpr(
                             true,
                             vec![
                                 mem::replace(a, DUMMY_ELEM!()),
@@ -535,16 +526,16 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element) -> bool {
                 *dirty = true;
                 changed = true;
             }
-        } else if *sec == **b2 {
+        } else if sec == b2 {
             // e2 should become e2 + 1
             // avoid borrow checker error
             let mut addone = true;
-            if let &mut Element::Num(_, ref mut pos, ref mut num, ref mut den) = &mut **e2 {
+            if let Element::Num(_, ref mut pos, ref mut num, ref mut den) = *e2 {
                 add_one(pos, num, den);
                 addone = false;
             }
             if addone {
-                **e2 = Element::SubExpr(
+                *e2 = Element::SubExpr(
                     true,
                     vec![
                         mem::replace(e2, DUMMY_ELEM!()),

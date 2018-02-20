@@ -83,9 +83,10 @@ impl Element {
             Element::SubExpr(_, ref f) => {
                 Element::SubExpr(true, f.iter().map(|x| x.expand()).collect()).normalize()
             }
-            Element::Pow(_, ref b, ref p) => {
-                if let Element::Num(_, true, n, 1) = **p {
-                    if let Element::SubExpr(_, ref t) = **b {
+            Element::Pow(_, ref be) => {
+                let (ref b, ref e) = **be;
+                if let Element::Num(_, true, n, 1) = *e {
+                    if let Element::SubExpr(_, ref t) = *b {
                         let mut e = exponentiate(t, n);
                         e.normalize_inplace();
                         return e;
