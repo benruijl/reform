@@ -79,8 +79,46 @@ impl Element {
                 if !dirty {
                     return false;
                 }
-                // TODO !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-                return false;
+
+                *self = if let Element::Pow(ref mut dirty, ref mut be) = *self {
+                    let (ref mut b, ref mut e) = *&mut **be;
+                    changed |= b.normalize_inplace();
+                    changed |= e.normalize_inplace();
+                    *dirty = false;
+
+                    loop {
+                        match *e {
+                            Element::Num(_, _, 0, _) => {
+                                // x^0 = 1
+                                break Element::Num(false, true, 1, 1);
+                            }
+                            Element::Num(_, true, 1, 1) => {
+                                // x^1 = x
+                                break mem::replace(b, DUMMY_ELEM!());
+                            }
+                            Element::Num(_, true, n, 1) => {
+                                // exponent is a positive integer
+                                // check if some simplification can be made
+                                if let Element::Num(_, mut pos, mut num, mut den) = *b {
+                                    // base is a rational number: (p/q)^n = p^n/q^n
+                                    exp_fraction(&mut pos, &mut num, &mut den, n);
+                                    break Element::Num(false, pos, num, den);
+                                }
+                            }
+                            _ => {
+                                // TODO: The old code contained reduction of (x^a)^b = x^(a*b).
+                                // This may be mathematically wrong, e.g.,
+                                //   for x = (-1+i), a = 2, b = 3/2,
+                                //   (x^a)^b = - x^(a*b).
+                                // We need more conditions.
+                            }
+                        };
+                        return changed;
+                    }
+                } else {
+                    unreachable!();
+                };
+                return changed;
                 /*
                 *self = if let Element::Pow(ref mut dirty, ref mut b, ref mut p) = *self {
                     changed |= b.normalize_inplace();
@@ -151,7 +189,7 @@ impl Element {
                     unreachable!();
                 };
                 changed = true;
-*/
+                */
             }
             Element::Fn(dirty, _) => {
                 if dirty {
@@ -326,7 +364,7 @@ impl Element {
                     return self.clone();
                 }
 
-                // TODO !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                // What is wrong with this??? The optimizer may eliminate temporary redundant/objects.
                 let mut x = self.clone();
                 x.normalize_inplace();
                 return x;
