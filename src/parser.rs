@@ -82,8 +82,8 @@ parser!{
             _: keyword("procedure"),
             name: varname(),
             args: lex_char('(').with(sep_by(expr(), lex_char(','))).skip(skipnocode()),
-            local_args: optional(lex_char(';').with(sep_by(expr(), lex_char(',')))).map(|x : Option<Vec<Element>>|
-                x.unwrap_or(vec![])).skip(skipnocode()),
+            local_args: optional(lex_char(';').with(sep_by(expr(), lex_char(',')))).map(
+                |x : Option<Vec<Element>>| x.unwrap_or(vec![])).skip(skipnocode()),
             _: lex_char(')').with(lex_char(';')),
             statements: many(statement()),
             _: keyword("endprocedure").with(lex_char(';'))
@@ -119,7 +119,8 @@ parser!{
 {
    char('$').with(varname()).
    and(optional(between(lex_char('('), lex_char(')'), expr()))).
-   map(|(x,ind)| Element::Dollar(VarName::Name(Box::new('$'.to_string() + &x)), ind.map(|o| Box::new(o))))
+   map(|(x,ind)| Element::Dollar(VarName::Name(Box::new('$'.to_string() + &x)),
+                                 ind.map(|o| Box::new(o))))
 }
 }
 
@@ -127,8 +128,10 @@ parser!{
    fn global_statement[I]()(I) -> Statement
     where [I: Stream<Item=char>]
 {
-    let assign = (dollarvar(), lex_char('=').with(expr()).skip(statementend())).map(|(d,e)| Statement::Assign(d, e));
-    let collect = keyword("collect").with(varname()).skip(statementend()).map(|x| Statement::Collect(VarName::Name(Box::new(x))));
+    let assign = (dollarvar(), lex_char('=').with(expr()).skip(statementend()))
+                 .map(|(d,e)| Statement::Assign(d, e));
+    let collect = keyword("collect").with(varname()).skip(statementend())
+                  .map(|x| Statement::Collect(VarName::Name(Box::new(x))));
 
     choice!(assign, collect)
 }
@@ -138,15 +141,21 @@ parser!{
    fn statement[I]()(I) -> Statement
     where [I: Stream<Item=char>]
 {
-    let assign = (dollarvar(), lex_char('=').with(expr()).skip(statementend())).map(|(d,e)| Statement::Assign(d, e));
-    let symmetrize = keyword("symmetrize").with(varname()).skip(statementend()).map(|x| Statement::Symmetrize(VarName::Name(Box::new(x))));
-    let multiply = keyword("multiply").with(expr()).skip(statementend()).map(|x| Statement::Multiply(x));
-    let splitarg = keyword("splitarg").with(varname()).skip(statementend()).map(|x| Statement::SplitArg(VarName::Name(Box::new(x))));
+    let assign = (dollarvar(), lex_char('=').with(expr()).skip(statementend()))
+                 .map(|(d,e)| Statement::Assign(d, e));
+    let symmetrize = keyword("symmetrize").with(varname()).skip(statementend())
+                     .map(|x| Statement::Symmetrize(VarName::Name(Box::new(x))));
+    let multiply = keyword("multiply").with(expr()).skip(statementend())
+                   .map(|x| Statement::Multiply(x));
+    let splitarg = keyword("splitarg").with(varname()).skip(statementend())
+                   .map(|x| Statement::SplitArg(VarName::Name(Box::new(x))));
     let expand = keyword("expand").skip(statementend()).map(|_| Statement::Expand);
     let print = keyword("print").skip(statementend()).map(|_| Statement::Print);
     let maximum = keyword("maximum").with(dollarvar()).skip(statementend()).map(|x| Statement::Maximum(x));
-    let call_procedure = (keyword("call").with(varname()), between(lex_char('('), lex_char(')'), sep_by(expr(), lex_char(',')))).
-        skip(statementend()).map(|(name, args) : (String, Vec<Element>)| Statement::Call(name, args));
+    let call_procedure = (keyword("call").with(varname()),
+                          between(lex_char('('), lex_char(')'), sep_by(expr(), lex_char(','))))
+                         .skip(statementend())
+                         .map(|(name, args) : (String, Vec<Element>)| Statement::Call(name, args));
 
     let idmode = optional(choice!(keyword("once"), keyword("all"), keyword("many"))).map(|x| match x {
                     Some("all") => IdentityStatementMode::All,
@@ -189,7 +198,8 @@ parser!{
 {
     (optional(char('-')).map(|x| x.is_none()),
         many1(digit()).map(|d : String| d.parse::<u64>().unwrap()),
-        optional(char('/').with(many1(digit()))).map(|x| x.map(|y : String| y.parse::<u64>().unwrap()).unwrap_or(1)
+        optional(char('/').with(many1(digit()))).map(
+            |x| x.map(|y : String| y.parse::<u64>().unwrap()).unwrap_or(1)
     )).map(|(sign, num, den): (bool, u64, u64)| Element::Num(true, sign, num, den))
 }
 }
@@ -207,11 +217,14 @@ parser!{
         Element::Num(_,pos,num,den) => Element::NumberRange(pos,num,den,r),
         _ => unreachable!()
     });
-    let set = between(lex_char('{'), lex_char('}'), sep_by(choice!(expr(), numrange), lex_char(',')));
+    let set = between(lex_char('{'),
+                      lex_char('}'),
+                      sep_by(choice!(expr(), numrange), lex_char(',')));
     let variableargument = (char('?'), varname()).map(|(_, v)| Element::VariableArgument(VarName::Name(Box::new("?".to_owned() + &v))));
 
     // read the variable name and then see if it is a wildcard, a function or variable
-    let namedfactor = varname().and(choice!(lex_char('?').and(optional(set).map(|x| x.unwrap_or(vec![]))).
+    let namedfactor = varname()
+                      .and(choice!(lex_char('?').and(optional(set).map(|x| x.unwrap_or(vec![]))).
         map(|(_, s)| Element::Wildcard(VarName::ID(1), s)),
         funcarg.map(|fa| Element::Fn(true, Func{ name: VarName::ID(1), args: fa })),
         value(1).map(|_| Element::Var(VarName::ID(1))))).map(|(name, mut res)| {
@@ -274,6 +287,7 @@ parser!{
 {
     (optional(lex_char('+')).with(choice!(minexpr(), terms())),
         many(choice!(minexpr(), lex_char('+').with(terms())))).
-        map(|(x, mut y) : (Element, Vec<Element>)| Element::SubExpr(true, {y.push(x); y})).skip(spaces())
+        map(|(x, mut y) : (Element, Vec<Element>)|
+            Element::SubExpr(true, {y.push(x); y})).skip(spaces())
 }
 }

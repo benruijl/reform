@@ -157,7 +157,8 @@ impl Element {
                             changed |= x.normalize_inplace();
                         }
                         *dirty = false; // TODO: or should this be done by builtin_functions?
-                                        //f.args.shrink_to_fit(); // make sure we keep memory in check
+
+                        //f.args.shrink_to_fit(); // make sure we keep memory in check
                     }
                 }
                 changed |= self.apply_builtin_functions(false);
@@ -197,7 +198,8 @@ impl Element {
                     if cfg!(_NO_) {
                         expr_sort(ts, merge_factors);
                     } else {
-                        // TODO: this is faster than expr_sort. presumable because there are fewer merge_factor calls
+                        // TODO: this is faster than expr_sort. presumable because there are fewer
+                        // merge_factor calls
                         ts.sort_unstable();
 
                         // now merge pows: x^a*x^b = x^(a*b)
@@ -723,7 +725,8 @@ where
                 if ascenddescendmode == 2 {
                     // TODO: first check if the reversed array can join the last group?
                     grouplen.push(groupcount);
-                    // change direction of last group, problem: writepos not included in this array yet..
+                    // change direction of last group, problem: writepos not included in this array
+                    // yet..
                     a[writepos - groupcount - 1..writepos - 1].reverse();
                     ascenddescendmode = 0;
                     groupcount = 1;
@@ -744,7 +747,8 @@ where
 
     a.truncate(writepos);
 
-    let mut b: Vec<T> = Vec::with_capacity(a.len()); // allocate buffer, TODO: could be half the size
+    // allocate buffer, TODO: could be half the size
+    let mut b: Vec<T> = Vec::with_capacity(a.len());
     grouplen.push(groupcount);
 
     //a.shrink_to_fit(); // slow!

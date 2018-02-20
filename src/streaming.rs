@@ -33,9 +33,9 @@ impl PartialOrd for ElementStreamTuple {
 
 #[derive(Debug)]
 pub struct InputTermStreamer {
-    input: Option<BufReader<File>>, // the input file
+    input: Option<BufReader<File>>,      // the input file
     mem_buffer_input: VecDeque<Element>, // the memory buffer, storing unserialized terms
-    termcounter_input: u64,         // input term count
+    termcounter_input: u64,              // input term count
 }
 
 impl InputTermStreamer {
@@ -219,7 +219,13 @@ impl OutputTermStreamer {
             // move to input buffer
             match a {
                 Element::SubExpr(_, x) => input_streamer.mem_buffer_input = VecDeque::from(x),
-                x => input_streamer.mem_buffer_input = { let mut v = VecDeque::new(); v.push_back(x); v},
+                x => {
+                    input_streamer.mem_buffer_input = {
+                        let mut v = VecDeque::new();
+                        v.push_back(x);
+                        v
+                    }
+                }
             }
 
             for x in input_streamer.mem_buffer_input.iter() {
@@ -383,7 +389,8 @@ impl OutputTermStreamer {
 
             // move the mem_buffer to the input buffer
             //mem::swap(&mut self.mem_buffer, &mut input_streamer.mem_buffer_input);
-            input_streamer.mem_buffer_input = VecDeque::from(mem::replace(&mut self.mem_buffer, vec![]));
+            input_streamer.mem_buffer_input =
+                VecDeque::from(mem::replace(&mut self.mem_buffer, vec![]));
 
             let mut of = ofb.into_inner().unwrap();
             of.seek(SeekFrom::Start(0)).unwrap();

@@ -3,10 +3,10 @@ use std::mem;
 
 // a SliceRef has either a borrowed slice,
 // or a vector of borrowed arguments.
-#[derive(Debug,Clone,Eq,PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum SliceRef<'a, T: 'a> {
     BorrowedSlice(&'a [T]),
-    OwnedSlice(Vec<&'a T>)
+    OwnedSlice(Vec<&'a T>),
 }
 
 //impl<'a, T: 'a> Index<usize> for SliceRef<'a, T> {
@@ -15,14 +15,14 @@ impl<'a, T: 'a> SliceRef<'a, T> {
     pub fn index(&self, index: usize) -> &'a T {
         match self {
             &SliceRef::BorrowedSlice(ref t) => &t[index],
-            &SliceRef::OwnedSlice(ref t) => t[index]
+            &SliceRef::OwnedSlice(ref t) => t[index],
         }
     }
 
     pub fn len(&self) -> usize {
         match self {
             &SliceRef::BorrowedSlice(ref t) => t.len(),
-            &SliceRef::OwnedSlice(ref t) => t.len()
+            &SliceRef::OwnedSlice(ref t) => t.len(),
         }
     }
 }
@@ -123,7 +123,7 @@ pub fn mul_fractions(
     mut den1: u64,
 ) {
     *pos = (*pos & pos1) || (!*pos && !pos1); // xnor
-    // gcd(num,den) is always 1
+                                              // gcd(num,den) is always 1
     let gcd0 = gcd(num1, den1);
     num1 /= gcd0;
     den1 /= gcd0;
@@ -149,7 +149,9 @@ pub fn add_fractions(
     match (*pos, pos1, num2 >= *num) {
         (true, false, true) => {
             *num = num2 - *num;
-            if *num != 0 { *pos = false; }
+            if *num != 0 {
+                *pos = false;
+            }
         }
         (true, false, false) => {
             *num -= num2;
@@ -200,13 +202,13 @@ pub fn add_terms(dest: &mut Element, to_add: &Vec<Element>) {
     match *dest {
         Element::SubExpr(..) => {
             unreachable!("Subexpression should be filtered earlier");
-        },
+        }
         Element::Term(ref mut dirty, ref mut t) => {
             for x in to_add.iter() {
                 t.push(x.clone());
             }
             *dirty = true;
-        },
+        }
         ref mut a => {
             let mut res = to_add.clone();
             res.push(mem::replace(a, DUMMY_ELEM!()));
@@ -214,7 +216,6 @@ pub fn add_terms(dest: &mut Element, to_add: &Vec<Element>) {
         }
     }
 }
-
 
 pub fn num_cmp(
     mut pos: bool,
@@ -237,8 +238,7 @@ pub fn num_cmp(
     if den == den1 {
         if num < num1 {
             return NumOrder::Smaller;
-        }
-        else {
+        } else {
             return NumOrder::Greater;
         }
     }
@@ -273,8 +273,12 @@ pub fn is_number_in_range(
 }
 
 pub fn ncr(n: u64, mut k: u64) -> u64 {
-    if k > n { return 0; }
-    if k*2 > n { k = n - k }
+    if k > n {
+        return 0;
+    }
+    if k * 2 > n {
+        k = n - k
+    }
     let mut res = 1;
     for i in 1..k + 1 {
         res *= n - k + i;
@@ -286,27 +290,32 @@ pub fn ncr(n: u64, mut k: u64) -> u64 {
 // return unnormalized exponentiated form
 pub fn exponentiate(factors: &[Element], pow: u64) -> Element {
     if factors.len() == 0 {
-        return Element::SubExpr(true, vec![Element::Term(true, vec![Element::Num(false,true,1,1)])]);
+        return Element::SubExpr(
+            true,
+            vec![Element::Term(true, vec![Element::Num(false, true, 1, 1)])],
+        );
     }
 
-    let exp = |i, res : &mut Vec<_>| {
+    let exp = |i, res: &mut Vec<_>| {
         let cmb = ncr(pow, i as u64);
         match exponentiate(&factors[1..], pow - i) {
-            Element::SubExpr(_, ts) => {
-                for x in ts {
-                    match x {
-                        Element::Term(_, mut fs) => {
-                            if i > 0 {
-                                fs.push(Element::Pow(true, Box::new(factors[0].clone()), Box::new(Element::Num(false,true,i,1))));
-                                fs.push(Element::Num(false,true,cmb,1));
-                            }
-                            res.push(Element::Term(true, fs));
-                        },
-                        _ => unreachable!()
+            Element::SubExpr(_, ts) => for x in ts {
+                match x {
+                    Element::Term(_, mut fs) => {
+                        if i > 0 {
+                            fs.push(Element::Pow(
+                                true,
+                                Box::new(factors[0].clone()),
+                                Box::new(Element::Num(false, true, i, 1)),
+                            ));
+                            fs.push(Element::Num(false, true, cmb, 1));
+                        }
+                        res.push(Element::Term(true, fs));
                     }
+                    _ => unreachable!(),
                 }
-            }
-            _ => unreachable!()
+            },
+            _ => unreachable!(),
         }
     };
 
@@ -314,7 +323,7 @@ pub fn exponentiate(factors: &[Element], pow: u64) -> Element {
     if factors.len() == 1 {
         exp(pow, &mut res);
     } else {
-        for i in 0..pow+1 {
+        for i in 0..pow + 1 {
             exp(i, &mut res);
         }
     }

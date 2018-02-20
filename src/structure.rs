@@ -614,7 +614,10 @@ impl Element {
                 write!(f, "}}")
             },
             &Element::Var(ref name) => name.fmt_output(f, var_info),
-            &Element::Dollar(ref name, ..) => name.fmt_output(f, var_info), // TODO: print the index too
+            &Element::Dollar(ref name, ..) => {
+                // TODO: print the index too
+                name.fmt_output(f, var_info)
+            }
             &Element::Num(_, ref pos, ref num, ref den) => if *den == 1 {
                 write!(f, "{}{}", if *pos { "" } else { "-" }, num)
             } else {

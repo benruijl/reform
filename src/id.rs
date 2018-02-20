@@ -475,7 +475,8 @@ impl<'a> FuncIterator<'a> {
                 }
 
                 let leftover = self.matches.last().unwrap().0;
-                let index = self.matches.last().unwrap().1; // FIXME: we dont // we need the index from the first: before the iterator started
+                // FIXME: we dont // we need the index from the first: before the iterator started
+                let index = self.matches.last().unwrap().1;
                 if leftover.len() == 0 {
                     //println!("yielding new match {:?} {}", m, index);
                     return Some(index); // should be the same as the length of m
