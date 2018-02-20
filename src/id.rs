@@ -112,7 +112,7 @@ impl Element {
             Element::VariableArgument(ref name) => find_match(m, name).unwrap().to_owned(),
             Element::Wildcard(ref name, ..) => find_match(m, name).unwrap().to_owned(),
             Element::Pow(_, ref be) => {
-                let (b, e) = **be;
+                let (ref b, ref e) = **be;
                 let mut changed = false;
                 let (bb, c) = b.apply_map(m).to_single();
                 changed |= c;
@@ -308,8 +308,8 @@ impl Element {
     ) -> ElementIterSingle<'a> {
         match (target, self) {
             (&Element::Pow(_, ref be1), &Element::Pow(_, ref be2)) => {
-                let (b1, e1) = **be1;
-                let (b2, e2) = **be1;
+                let (ref b1, ref e1) = **be1;
+                let (ref b2, ref e2) = **be1;
                 ElementIterSingle::SeqIt(
                     vec![&b1, &e1],
                     SequenceIter::new(SliceRef::OwnedSlice(vec![&b2, &e2]), &b1, var_info),

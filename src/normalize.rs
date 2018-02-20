@@ -79,7 +79,7 @@ impl Element {
                 if !dirty {
                     return false;
                 }
-                // TODO
+                // TODO !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
                 return false;
                 /*
                 *self = if let Element::Pow(ref mut dirty, ref mut b, ref mut p) = *self {
@@ -326,8 +326,8 @@ impl Element {
                     return self.clone();
                 }
 
-                // TODO
-                let x = self.clone();
+                // TODO !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                let mut x = self.clone();
                 x.normalize_inplace();
                 return x;
                 /*
@@ -514,10 +514,13 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element) -> bool {
     }
 
     // x^a*x^b = x^(a+b)
-    if let &mut Element::Pow(ref mut dirty, ref mut b2, ref mut e2) = first {
-        if let &mut Element::Pow(_, ref b1, ref mut e1) = sec {
+    if let &mut Element::Pow(ref mut dirty, ref mut be2) = first {
+        let (ref mut b2, ref mut e2) = *&mut **be2;
+        if let &mut Element::Pow(_, ref mut be1) = sec {
+            let (ref b1, ref mut e1) = *&mut **be1;
             if b1 == b2 {
-                match (&mut **e1, &mut **e2) {
+                match (e1, e2) {
+                    // TODO: can we remove many "&mut"?
                     (
                         &mut Element::SubExpr(_, ref mut a1),
                         &mut Element::SubExpr(ref mut d2, ref mut a2),
@@ -527,10 +530,10 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element) -> bool {
                     }
                     (ref mut a1, &mut Element::SubExpr(ref mut d2, ref mut a2)) => {
                         *d2 = true;
-                        a2.push(mem::replace(*a1, DUMMY_ELEM!()))
+                        a2.push(mem::replace(a1, DUMMY_ELEM!()))
                     }
-                    (ref mut a, ref mut b) => {
-                        **b = Element::SubExpr(
+                    (a, b) => {
+                        *b = Element::SubExpr(
                             true,
                             vec![
                                 mem::replace(a, DUMMY_ELEM!()),
@@ -542,16 +545,16 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element) -> bool {
                 *dirty = true;
                 changed = true;
             }
-        } else if *sec == **b2 {
+        } else if sec == b2 {
             // e2 should become e2 + 1
             // avoid borrow checker error
             let mut addone = true;
-            if let &mut Element::Num(_, ref mut pos, ref mut num, ref mut den) = &mut **e2 {
+            if let Element::Num(_, ref mut pos, ref mut num, ref mut den) = *e2 {
                 add_one(pos, num, den);
                 addone = false;
             }
             if addone {
-                **e2 = Element::SubExpr(
+                *e2 = Element::SubExpr(
                     true,
                     vec![
                         mem::replace(e2, DUMMY_ELEM!()),

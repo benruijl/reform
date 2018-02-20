@@ -304,8 +304,8 @@ impl PartialOrd for Element {
             (_, &Element::Num(..)) => Some(Ordering::Less),
             (&Element::Num(..), _) => Some(Ordering::Greater),
             (&Element::Pow(_, ref be1), &Element::Pow(_, ref be2)) => {
-                let (b1, e1) = **be1;
-                let (b2, e2) = **be2;
+                let (ref b1, ref e1) = **be1;
+                let (ref b2, ref e2) = **be2;
                 let c = b1.partial_cmp(&b2);
                 match c {
                     Some(Ordering::Equal) => e1.partial_cmp(&e2),
@@ -313,7 +313,7 @@ impl PartialOrd for Element {
                 }
             }
             (&Element::Pow(_, ref be), _) => {
-                let (b, _) = **be;
+                let (ref b, _) = **be;
                 let c = b.partial_cmp(other);
                 match c {
                     Some(Ordering::Equal) => Some(Ordering::Less),
@@ -321,7 +321,7 @@ impl PartialOrd for Element {
                 }
             }
             (_, &Element::Pow(_, ref be)) => {
-                let (b, _) = **be;
+                let (ref b, _) = **be;
                 let c = self.partial_cmp(&b);
                 match c {
                     Some(Ordering::Equal) => Some(Ordering::Greater),
@@ -636,8 +636,8 @@ impl Element {
                 }
             }
             &Element::Pow(_, ref be) => {
-                let (b, e) = **be;
-                match b {
+                let (ref b, ref e) = **be;
+                match *b {
                     Element::SubExpr(..) | Element::Term(..) => {
                         write!(f, "(")?;
                         b.fmt_output(f, var_info)?;
@@ -645,7 +645,7 @@ impl Element {
                     }
                     _ => b.fmt_output(f, var_info)?,
                 };
-                match e {
+                match *e {
                     Element::SubExpr(..) | Element::Term(..) => {
                         write!(f, "^(")?;
                         e.fmt_output(f, var_info)?;
@@ -742,7 +742,7 @@ impl Element {
                 }
             }
             Element::Pow(_, ref mut be) => {
-                let (b, e) = **be;
+                let (ref mut b, ref mut e) = *&mut **be;
                 b.var_to_id(var_info);
                 e.var_to_id(var_info);
             }
@@ -792,7 +792,7 @@ impl Element {
                 return changed;
             }
             Element::Pow(ref mut dirty, ref mut be) => {
-                let (b, e) = **be;
+                let (ref mut b, ref mut e) = *&mut **be;
                 changed |= b.replace_vars(map, dollar_only);
                 changed |= e.replace_vars(map, dollar_only);
                 *dirty |= changed;
@@ -844,7 +844,7 @@ impl Element {
 
         match *self {
             Element::Pow(ref mut dirty, ref mut be) => {
-                let (b, e) = **be;
+                let (ref mut b, ref mut e) = *&mut **be;
                 *dirty |= b.replace(orig, new);
                 *dirty |= e.replace(orig, new);
                 *dirty

@@ -76,7 +76,7 @@ impl Element {
                 1 + serialize_list(args, buffer)
             }
             Element::Pow(false, ref be) => {
-                let (b, e) = **be;
+                let (ref b, ref e) = **be;
                 buffer.write_u8(POW_ID).unwrap();
                 let len = b.serialize(buffer);
                 1 + len + e.serialize(buffer)
