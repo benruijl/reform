@@ -372,7 +372,8 @@ impl Element {
                     return self.clone();
                 }
 
-                // What is wrong with this??? The optimizer may eliminate temporary redundant/objects.
+                // What is wrong with this??? The optimizer may eliminate temporary
+                // redundant/objects.
                 let mut x = self.clone();
                 x.normalize_inplace();
                 x
