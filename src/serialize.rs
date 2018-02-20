@@ -75,7 +75,8 @@ impl Element {
                 buffer.write_u8(EXPR_ID).unwrap();
                 1 + serialize_list(args, buffer)
             }
-            Element::Pow(false, ref b, ref e) => {
+            Element::Pow(false, ref be) => {
+                let (b, e) = **be;
                 buffer.write_u8(POW_ID).unwrap();
                 let len = b.serialize(buffer);
                 1 + len + e.serialize(buffer)
@@ -102,11 +103,11 @@ impl Element {
             VAR_ID => Element::Var(VarName::deserialize(buffer)),
             TERM_ID => Element::Term(false, deserialize_list(buffer)),
             EXPR_ID => Element::SubExpr(false, deserialize_list(buffer)),
-            POW_ID => Element::Pow(
-                false,
-                Box::new(Element::deserialize(buffer).unwrap()),
-                Box::new(Element::deserialize(buffer).unwrap()),
-            ),
+            POW_ID => {
+                let b = Element::deserialize(buffer).unwrap();
+                let e = Element::deserialize(buffer).unwrap();
+                Element::Pow(false, Box::new((b, e)))
+            }
             _ => unreachable!(),
         })
     }

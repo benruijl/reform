@@ -305,8 +305,7 @@ pub fn exponentiate(factors: &[Element], pow: u64) -> Element {
                         if i > 0 {
                             fs.push(Element::Pow(
                                 true,
-                                Box::new(factors[0].clone()),
-                                Box::new(Element::Num(false, true, i, 1)),
+                                Box::new((factors[0].clone(), Element::Num(false, true, i, 1))),
                             ));
                             fs.push(Element::Num(false, true, cmb, 1));
                         }

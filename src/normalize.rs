@@ -79,7 +79,9 @@ impl Element {
                 if !dirty {
                     return false;
                 }
-
+                // TODO
+                return false;
+                /*
                 *self = if let Element::Pow(ref mut dirty, ref mut b, ref mut p) = *self {
                     changed |= b.normalize_inplace();
                     changed |= p.normalize_inplace();
@@ -149,6 +151,7 @@ impl Element {
                     unreachable!();
                 };
                 changed = true;
+*/
             }
             Element::Fn(dirty, _) => {
                 if dirty {
@@ -318,11 +321,16 @@ impl Element {
                 }
                 Element::Wildcard(name.clone(), r)
             }
-            &Element::Pow(dirty, ref b, ref p) => {
+            &Element::Pow(dirty, ref be) => {
                 if !dirty {
                     return self.clone();
                 }
 
+                // TODO
+                let x = self.clone();
+                x.normalize_inplace();
+                return x;
+                /*
                 let newb = b.normalize();
                 let mut newp = p.normalize();
 
@@ -353,6 +361,7 @@ impl Element {
                 } else {
                     Element::Pow(false, Box::new(newb), Box::new(newp))
                 }
+                */
             }
             &Element::Fn(dirty, ref f) => {
                 if dirty {
@@ -495,8 +504,10 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element) -> bool {
     if first == sec {
         *first = Element::Pow(
             true,
-            Box::new(mem::replace(first, DUMMY_ELEM!())),
-            Box::new(Element::Num(false, true, 2, 1)),
+            Box::new((
+                mem::replace(first, DUMMY_ELEM!()),
+                Element::Num(false, true, 2, 1),
+            )),
         );
         first.normalize_inplace();
         return true;
