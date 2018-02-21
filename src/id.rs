@@ -195,6 +195,7 @@ pub enum ElementIterSingle<'a> {
 pub enum ElementIter<'a> {
     SliceIter(&'a VarName, usize, &'a [Element]), // slice from 0 to Element end
     SingleArg(&'a [Element], ElementIterSingle<'a>), // iters consuming a single argument
+    Once,                                         // match without any changes
     None,                                         // no match
 }
 
@@ -246,6 +247,14 @@ impl<'a> ElementIter<'a> {
     fn next(&mut self, m: &mut MatchObject<'a>) -> Option<(&'a [Element], usize)> {
         match *self {
             ElementIter::None => None,
+            ElementIter::Once => {
+                let mut to_swap = ElementIter::None;
+                mem::swap(self, &mut to_swap); //f switch self to none
+                match to_swap {
+                    ElementIter::Once => Some((&[], 0)), // return empty slice
+                    _ => panic!(),                       // never reached
+                }
+            }
             ElementIter::SliceIter(name, ref mut index, target) => {
                 // if the slice is already found, we can immediately compare
                 if *index > target.len() {
@@ -416,6 +425,17 @@ impl Func {
                 var_info: var_info,
             };
         };
+
+        if varargcount == 0 && target.args.len() == 0 {
+            // we match two functions without arguments
+            // return an iterator that yields a success once
+            return FuncIterator {
+                pattern: self,
+                iterators: vec![ElementIter::Once],
+                matches: vec![(&[], MAXMATCH)],
+                var_info: var_info,
+            };
+        }
 
         let mut iterator = (0..self.args.len())
             .map(|_| ElementIter::None)
