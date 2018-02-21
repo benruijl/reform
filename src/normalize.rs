@@ -6,6 +6,8 @@ use std::ptr;
 
 impl Element {
     // TODO: return iterator over Elements for ground level?
+    /// Apply builtin-functions, such as `delta_` and `nargs_`.
+    /// This function should be called during normalization.
     pub fn apply_builtin_functions(&mut self, ground_level: bool) -> bool {
         *self = match *self {
             Element::Fn(
@@ -62,6 +64,7 @@ impl Element {
         true
     }
 
+    /// Normalize an element in-place. Returns true if element changed.
     pub fn normalize_inplace<'a>(&mut self) -> bool {
         let mut changed = false;
         match *self {
@@ -195,8 +198,8 @@ impl Element {
                     }
 
                     // sort and merge the terms at the same time
-                    if cfg!(_NO_) {
-                        expr_sort(ts, merge_factors);
+                    if cfg!(_YES_) {
+                        changed |= expr_sort(ts, merge_factors);
                     } else {
                         // TODO: this is faster than expr_sort. presumable because there are fewer
                         // merge_factor calls
@@ -233,7 +236,7 @@ impl Element {
                     match ts.len() {
                         0 => Element::Num(false, true, 0, 1),
                         1 => ts.swap_remove(0), // downgrade
-                        _ => return true,       // TODO: only return true when actually changed
+                        _ => return changed,
                     }
                 } else {
                     unreachable!()
@@ -270,8 +273,9 @@ impl Element {
 
                     // sort and merge the terms at the same time
                     if cfg!(_YES_) {
-                        expr_sort(ts, merge_terms);
+                        changed |= expr_sort(ts, merge_terms);
                     } else {
+                        changed = true; // TODO: tell if changed?
                         ts.sort_unstable(); // TODO: slow!
                                             // merge coefficients of similar terms
                         let mut lastindex = 0;
@@ -291,7 +295,7 @@ impl Element {
                     match ts.len() {
                         0 => Element::Num(false, true, 0, 1),
                         1 => ts.swap_remove(0),
-                        _ => return true, // TODO: only return true when actually changed
+                        _ => return changed,
                     }
                 } else {
                     unreachable!();
@@ -302,7 +306,7 @@ impl Element {
         changed
     }
 
-    // bring a term to canconical form
+    /// Return a normalized clone of this element.
     pub fn normalize<'a>(&self) -> Element {
         match self {
             &Element::Num(dirty, mut pos, mut num, mut den) => {
@@ -475,7 +479,7 @@ impl Element {
     }
 }
 
-// returns true if merged
+/// Merge factor `sec` into `first` if possible. Returns true if merged.
 pub fn merge_factors(first: &mut Element, sec: &mut Element) -> bool {
     let mut changed = false;
 
@@ -683,16 +687,20 @@ pub fn merge_terms(first: &mut Element, sec: &mut Element) -> bool {
     true
 }
 
-// returns true if a and b should be swapped
-pub fn expr_sort<'a, T: PartialOrd, F>(a: &mut Vec<T>, merger: F)
+/// Sorts a vector `a`, using the `merger` function to merge identical terms.
+/// This function can be used to sort subexpressions and terms.
+/// Returns true if the vector has been changed.
+pub fn expr_sort<'a, T: PartialOrd, F>(a: &mut Vec<T>, merger: F) -> bool
 where
     F: Fn(&mut T, &mut T) -> bool,
 {
     if a.len() == 0 {
-        return;
+        return false;
     }
 
-    // also count ascending runs and reverse them!
+    // count descending runs and merge adjacent terms if pisslbe
+    // also count ascending runs and reverse them
+    let mut changed = false;
     let mut grouplen = vec![];
     let mut groupcount = 1;
     let mut writepos = 1;
@@ -701,6 +709,7 @@ where
         {
             let (old, new) = a.split_at_mut(x);
             if merger(&mut old[writepos - 1], &mut new[0]) {
+                changed = true;
                 continue;
             }
         }
@@ -738,6 +747,10 @@ where
                 }
             }
         }
+    }
+
+    if !changed && groupcount == 1 && ascenddescendmode == 1 {
+        return false;
     }
 
     // reverse last group if ascending
@@ -797,6 +810,7 @@ where
             a.set_len(*grouplen.last().unwrap());
         } // don't drop, but resize
     }
+    true
 }
 
 unsafe fn sub_merge_sort<T: PartialOrd, F>(
