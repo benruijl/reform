@@ -851,7 +851,7 @@ impl Element {
             Element::Fn(
                 ref mut dirty,
                 Func {
-                    ref name,
+                    name: ref _name,
                     ref mut args,
                 },
             ) => {
@@ -899,7 +899,7 @@ impl Statement {
             Statement::Call(_, ref mut es) => for s in es {
                 s.var_to_id(var_info);
             },
-            Statement::Assign(ref d, ref mut e) => {
+            Statement::Assign(ref _d, ref mut e) => {
                 // TODO: also change dollar variable to id?
                 e.var_to_id(var_info);
             }
@@ -947,7 +947,7 @@ impl Statement {
             Statement::Call(_, ref mut es) => for s in es {
                 changed |= s.replace_vars(map, dollar_only);
             },
-            Statement::Assign(ref d, ref mut e) => {
+            Statement::Assign(ref _d, ref mut e) => {
                 // TODO: also change dollar variable?
                 changed |= e.replace_vars(map, dollar_only);
             }

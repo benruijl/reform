@@ -13,16 +13,16 @@ pub enum SliceRef<'a, T: 'a> {
 //    type Output = T;
 impl<'a, T: 'a> SliceRef<'a, T> {
     pub fn index(&self, index: usize) -> &'a T {
-        match self {
-            &SliceRef::BorrowedSlice(ref t) => &t[index],
-            &SliceRef::OwnedSlice(ref t) => t[index],
+        match *self {
+            SliceRef::BorrowedSlice(t) => &t[index],
+            SliceRef::OwnedSlice(ref t) => t[index],
         }
     }
 
     pub fn len(&self) -> usize {
-        match self {
-            &SliceRef::BorrowedSlice(ref t) => t.len(),
-            &SliceRef::OwnedSlice(ref t) => t.len(),
+        match *self {
+            SliceRef::BorrowedSlice(t) => t.len(),
+            SliceRef::OwnedSlice(ref t) => t.len(),
         }
     }
 }
@@ -178,7 +178,7 @@ pub fn exp_fraction(pos: &mut bool, num: &mut u64, den: &mut u64, pow: u64) {
         return;
     }
 
-    *pos = *pos | (pow % 2 == 0);
+    *pos |= pow % 2 == 0;
     let oldnum = *num;
     let oldden = *den;
     // FIXME: slow
@@ -198,7 +198,7 @@ pub fn add_one(pos: &mut bool, num: &mut u64, den: &mut u64) {
     }
 }
 
-pub fn add_terms(dest: &mut Element, to_add: &Vec<Element>) {
+pub fn add_terms(dest: &mut Element, to_add: &[Element]) {
     match *dest {
         Element::SubExpr(..) => {
             unreachable!("Subexpression should be filtered earlier");
@@ -210,7 +210,7 @@ pub fn add_terms(dest: &mut Element, to_add: &Vec<Element>) {
             *dirty = true;
         }
         ref mut a => {
-            let mut res = to_add.clone();
+            let mut res = to_add.to_owned();
             res.push(mem::replace(a, DUMMY_ELEM!()));
             *a = Element::Term(true, res);
         }
@@ -261,13 +261,13 @@ pub fn is_number_in_range(
 ) -> bool {
     let rel1 = num_cmp(pos, num, den, pos1, num1, den1);
     match (rel, rel1) {
-        (&NumOrder::Greater, NumOrder::Greater) => true,
-        (&NumOrder::GreaterEqual, NumOrder::Greater) => true,
-        (&NumOrder::GreaterEqual, NumOrder::Equal) => true,
-        (&NumOrder::Smaller, NumOrder::Smaller) => true,
-        (&NumOrder::SmallerEqual, NumOrder::Smaller) => true,
-        (&NumOrder::SmallerEqual, NumOrder::Equal) => true,
-        (&NumOrder::Equal, NumOrder::Equal) => true,
+        (&NumOrder::Greater, NumOrder::Greater)
+        | (&NumOrder::GreaterEqual, NumOrder::Greater)
+        | (&NumOrder::GreaterEqual, NumOrder::Equal)
+        | (&NumOrder::Smaller, NumOrder::Smaller)
+        | (&NumOrder::SmallerEqual, NumOrder::Smaller)
+        | (&NumOrder::SmallerEqual, NumOrder::Equal)
+        | (&NumOrder::Equal, NumOrder::Equal) => true,
         _ => false,
     }
 }
@@ -289,7 +289,7 @@ pub fn ncr(n: u64, mut k: u64) -> u64 {
 
 // return unnormalized exponentiated form
 pub fn exponentiate(factors: &[Element], pow: u64) -> Element {
-    if factors.len() == 0 {
+    if factors.is_empty() {
         return Element::SubExpr(
             true,
             vec![Element::Term(true, vec![Element::Num(false, true, 1, 1)])],

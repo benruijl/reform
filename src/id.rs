@@ -33,7 +33,7 @@ impl<'a> MatchOpt<'a> {
 }
 
 impl MatchOptOwned {
-    fn to_single(self) -> (Element, bool) {
+    fn into_single(self) -> (Element, bool) {
         match self {
             MatchOptOwned::Single(x, c) => (x, c),
             _ => panic!("Trying to get single element from a multiple"),
@@ -45,10 +45,9 @@ impl<'a> fmt::Display for MatchOpt<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             MatchOpt::Single(x) => write!(f, "{}", x),
-            MatchOpt::Multiple(ref x) => {
-                match x.first() {
-                    Some(u) => write!(f, "{}", u)?,
-                    None => {}
+            MatchOpt::Multiple(x) => {
+                if let Some(u) = x.first() {
+                    write!(f, "{}", u)?
                 }
                 for u in x.iter().skip(1) {
                     write!(f, ",{}", u)?;
@@ -64,8 +63,8 @@ pub type MatchObject<'a> = Vec<(&'a VarName, MatchOpt<'a>)>;
 
 // push something to the match object, keeping track of the old length
 fn push_match<'a>(m: &mut MatchObject<'a>, k: &'a VarName, v: &'a Element) -> Option<usize> {
-    for &(ref rk, ref rv) in m.iter() {
-        if **rk == *k {
+    for &(rk, ref rv) in m.iter() {
+        if *rk == *k {
             match *rv {
                 MatchOpt::Single(ref vv) if *v == **vv => return Some(m.len()),
                 _ => return None,
@@ -83,10 +82,10 @@ fn push_match_slice<'a>(
     k: &'a VarName,
     v: &'a [Element],
 ) -> Option<usize> {
-    for &(ref rk, ref rv) in m.iter() {
-        if **rk == *k {
+    for &(rk, ref rv) in m.iter() {
+        if *rk == *k {
             match *rv {
-                MatchOpt::Multiple(ref vv) if *v == **vv => return Some(m.len()),
+                MatchOpt::Multiple(vv) if *v == *vv => return Some(m.len()),
                 _ => return None,
             }
         }
@@ -97,7 +96,7 @@ fn push_match_slice<'a>(
 }
 
 fn find_match<'a>(m: &'a MatchObject<'a>, k: &'a VarName) -> Option<&'a MatchOpt<'a>> {
-    for &(ref rk, ref rv) in m.iter() {
+    for &(ref rk, ref rv) in m {
         if **rk == *k {
             return Some(rv);
         }
@@ -109,13 +108,14 @@ fn find_match<'a>(m: &'a MatchObject<'a>, k: &'a VarName) -> Option<&'a MatchOpt
 impl Element {
     fn apply_map<'a>(&self, m: &MatchObject<'a>) -> MatchOptOwned {
         match *self {
-            Element::VariableArgument(ref name) => find_match(m, name).unwrap().to_owned(),
-            Element::Wildcard(ref name, ..) => find_match(m, name).unwrap().to_owned(),
+            Element::VariableArgument(ref name) | Element::Wildcard(ref name, ..) => {
+                find_match(m, name).unwrap().to_owned()
+            }
             Element::Pow(_, ref b, ref p) => {
                 let mut changed = false;
-                let (bb, mut c) = b.apply_map(m).to_single();
+                let (bb, mut c) = b.apply_map(m).into_single();
                 changed |= c;
-                let (pp, c) = p.apply_map(m).to_single();
+                let (pp, c) = p.apply_map(m).into_single();
                 changed |= c;
                 MatchOptOwned::Single(Element::Pow(changed, Box::new(bb), Box::new(pp)), changed)
             }
@@ -127,7 +127,7 @@ impl Element {
                 let mut changed = false;
                 let mut args = vec![];
                 for x in f.iter() {
-                    let (xx, c) = x.apply_map(m).to_single();
+                    let (xx, c) = x.apply_map(m).into_single();
                     changed |= c;
                     args.push(xx);
                 }
@@ -137,7 +137,7 @@ impl Element {
                 let mut changed = false;
                 let mut args = vec![];
                 for x in f.iter() {
-                    let (xx, c) = x.apply_map(m).to_single();
+                    let (xx, c) = x.apply_map(m).into_single();
                     changed |= c;
                     args.push(xx);
                 }
@@ -152,7 +152,7 @@ impl Func {
     fn apply_map<'a>(&self, m: &MatchObject<'a>) -> (Func, bool) {
         let mut changed = false;
         let mut args = vec![];
-        for a in self.args.iter() {
+        for a in &self.args {
             match a.apply_map(m) {
                 MatchOptOwned::Single(x, c) => {
                     changed |= c;
@@ -213,12 +213,12 @@ impl<'a> ElementIterSingle<'a> {
                 let mut to_swap = ElementIterSingle::None;
                 mem::swap(self, &mut to_swap);
                 match to_swap {
-                    ElementIterSingle::OnceMatch(name, target) => push_match(m, name, &target),
+                    ElementIterSingle::OnceMatch(name, target) => push_match(m, name, target),
                     _ => panic!(), // never reached
                 }
             }
             ElementIterSingle::FnIter(ref mut f) => f.next(m),
-            ElementIterSingle::PermIter(ref pat, ref mut heap, ref mut termit, ref var_info) => {
+            ElementIterSingle::PermIter(pat, ref mut heap, ref mut termit, var_info) => {
                 if pat.len() != heap.data.len() {
                     return None;
                 }
@@ -228,7 +228,7 @@ impl<'a> ElementIterSingle<'a> {
                         return Some(x);
                     }
                     if let Some(x) = heap.next_permutation() {
-                        *termit = SequenceIter::new(SliceRef::BorrowedSlice(pat), x[0], var_info);
+                        *termit = SequenceIter::new(&SliceRef::BorrowedSlice(pat), x[0], var_info);
                     } else {
                         break;
                     }
@@ -251,15 +251,16 @@ impl<'a> ElementIter<'a> {
                     return None;
                 }
 
-                if let Some(&MatchOpt::Multiple(ref v)) = find_match(m, name) {
+                if let Some(&MatchOpt::Multiple(v)) = find_match(m, name) {
                     *index = target.len() + 1; // make sure next call gives None
                     if v.len() > target.len() {
                         return None;
                     }
                     //let rr = target[..v.len()].iter().map(|x| x).collect::<Vec<_>>(); // FIXME: is this wrong?
-                    match **v == target[..v.len()] {
-                        true => return Some((&target[v.len()..], m.len())),
-                        false => return None,
+                    if *v == target[..v.len()] {
+                        return Some((&target[v.len()..], m.len()));
+                    } else {
+                        return None;
                     }
                 }
 
@@ -269,7 +270,7 @@ impl<'a> ElementIter<'a> {
 
                     //let rr = f.iter().map(|x| x).collect();
                     match push_match_slice(m, name, f) {
-                        Some(x) => return Some((&l, x)),
+                        Some(x) => return Some((l, x)),
                         _ => continue 'findcandidate,
                     }
                 }
@@ -288,7 +289,7 @@ impl Element {
         var_info: &'a HashMap<VarName, Element>,
     ) -> ElementIter<'a> {
         // go through all possible options (slice sizes) for the variable argument
-        if let &Element::VariableArgument(ref name) = self {
+        if let Element::VariableArgument(ref name) = *self {
             return ElementIter::SliceIter(name, 0, target);
         }
 
@@ -309,7 +310,7 @@ impl Element {
             (&Element::Pow(_, ref b1, ref p1), &Element::Pow(_, ref b2, ref p2)) => {
                 ElementIterSingle::SeqIt(
                     vec![b1, p1],
-                    SequenceIter::new(SliceRef::OwnedSlice(vec![b2, p2]), b1, var_info),
+                    SequenceIter::new(&SliceRef::OwnedSlice(vec![b2, p2]), b1, var_info),
                 )
             }
             (i1, &Element::Dollar(ref i2, _)) => {
@@ -328,8 +329,8 @@ impl Element {
                 ElementIterSingle::Once
             }
             (&Element::Num(_, ref pos, ref num, ref den), &Element::Wildcard(ref i2, ref rest)) => {
-                if rest.len() == 0 {
-                    return ElementIterSingle::OnceMatch(i2, &target);
+                if rest.is_empty() {
+                    return ElementIterSingle::OnceMatch(i2, target);
                 }
 
                 for restriction in rest {
@@ -337,11 +338,11 @@ impl Element {
                         &Element::NumberRange(ref pos1, ref num1, ref den1, ref rel) => {
                             // see if the number is in the range
                             if is_number_in_range(*pos, *num, *den, *pos1, *num1, *den1, rel) {
-                                return ElementIterSingle::OnceMatch(i2, &target);
+                                return ElementIterSingle::OnceMatch(i2, target);
                             }
                         }
                         _ if restriction == target => {
-                            return ElementIterSingle::OnceMatch(i2, &target)
+                            return ElementIterSingle::OnceMatch(i2, target)
                         }
                         _ => {}
                     }
@@ -350,14 +351,14 @@ impl Element {
                 ElementIterSingle::None
             }
             (_, &Element::Wildcard(ref i2, ref rest)) => {
-                if rest.len() == 0 || rest.contains(target) {
-                    ElementIterSingle::OnceMatch(i2, &target)
+                if rest.is_empty() || rest.contains(target) {
+                    ElementIterSingle::OnceMatch(i2, target)
                 } else {
                     ElementIterSingle::None
                 }
             }
             (&Element::Fn(_, ref f1), &Element::Fn(_, ref f2)) => {
-                ElementIterSingle::FnIter(f2.to_iter(&f1, var_info))
+                ElementIterSingle::FnIter(f2.to_iter(f1, var_info))
             }
             (&Element::Term(_, ref f1), &Element::Term(_, ref f2))
             | (&Element::SubExpr(_, ref f1), &Element::SubExpr(_, ref f2)) => {
@@ -391,8 +392,8 @@ impl Func {
         // shortcut if the number of arguments is wrong
         let varargcount = self.args
             .iter()
-            .filter(|x| match *x {
-                &Element::VariableArgument { .. } => true,
+            .filter(|x| match **x {
+                Element::VariableArgument { .. } => true,
                 _ => false,
             })
             .count();
@@ -520,7 +521,7 @@ impl<'a> SequenceIter<'a> {
     }
 
     fn new(
-        pattern: SliceRef<'a, Element>,
+        pattern: &SliceRef<'a, Element>,
         first: &'a Element,
         var_info: &'a HashMap<VarName, Element>,
     ) -> SequenceIter<'a> {
@@ -537,7 +538,7 @@ impl<'a> SequenceIter<'a> {
     }
 
     fn next(&mut self, target: &[&'a Element], m: &mut MatchObject<'a>) -> Option<usize> {
-        if self.iterators.len() == 0 {
+        if self.iterators.is_empty() {
             return None;
         }
 
@@ -623,8 +624,8 @@ impl<'a> MatchTermIterator<'a> {
         }
 
         loop {
-            if let Some(_) = self.subtarget {
-                if let Some(_) = self.permutator.next(&mut self.m) {
+            if self.subtarget.is_some() {
+                if self.permutator.next(&mut self.m).is_some() {
                     if let Some(ref x) = self.remaining {
                         return Some((x.clone(), self.m.clone()));
                     }
@@ -639,7 +640,7 @@ impl<'a> MatchTermIterator<'a> {
                     self.var_info,
                 );
 
-                SequenceIter::new(SliceRef::BorrowedSlice(self.pattern), x[0], self.var_info);
+                SequenceIter::new(&SliceRef::BorrowedSlice(self.pattern), x[0], self.var_info);
 
                 // construct the factors that are not affected
                 let mut rem = vec![];
@@ -682,7 +683,7 @@ impl<'a> MatchKind<'a> {
             (&Element::Term(_, ref x), &Element::Term(_, ref y)) => {
                 MatchKind::Many(MatchTermIterator::new(x, y, var_info))
             }
-            (ref a, &Element::Term(_, ref y)) => {
+            (a, &Element::Term(_, ref y)) => {
                 MatchKind::SinglePat(a, vec![], ElementIterSingle::None, y, 0, var_info)
             }
             (a, b) => MatchKind::Single(vec![], a.to_iter_single(b, var_info)),
@@ -693,29 +694,24 @@ impl<'a> MatchKind<'a> {
         match *self {
             MatchKind::Single(ref mut m, ref mut x) => x.next(m).map(|_| (vec![], m.clone())),
             MatchKind::Many(ref mut x) => x.next(),
-            MatchKind::SinglePat(
-                ref pat,
-                ref mut m,
-                ref mut it,
-                ref target,
-                ref mut index,
-                ref var_info,
-            ) => loop {
-                if let Some(_) = it.next(m) {
-                    let rem = target
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(i, x)| if i + 1 == *index { None } else { Some(x) })
-                        .collect();
-                    return Some((rem, m.clone()));
-                }
+            MatchKind::SinglePat(pat, ref mut m, ref mut it, target, ref mut index, var_info) => {
+                loop {
+                    if it.next(m).is_some() {
+                        let rem = target
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(i, x)| if i + 1 == *index { None } else { Some(x) })
+                            .collect();
+                        return Some((rem, m.clone()));
+                    }
 
-                if *index == target.len() {
-                    return None;
+                    if *index == target.len() {
+                        return None;
+                    }
+                    *it = pat.to_iter_single(&target[*index], var_info);
+                    *index += 1;
                 }
-                *it = pat.to_iter_single(&target[*index], var_info);
-                *index += 1;
-            },
+            }
             MatchKind::None => None,
         }
     }
@@ -768,21 +764,21 @@ impl<'a> MatchIterator<'a> {
                     self.rhsp = 0;
                 }
 
-                let (mut res, _changed) = r.to_single();
-                if self.remaining.len() > 0 {
+                let (mut res, _changed) = r.into_single();
+                if !self.remaining.is_empty() {
                     add_terms(&mut res, &self.remaining);
                 }
-                res.replace_vars(&self.var_info, true); // subsitute dollars in rhs
+                res.replace_vars(self.var_info, true); // subsitute dollars in rhs
                 res.normalize_inplace();
                 res
             }
             x => {
                 let r = x.apply_map(&self.m);
-                let (mut res, _changed) = r.to_single();
-                if self.remaining.len() > 0 {
+                let (mut res, _changed) = r.into_single();
+                if !self.remaining.is_empty() {
                     add_terms(&mut res, &self.remaining);
                 }
-                res.replace_vars(&self.var_info, true); // subsitute dollars in rhs
+                res.replace_vars(self.var_info, true); // subsitute dollars in rhs
                 res.normalize_inplace();
                 res
             }
@@ -813,7 +809,7 @@ impl IdentityStatement {
 fn printmatch<'a>(m: &MatchObject<'a>) {
     debug!("MATCH: [ ");
 
-    for &(ref k, ref v) in m.iter() {
+    for &(k, ref v) in m.iter() {
         debug!("{}={};", k, v);
     }
     debug!("]");

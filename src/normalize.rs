@@ -8,7 +8,7 @@ impl Element {
     // TODO: return iterator over Elements for ground level?
     /// Apply builtin-functions, such as `delta_` and `nargs_`.
     /// This function should be called during normalization.
-    pub fn apply_builtin_functions(&mut self, ground_level: bool) -> bool {
+    pub fn apply_builtin_functions(&mut self, _ground_level: bool) -> bool {
         *self = match *self {
             Element::Fn(
                 _,
@@ -65,7 +65,7 @@ impl Element {
     }
 
     /// Normalize an element in-place. Returns true if element changed.
-    pub fn normalize_inplace<'a>(&mut self) -> bool {
+    pub fn normalize_inplace(&mut self) -> bool {
         let mut changed = false;
         match *self {
             Element::Num(ref mut dirty, ref mut pos, ref mut num, ref mut den) => {
@@ -156,7 +156,7 @@ impl Element {
             Element::Fn(dirty, _) => {
                 if dirty {
                     if let Element::Fn(ref mut dirty, ref mut f) = *self {
-                        for x in f.args.iter_mut() {
+                        for x in &mut f.args {
                             changed |= x.normalize_inplace();
                         }
                         *dirty = false; // TODO: or should this be done by builtin_functions?
@@ -307,7 +307,7 @@ impl Element {
     }
 
     /// Return a normalized clone of this element.
-    pub fn normalize<'a>(&self) -> Element {
+    pub fn normalize(&self) -> Element {
         match self {
             &Element::Num(dirty, mut pos, mut num, mut den) => {
                 if dirty {
@@ -424,7 +424,7 @@ impl Element {
 
                 match (pos, num, den) {
                     (_, 0, _) => return Element::Num(false, true, 0, 1),
-                    (true, 1, 1) if factors.len() > 0 => {} // don't add a factor
+                    (true, 1, 1) if !factors.is_empty() => {} // don't add a factor
                     x => factors.push(Element::Num(false, x.0, x.1, x.2)),
                 }
 
@@ -450,7 +450,7 @@ impl Element {
                 }
                 terms.sort_unstable();
 
-                if terms.len() == 0 {
+                if terms.is_empty() {
                     return Element::SubExpr(false, terms);
                 }
 
@@ -474,7 +474,7 @@ impl Element {
                     _ => Element::SubExpr(false, terms),
                 }
             }
-            &ref o => o.clone(),
+            o => o.clone(),
         }
     }
 }
@@ -483,15 +483,15 @@ impl Element {
 pub fn merge_factors(first: &mut Element, sec: &mut Element) -> bool {
     let mut changed = false;
 
-    if let &mut Element::Num(_, ref mut pos, ref mut num, ref mut den) = first {
-        if let &mut Element::Num(_, pos1, num1, den1) = sec {
+    if let Element::Num(_, ref mut pos, ref mut num, ref mut den) = *first {
+        if let Element::Num(_, pos1, num1, den1) = *sec {
             mul_fractions(pos, num, den, pos1, num1, den1);
             return true;
         }
         return false;
     }
 
-    if let &mut Element::Num(..) = sec {
+    if let Element::Num(..) = *sec {
         return false;
     }
 
@@ -564,17 +564,14 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element) -> bool {
 // returns true if merged
 pub fn merge_terms(first: &mut Element, sec: &mut Element) -> bool {
     // filter +0
-    match sec {
-        &mut Element::Num(_, _, 0, _) => {
-            return true;
-        }
-        _ => {}
+    if let Element::Num(_, _, 0, _) = *sec {
+        return true;
     }
 
     match (sec, first) {
         (&mut Element::Term(_, ref mut t1), &mut Element::Term(ref mut d2, ref mut t2)) => {
             // treat the case where the term doesn't have a coefficient
-            assert!(t1.len() > 0 && t2.len() > 0);
+            assert!(!t1.is_empty() && !t2.is_empty());
 
             let mut pos1;
             let mut num1;
@@ -609,12 +606,10 @@ pub fn merge_terms(first: &mut Element, sec: &mut Element) -> bool {
             t1.clear(); // remove the old data
             *d2 = false;
             // should we add the terms?
-            match t2.last_mut() {
-                Some(&mut Element::Num(_, ref mut pos, ref mut num, ref mut den)) => {
-                    add_fractions(pos, num, den, pos1, num1, den1);
-                    return true;
-                }
-                _ => {}
+            if let Some(&mut Element::Num(_, ref mut pos, ref mut num, ref mut den)) = t2.last_mut()
+            {
+                add_fractions(pos, num, den, pos1, num1, den1);
+                return true;
             }
 
             // add 1
@@ -628,7 +623,7 @@ pub fn merge_terms(first: &mut Element, sec: &mut Element) -> bool {
         // x + x/2
         // (1+x) + (1+x)/2
         (ref a, &mut Element::Term(_, ref mut t2)) => {
-            assert!(t2.len() > 0);
+            assert!(!t2.is_empty());
 
             if **a == t2[0] && t2.len() == 2 {
                 match t2[1] {
@@ -644,7 +639,7 @@ pub fn merge_terms(first: &mut Element, sec: &mut Element) -> bool {
             }
         }
         (&mut Element::Term(_, ref t2), ref mut a) => {
-            assert!(t2.len() > 0);
+            assert!(!t2.is_empty());
 
             if **a == t2[0] && t2.len() == 2 {
                 match t2[1] {
@@ -690,11 +685,11 @@ pub fn merge_terms(first: &mut Element, sec: &mut Element) -> bool {
 /// Sorts a vector `a`, using the `merger` function to merge identical terms.
 /// This function can be used to sort subexpressions and terms.
 /// Returns true if the vector has been changed.
-pub fn expr_sort<'a, T: PartialOrd, F>(a: &mut Vec<T>, merger: F) -> bool
+pub fn expr_sort<T: PartialOrd, F>(a: &mut Vec<T>, merger: F) -> bool
 where
     F: Fn(&mut T, &mut T) -> bool,
 {
-    if a.len() == 0 {
+    if a.is_empty() {
         return false;
     }
 

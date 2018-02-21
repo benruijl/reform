@@ -6,7 +6,6 @@ use combine::char::*;
 use combine::*;
 use combine::primitives::Stream;
 use combine::State;
-use std::ascii::AsciiExt;
 
 // parse a reform file
 pub fn parse_file(filename: &str) -> Program {
@@ -229,9 +228,9 @@ parser!{
         funcarg.map(|fa| Element::Fn(true, Func{ name: VarName::ID(1), args: fa })),
         value(1).map(|_| Element::Var(VarName::ID(1))))).map(|(name, mut res)| {
             match res {
-                Element::Wildcard(ref mut n, ..) => *n = VarName::Name(Box::new(name)),
-                Element::Fn(_, Func { name: ref mut n, .. } ) => *n = VarName::Name(Box::new(name)),
-                Element::Var(ref mut n) => *n = VarName::Name(Box::new(name)),
+                Element::Wildcard(ref mut n, ..)
+                | Element::Fn(_, Func { name: ref mut n, .. } )
+                | Element::Var(ref mut n) => *n = VarName::Name(Box::new(name)),
                 _ => unreachable!()
             }
             res

@@ -32,29 +32,29 @@ impl TermStreamWrapper {
     }
 
     fn add_term(&mut self, e: Element) {
-        match self {
-            &mut TermStreamWrapper::Threaded(ref mut x) => x.lock().unwrap().add_term(e),
-            &mut TermStreamWrapper::Single(ref mut x) => x.add_term(e),
+        match *self {
+            TermStreamWrapper::Threaded(ref mut x) => x.lock().unwrap().add_term(e),
+            TermStreamWrapper::Single(ref mut x) => x.add_term(e),
         }
     }
 }
 
 impl Element {
     fn expand(&self) -> Element {
-        match self {
-            &Element::Fn(_, Func { ref name, ref args }) => Element::Fn(
+        match *self {
+            Element::Fn(_, Func { ref name, ref args }) => Element::Fn(
                 true,
                 Func {
                     name: name.clone(),
                     args: args.iter().map(|x| x.expand()).collect(),
                 },
             ), // TODO: only flag when changed
-            &Element::Term(_, ref fs) => {
+            Element::Term(_, ref fs) => {
                 let mut r: Vec<Vec<Element>> = vec![vec![]];
 
                 for f in fs {
-                    match f {
-                        &Element::SubExpr(_, ref s) => {
+                    match *f {
+                        Element::SubExpr(_, ref s) => {
                             // use cartesian product function?
                             r = r.iter()
                                 .flat_map(|x| {
@@ -68,7 +68,7 @@ impl Element {
                                 })
                                 .collect();
                         }
-                        _ => for rr in r.iter_mut() {
+                        _ => for rr in &mut r {
                             rr.push(f.expand());
                         },
                     }
@@ -80,10 +80,10 @@ impl Element {
                     r.into_iter().map(|x| Element::Term(true, x)).collect(),
                 ).normalize()
             }
-            &Element::SubExpr(_, ref f) => {
+            Element::SubExpr(_, ref f) => {
                 Element::SubExpr(true, f.iter().map(|x| x.expand()).collect()).normalize()
             }
-            &Element::Pow(_, ref b, ref p) => {
+            Element::Pow(_, ref b, ref p) => {
                 if let Element::Num(_, true, n, 1) = **p {
                     if let Element::SubExpr(_, ref t) = **b {
                         let mut e = exponentiate(t, n);
@@ -114,7 +114,7 @@ impl<'a> StatementIter<'a> {
         match *self {
             StatementIter::IdentityStatement(ref mut id) => id.next(),
             StatementIter::Multiple(ref mut f, m) => {
-                if f.len() == 0 {
+                if f.is_empty() {
                     return StatementResult::Done;
                 }
                 if m {
@@ -145,7 +145,7 @@ impl Statement {
     ) -> StatementIter<'a> {
         match *self {
             Statement::IdentityStatement(ref id) => {
-                StatementIter::IdentityStatement(id.to_iter(input, &var_info))
+                StatementIter::IdentityStatement(id.to_iter(input, var_info))
             }
             Statement::SplitArg(ref name) => {
                 // TODO: use mutability to prevent unnecessary copy
@@ -156,8 +156,8 @@ impl Statement {
                         Func {
                             name: n.clone(),
                             args: a.iter()
-                                .flat_map(|x| match x {
-                                    &Element::SubExpr(_, ref y) => y.clone(),
+                                .flat_map(|x| match *x {
+                                    Element::SubExpr(_, ref y) => y.clone(),
                                     _ => vec![x.clone()],
                                 })
                                 .collect(),
@@ -181,8 +181,8 @@ impl Statement {
                         Element::Term(
                             false,
                             fs.iter()
-                                .map(|f| match f {
-                                    &Element::Fn(
+                                .map(|f| match *f {
+                                    Element::Fn(
                                         _,
                                         Func {
                                             name: ref n,
@@ -222,7 +222,7 @@ impl Statement {
             Statement::Multiply(ref x) => {
                 let mut res = match (input, x) {
                     (&mut Element::Term(_, ref mut xx), &Element::Term(_, ref yy)) => {
-                        xx.extend(yy.iter().map(|x| x.clone()));
+                        xx.extend(yy.iter().cloned());
                         Element::Term(true, mem::replace(xx, vec![]))
                     }
                     (&mut Element::Term(_, ref mut xx), _) => {
@@ -276,8 +276,8 @@ impl Statement {
                         Element::Term(
                             false,
                             fs.iter()
-                                .map(|f| match f {
-                                    &Element::Fn(
+                                .map(|f| match *f {
+                                    Element::Fn(
                                         _,
                                         Func {
                                             name: ref n,
@@ -301,7 +301,7 @@ impl Statement {
     }
 }
 
-fn do_module_rec<'a>(
+fn do_module_rec(
     mut input: Element,
     statements: &[Statement],
     var_info: &mut VarInfo,
@@ -348,7 +348,10 @@ fn do_module_rec<'a>(
         Statement::Eval(ref cond, i) => {
             // if statement
             // do the match
-            if let Some(_) = MatchKind::from_element(cond, &input, &var_info.variables).next() {
+            if MatchKind::from_element(cond, &input, &var_info.variables)
+                .next()
+                .is_some()
+            {
                 return do_module_rec(
                     input,
                     statements,
@@ -371,7 +374,7 @@ fn do_module_rec<'a>(
             if ee.replace_vars(&var_info.variables, true) {
                 ee.normalize_inplace();
             }
-            if let &Element::Dollar(ref d, ..) = dollar {
+            if let Element::Dollar(ref d, ..) = *dollar {
                 var_info.add_dollar(d.clone(), ee);
             }
             return do_module_rec(
@@ -384,21 +387,18 @@ fn do_module_rec<'a>(
             );
         }
         Statement::Maximum(ref dollar) => {
-            if let &Element::Dollar(ref d, ..) = dollar {
-                match var_info.variables.get(d) {
-                    Some(x) => {
-                        match var_info.global_variables.entry(d.clone()) {
-                            Entry::Occupied(mut y) => {
-                                if *y.get() < *x {
-                                    *y.get_mut() = x.clone();
-                                }
+            if let Element::Dollar(ref d, ..) = *dollar {
+                if let Some(x) = var_info.variables.get(d) {
+                    match var_info.global_variables.entry(d.clone()) {
+                        Entry::Occupied(mut y) => {
+                            if *y.get() < *x {
+                                *y.get_mut() = x.clone();
                             }
-                            Entry::Vacant(y) => {
-                                y.insert(x.clone());
-                            }
-                        };
-                    }
-                    None => {}
+                        }
+                        Entry::Vacant(y) => {
+                            y.insert(x.clone());
+                        }
+                    };
                 }
             }
             return do_module_rec(
@@ -464,7 +464,7 @@ fn do_module_rec<'a>(
 impl Module {
     // flatten the statement structure and use conditional jumps
     // also inline the procedures
-    fn to_control_flow_stat(
+    fn statements_to_control_flow_stat(
         statements: &[Statement],
         var_info: &mut VarInfo,
         procedures: &[Procedure],
@@ -475,20 +475,20 @@ impl Module {
                 &Statement::Repeat(ref ss) => {
                     output.push(Statement::PushChange);
                     let pos = output.len();
-                    Module::to_control_flow_stat(ss, var_info, procedures, output);
+                    Module::statements_to_control_flow_stat(ss, var_info, procedures, output);
                     output.push(Statement::JumpIfChanged(pos - 1));
                 }
                 &Statement::IfElse(ref prod, ref m, ref nm) => {
                     let pos = output.len();
                     output.push(Statement::Jump(0)); // note: placeholder 0
-                    Module::to_control_flow_stat(m, var_info, procedures, output);
+                    Module::statements_to_control_flow_stat(m, var_info, procedures, output);
 
-                    if nm.len() > 0 {
+                    if !nm.is_empty() {
                         // is there an else block?
                         let pos2 = output.len(); // pos after case
                         output.push(Statement::Jump(0)); // placeholder
                         output[pos] = Statement::Eval(prod.clone(), output.len());
-                        Module::to_control_flow_stat(nm, var_info, procedures, output);
+                        Module::statements_to_control_flow_stat(nm, var_info, procedures, output);
                         output[pos2] = Statement::Jump(output.len());
                     } else {
                         output[pos] = Statement::Eval(prod.clone(), output.len());
@@ -509,9 +509,9 @@ impl Module {
                             }
                             // add the local variables to the list of variables
                             for lv in &p.local_args {
-                                match lv {
-                                    &Element::Var(VarName::Name(ref x)) => var_info.add_local(&x),
-                                    &Element::Var(_) => panic!("Subsituted name for local var"),
+                                match *lv {
+                                    Element::Var(VarName::Name(ref x)) => var_info.add_local(x),
+                                    Element::Var(_) => panic!("Subsituted name for local var"),
                                     _ => panic!("Only variables are allowed as local variables"),
                                 }
                             }
@@ -519,7 +519,7 @@ impl Module {
                             // now map all the procedure arguments
                             let mut map = HashMap::new();
                             for (k, v) in p.args.iter().zip(args.iter()) {
-                                if let &Element::Var(ref x) = k {
+                                if let Element::Var(ref x) = *k {
                                     let mut y = x.clone();
                                     var_info.replace_name(&mut y); // FIXME: make the replacement earlier?
                                     map.insert(y, v.clone());
@@ -541,7 +541,12 @@ impl Module {
                                 })
                                 .collect::<Vec<_>>();
 
-                            Module::to_control_flow_stat(&newmod, var_info, procedures, output);
+                            Module::statements_to_control_flow_stat(
+                                &newmod,
+                                var_info,
+                                procedures,
+                                output,
+                            );
                         }
                     }
                 }
@@ -554,12 +559,12 @@ impl Module {
     // operations
     fn normalize_module(&mut self, var_info: &mut VarInfo, procedures: &[Procedure]) {
         for x in &self.global_statements {
-            match x {
-                &Statement::Assign(ref dollar, ref e) => {
+            match *x {
+                Statement::Assign(ref dollar, ref e) => {
                     let mut ee = e.clone();
                     ee.replace_vars(&var_info.variables, true);
                     ee.normalize_inplace();
-                    if let &Element::Dollar(ref d, ..) = dollar {
+                    if let Element::Dollar(ref d, ..) = *dollar {
                         var_info.add_dollar(d.clone(), ee);
                     }
                 }
@@ -568,9 +573,14 @@ impl Module {
         }
 
         let old_statements = mem::replace(&mut self.statements, vec![]);
-        Module::to_control_flow_stat(&old_statements, var_info, procedures, &mut self.statements);
+        Module::statements_to_control_flow_stat(
+            &old_statements,
+            var_info,
+            procedures,
+            &mut self.statements,
+        );
 
-        for x in self.statements.iter_mut() {
+        for x in &mut self.statements {
             match *x {
                 Statement::IdentityStatement(IdentityStatement {
                     ref mut lhs,
@@ -580,13 +590,9 @@ impl Module {
                     lhs.normalize_inplace();
                     rhs.normalize_inplace();
                 }
-                Statement::Multiply(ref mut e) => {
-                    e.normalize_inplace();
-                }
-                Statement::Eval(ref mut e, _) => {
-                    e.normalize_inplace();
-                }
-                Statement::Assign(_, ref mut e) => {
+                Statement::Multiply(ref mut e)
+                | Statement::Eval(ref mut e, _)
+                | Statement::Assign(_, ref mut e) => {
                     e.normalize_inplace();
                 }
                 _ => {}
@@ -600,15 +606,13 @@ pub fn do_program(program: &mut Program, write_log: bool, num_threads: usize) {
     // extract the initial input stream from the program
     let mut input_stream = mem::replace(&mut program.input, InputTermStreamer::new(None));
 
-    for module in program.modules.iter_mut() {
+    for module in &mut program.modules {
         // move global statements from the previous module into the new one
         // TODO: do swap instead of clone?
         program.var_info.variables = program.var_info.global_variables.clone();
 
-        module.normalize_module(&mut program.var_info, &mut program.procedures);
+        module.normalize_module(&mut program.var_info, &program.procedures);
         debug!("{}", module); // print module code
-
-        let mut inpcount = 0u64;
 
         let mut output = OutputTermStreamer::new();
 
@@ -679,17 +683,16 @@ pub fn do_program(program: &mut Program, write_log: bool, num_threads: usize) {
                     &mut output_wrapped,
                 );
 
-                /*
-				if output.termcount() > 100_000 && output.termcount() % 100_000 == 0 {
-					println!(
-						"{} -- generated: {}\tterms left: {}",
-						module.name,
-						output.termcount(),
-						input_stream.termcount() - inpcount
-					);
-				}*/
-
-                inpcount += 1;
+                if let TermStreamWrapper::Single(ref output) = output_wrapped {
+                    if output.termcount() > 100_000 && output.termcount() % 100_000 == 0 {
+                        println!(
+                            "{} -- generated: {}\tterms left: {}",
+                            module.name,
+                            output.termcount(),
+                            input_stream.termcount()
+                        );
+                    }
+                }
             }
 
             output_wrapped.extract()
