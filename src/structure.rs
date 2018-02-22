@@ -1,7 +1,6 @@
 use std::fmt;
 use streaming::InputTermStreamer;
 use std::collections::HashMap;
-use std::mem;
 use std::cmp::Ordering;
 use tools::num_cmp;
 
@@ -10,6 +9,8 @@ pub const FUNCTION_DELTA: u32 = 0;
 pub const FUNCTION_NARGS: u32 = 1;
 pub const FUNCTION_SUM: u32 = 2;
 pub const FUNCTION_MUL: u32 = 3;
+
+pub type VarName = u32;
 
 #[derive(Debug)]
 pub struct Program {
@@ -60,17 +61,22 @@ impl VarInfo {
         }
     }
 
+    pub fn get_name(&mut self, s: &String) -> u32 {
+        let nm = &mut self.name_map;
+        let inv = &mut self.inv_name_map;
+        let lm = &mut self.local_map;
+        *nm.entry(s.clone()).or_insert_with(|| {
+            inv.push(s.clone());
+            (inv.len() - 1) as u32
+        })
+    }
+
     pub fn replace_name(&mut self, name: &mut VarName) {
         let nm = &mut self.name_map;
         let inv = &mut self.inv_name_map;
         let lm = &mut self.local_map;
-        *name = match *name {
-            VarName::Name(ref mut s) => VarName::ID(*nm.entry(*s.clone()).or_insert_with(|| {
-                inv.push(mem::replace(s, String::new()));
-                (inv.len() - 1) as u32
-            })),
-            VarName::ID(v) => VarName::ID(*lm.get(&v).unwrap_or(&v)), // map local variable?
-        }
+
+        *name = *lm.get(name).unwrap_or(name);
     }
 
     pub fn add_local(&mut self, name: &str) {
@@ -93,10 +99,11 @@ impl VarInfo {
 }
 
 impl Program {
+    /// Create a new Program from the parser output.
     pub fn new(
-        mut input: Element,
-        mut modules: Vec<Module>,
-        mut procedures: Vec<Procedure>,
+        mut input: NamedElement,
+        mut modules: Vec<NamedModule>,
+        mut procedures: Vec<NamedProcedure>,
     ) -> Program {
         let mut prog = Program {
             input: InputTermStreamer::new(None),
@@ -105,10 +112,12 @@ impl Program {
             var_info: VarInfo::new(),
         };
 
-        input.var_to_id(&mut prog.var_info);
-        input.normalize_inplace();
+        // convert all the names to IDs
 
-        match input {
+        let mut parsed_input = input.var_to_id(&mut prog.var_info);
+        parsed_input.normalize_inplace();
+
+        match parsed_input {
             Element::SubExpr(_, t) => for mut x in t {
                 prog.input.add_term_input(x);
             },
@@ -117,23 +126,60 @@ impl Program {
             }
         }
 
+        let mut parsed_modules = vec![];
         for m in &mut modules {
-            for s in &mut m.statements {
-                s.var_to_id(&mut prog.var_info);
-            }
+            parsed_modules.push(Module {
+                name: m.name.clone(),
+                statements: m.statements
+                    .iter_mut()
+                    .map(|s| s.var_to_id(&mut prog.var_info))
+                    .collect(),
+                global_statements: m.global_statements
+                    .iter_mut()
+                    .map(|s| s.var_to_id(&mut prog.var_info))
+                    .collect(),
+            });
         }
 
         // NOTE: the names of the arguments are not substituted
+        let mut parsed_procedures = vec![];
         for m in &mut procedures {
-            for s in &mut m.statements {
-                s.var_to_id(&mut prog.var_info);
-            }
+            parsed_procedures.push(Procedure {
+                name: m.name.clone(),
+                args: m.args
+                    .iter_mut()
+                    .map(|s| s.var_to_id(&mut prog.var_info))
+                    .collect(),
+                local_args: m.local_args
+                    .iter_mut()
+                    .map(|s| s.var_to_id(&mut prog.var_info))
+                    .collect(),
+                statements: m.statements
+                    .iter_mut()
+                    .map(|s| s.var_to_id(&mut prog.var_info))
+                    .collect(),
+            });
         }
 
-        prog.modules = modules;
-        prog.procedures = procedures;
+        prog.modules = parsed_modules;
+        prog.procedures = parsed_procedures;
         prog
     }
+}
+
+#[derive(Debug)]
+pub struct NamedModule {
+    pub name: String,
+    pub statements: Vec<NamedStatement>,
+    pub global_statements: Vec<NamedStatement>,
+}
+
+#[derive(Debug)]
+pub struct NamedProcedure {
+    pub name: String,
+    pub args: Vec<NamedElement>,
+    pub local_args: Vec<NamedElement>,
+    pub statements: Vec<NamedStatement>,
 }
 
 #[derive(Debug)]
@@ -160,10 +206,34 @@ pub enum NumOrder {
     SmallerEqual,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum VarName {
-    ID(u32),
-    Name(Box<String>), // use box to reduce structure size
+#[derive(Debug, Clone)]
+pub enum NamedElement {
+    VariableArgument(String),                     // ?a
+    Wildcard(String, Vec<NamedElement>),          // x?{...}
+    Dollar(String, Option<Box<NamedElement>>),    // $x[y]
+    Var(String),                                  // x
+    Pow(bool, Box<(NamedElement, NamedElement)>), // (1+x)^3; dirty, base, exponent
+    NumberRange(bool, u64, u64, NumOrder),        // >0, <=-5/2
+    Fn(bool, NamedFunc),                          // f(...)
+    Term(bool, Vec<NamedElement>),
+    SubExpr(bool, Vec<NamedElement>),
+    Num(bool, bool, u64, u64), // dirty, fraction (true=positive), make sure it is last for sorting
+}
+
+#[derive(Debug, Clone)]
+pub enum NamedStatement {
+    IdentityStatement(NamedIdentityStatement),
+    SplitArg(String),
+    Repeat(Vec<NamedStatement>),
+    IfElse(NamedElement, Vec<NamedStatement>, Vec<NamedStatement>),
+    Expand,
+    Print,
+    Multiply(NamedElement),
+    Symmetrize(String),
+    Collect(String),
+    Assign(NamedElement, NamedElement),
+    Maximum(NamedElement),
+    Call(String, Vec<NamedElement>),
 }
 
 // all the algebraic elements. A bool as the first
@@ -191,6 +261,13 @@ impl Default for Element {
 
 #[macro_export]
 macro_rules! DUMMY_ELEM { () => (Element::Num(false, true, 1, 1)) }
+
+// TODO: move Func into Element?
+#[derive(Debug, Clone)]
+pub struct NamedFunc {
+    pub name: String,
+    pub args: Vec<NamedElement>,
+}
 
 // TODO: move Func into Element?
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
@@ -408,6 +485,13 @@ pub enum StatementResult<T> {
     Done,
 }
 
+#[derive(Debug, Clone)]
+pub struct NamedIdentityStatement {
+    pub mode: IdentityStatementMode,
+    pub lhs: NamedElement,
+    pub rhs: NamedElement,
+}
+
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
 pub struct IdentityStatement {
     pub mode: IdentityStatementMode,
@@ -532,27 +616,11 @@ impl fmt::Display for Statement {
     }
 }
 
-impl VarName {
-    fn fmt_output(&self, f: &mut fmt::Formatter, var_info: &VarInfo) -> fmt::Result {
-        match *self {
-            VarName::ID(id) => {
-                if var_info.inv_name_map.len() == 0 {
-                    write!(f, "var_{}", id)
-                } else {
-                    write!(f, "{}", var_info.inv_name_map[id as usize])
-                }
-            }
-            VarName::Name(ref s) => write!(f, "{}", s),
-        }
-    }
-}
-
-impl fmt::Display for VarName {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            VarName::ID(id) => write!(f, "{}_", id),
-            VarName::Name(ref s) => write!(f, "{}", s),
-        }
+fn fmt_varname(v: &VarName, f: &mut fmt::Formatter, var_info: &VarInfo) -> fmt::Result {
+    if var_info.inv_name_map.len() == 0 {
+        write!(f, "var_{}", v)
+    } else {
+        write!(f, "{}", var_info.inv_name_map[*v as usize])
     }
 }
 
@@ -600,13 +668,13 @@ impl Element {
         match self {
             &Element::VariableArgument(ref name) => {
                 write!(f, "?")?;
-                name.fmt_output(f, var_info)
+                fmt_varname(name, f, var_info)
             }
             &Element::Wildcard(ref name, ref restriction) => if restriction.len() == 0 {
-                name.fmt_output(f, var_info)?;
+                fmt_varname(name, f, var_info)?;
                 write!(f, "?")
             } else {
-                name.fmt_output(f, var_info)?;
+                fmt_varname(name, f, var_info)?;
                 write!(f, "?{{")?;
                 match restriction.first() {
                     Some(x) => x.fmt_output(f, var_info)?,
@@ -617,10 +685,10 @@ impl Element {
                 }
                 write!(f, "}}")
             },
-            &Element::Var(ref name) => name.fmt_output(f, var_info),
+            &Element::Var(ref name) => fmt_varname(name, f, var_info),
             &Element::Dollar(ref name, ..) => {
                 // TODO: print the index too
-                name.fmt_output(f, var_info)
+                fmt_varname(name, f, var_info)
             }
             &Element::Num(_, ref pos, ref num, ref den) => if *den == 1 {
                 write!(f, "{}{}", if *pos { "" } else { "-" }, num)
@@ -706,7 +774,7 @@ impl fmt::Display for Element {
 
 impl Func {
     pub fn fmt_output(&self, f: &mut fmt::Formatter, var_info: &VarInfo) -> fmt::Result {
-        self.name.fmt_output(f, var_info)?;
+        fmt_varname(&self.name, f, var_info)?;
         write!(f, "(")?;
         match self.args.first() {
             Some(x) => x.fmt_output(f, var_info)?,
@@ -728,43 +796,62 @@ impl fmt::Display for Func {
     }
 }
 
-impl Element {
+impl NamedElement {
     // replace a string name for a numerical ID
-    pub fn var_to_id(&mut self, var_info: &mut VarInfo) {
+    pub fn var_to_id(&mut self, var_info: &mut VarInfo) -> Element {
         match *self {
-            Element::Var(ref mut name) | Element::VariableArgument(ref mut name) => {
-                var_info.replace_name(name);
+            NamedElement::NumberRange(s, n, d, ref c) => Element::NumberRange(s, n, d, c.clone()),
+            NamedElement::Num(_, s, n, d) => Element::Num(true, s, n, d),
+            NamedElement::Dollar(ref mut name, ref mut inds) => {
+                Element::Dollar(var_info.get_name(name), {
+                    match *inds {
+                        Some(ref mut x) => Some(Box::new(x.var_to_id(var_info))),
+                        None => None,
+                    }
+                })
             }
-            Element::Wildcard(ref mut name, ref mut restrictions) => {
-                var_info.replace_name(name);
-                for x in restrictions {
-                    x.var_to_id(var_info);
-                }
+            NamedElement::Var(ref mut name) => Element::Var(var_info.get_name(name)),
+            NamedElement::VariableArgument(ref mut name) => {
+                Element::VariableArgument(var_info.get_name(name))
             }
-            Element::Pow(_, ref mut be) => {
+            NamedElement::Wildcard(ref mut name, ref mut restrictions) => Element::Wildcard(
+                var_info.get_name(name),
+                restrictions
+                    .iter_mut()
+                    .map(|x| x.var_to_id(var_info))
+                    .collect(),
+            ),
+            NamedElement::Pow(_, ref mut be) => {
                 let (ref mut b, ref mut e) = *&mut **be;
-                b.var_to_id(var_info);
-                e.var_to_id(var_info);
+                Element::Pow(
+                    true,
+                    Box::new((b.var_to_id(var_info), e.var_to_id(var_info))),
+                )
             }
-            Element::Term(_, ref mut f) | Element::SubExpr(_, ref mut f) => for x in f {
-                x.var_to_id(var_info);
-            },
-            Element::Fn(
+            NamedElement::Term(_, ref mut f) => {
+                Element::Term(true, f.iter_mut().map(|x| x.var_to_id(var_info)).collect())
+            }
+            NamedElement::SubExpr(_, ref mut f) => {
+                Element::SubExpr(true, f.iter_mut().map(|x| x.var_to_id(var_info)).collect())
+            }
+            NamedElement::Fn(
                 _,
-                Func {
+                NamedFunc {
                     ref mut name,
                     ref mut args,
                 },
-            ) => {
-                var_info.replace_name(name);
-                for x in args {
-                    x.var_to_id(var_info);
-                }
-            }
-            _ => {}
+            ) => Element::Fn(
+                true,
+                Func {
+                    name: var_info.get_name(name),
+                    args: args.iter_mut().map(|x| x.var_to_id(var_info)).collect(),
+                },
+            ),
         }
     }
+}
 
+impl Element {
     pub fn replace_vars(&mut self, map: &HashMap<VarName, Element>, dollar_only: bool) -> bool {
         let mut changed = false;
         *self = match *self {
@@ -873,48 +960,45 @@ impl Element {
     }
 }
 
-impl Statement {
-    pub fn var_to_id(&mut self, var_info: &mut VarInfo) {
+impl NamedStatement {
+    pub fn var_to_id(&mut self, var_info: &mut VarInfo) -> Statement {
         match *self {
-            Statement::IdentityStatement(IdentityStatement {
-                mode: _,
+            NamedStatement::IdentityStatement(NamedIdentityStatement {
+                ref mode,
                 ref mut lhs,
                 ref mut rhs,
-            }) => {
-                lhs.var_to_id(var_info);
-                rhs.var_to_id(var_info);
+            }) => Statement::IdentityStatement(IdentityStatement {
+                mode: mode.clone(),
+                lhs: lhs.var_to_id(var_info),
+                rhs: rhs.var_to_id(var_info),
+            }),
+            NamedStatement::Repeat(ref mut ss) => {
+                Statement::Repeat(ss.iter_mut().map(|s| s.var_to_id(var_info)).collect())
             }
-            Statement::Repeat(ref mut ss) => for s in ss {
-                s.var_to_id(var_info);
-            },
-            Statement::IfElse(ref mut e, ref mut ss, ref mut sse) => {
-                e.var_to_id(var_info);
-                for s in ss {
-                    s.var_to_id(var_info);
-                }
-                for s in sse {
-                    s.var_to_id(var_info);
-                }
+            NamedStatement::IfElse(ref mut e, ref mut ss, ref mut sse) => Statement::IfElse(
+                e.var_to_id(var_info),
+                ss.iter_mut().map(|s| s.var_to_id(var_info)).collect(),
+                sse.iter_mut().map(|s| s.var_to_id(var_info)).collect(),
+            ),
+            NamedStatement::SplitArg(ref name) => Statement::SplitArg(var_info.get_name(name)),
+            NamedStatement::Symmetrize(ref name) => Statement::Symmetrize(var_info.get_name(name)),
+            NamedStatement::Collect(ref name) => Statement::Collect(var_info.get_name(name)),
+            NamedStatement::Multiply(ref mut e) => Statement::Multiply(e.var_to_id(var_info)),
+            NamedStatement::Expand => Statement::Expand,
+            NamedStatement::Print => Statement::Print,
+            NamedStatement::Maximum(ref mut e) => Statement::Maximum(e.var_to_id(var_info)),
+            NamedStatement::Call(ref name, ref mut es) => Statement::Call(
+                name.clone(),
+                es.iter_mut().map(|s| s.var_to_id(var_info)).collect(),
+            ),
+            NamedStatement::Assign(ref mut d, ref mut e) => {
+                Statement::Assign(d.var_to_id(var_info), e.var_to_id(var_info))
             }
-            Statement::SplitArg(ref mut name)
-            | Statement::Symmetrize(ref mut name)
-            | Statement::Collect(ref mut name) => {
-                var_info.replace_name(name);
-            }
-            Statement::Multiply(ref mut e) => {
-                e.var_to_id(var_info);
-            }
-            Statement::Call(_, ref mut es) => for s in es {
-                s.var_to_id(var_info);
-            },
-            Statement::Assign(ref _d, ref mut e) => {
-                // TODO: also change dollar variable to id?
-                e.var_to_id(var_info);
-            }
-            _ => {}
         }
     }
+}
 
+impl Statement {
     pub fn replace_vars(&mut self, map: &HashMap<VarName, Element>, dollar_only: bool) -> bool {
         let mut changed = false;
         match *self {

@@ -1,5 +1,5 @@
 use std::mem;
-use structure::{Element, Func, VarName, FUNCTION_DELTA, FUNCTION_MUL, FUNCTION_NARGS, FUNCTION_SUM};
+use structure::{Element, Func, FUNCTION_DELTA, FUNCTION_MUL, FUNCTION_NARGS, FUNCTION_SUM};
 use tools::{add_fractions, add_one, exp_fraction, mul_fractions, normalize_fraction};
 use std::cmp::Ordering;
 use std::ptr;
@@ -18,7 +18,7 @@ impl Element {
                 },
             ) => {
                 match *n {
-                    VarName::ID(x) if x == FUNCTION_DELTA => {
+                    FUNCTION_DELTA => {
                         if a.len() == 1 {
                             match a[0] {
                                 Element::Num(_, _, 0, _) => Element::Num(false, true, 1, 1),
@@ -28,11 +28,11 @@ impl Element {
                             return false;
                         }
                     }
-                    VarName::ID(x) if x == FUNCTION_NARGS => {
+                    FUNCTION_NARGS => {
                         // get the number of arguments
                         Element::Num(false, true, a.len() as u64, 1)
                     }
-                    VarName::ID(x) if x == FUNCTION_SUM || x == FUNCTION_MUL => {
+                    FUNCTION_SUM | FUNCTION_MUL => {
                         if a.len() == 4 {
                             match (&a[1], &a[2]) {
                                 (&Element::Num(_, true, n1, 1), &Element::Num(_, true, n2, 1)) => {
@@ -42,7 +42,7 @@ impl Element {
                                         ne.replace(&a[0], &Element::Num(false, true, i, 1));
                                         terms.push(ne);
                                     }
-                                    if x == FUNCTION_SUM {
+                                    if *n == FUNCTION_SUM {
                                         Element::SubExpr(true, terms)
                                     } else {
                                         Element::Term(true, terms)

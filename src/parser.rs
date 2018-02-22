@@ -1,6 +1,7 @@
 use std::io::prelude::*;
 use std::fs::File;
-use structure::*;
+use structure::{IdentityStatementMode, NamedElement, NamedFunc, NamedIdentityStatement,
+                NamedModule, NamedProcedure, NamedStatement, NumOrder, Program};
 
 use combine::char::*;
 use combine::*;
@@ -68,7 +69,7 @@ parser!{
     where [I: Stream<Item=char>]
 {
    (many1(letter()), many(alpha_num().or(char('_')))).skip(spaces())
-        .map(|(mut f, r) : (String, String)| { f.push_str(&r); f}).expected("function or variable name")
+        .map(|(mut f, r) : (String, String)| { f.push_str(&r); f}).expected("Function or variable name")
 }
 }
 
@@ -77,20 +78,20 @@ parser!{
     where [I: Stream<Item=char>]
 {
     let procedure = struct_parser!{
-        Procedure {
-            _: keyword("procedure"),
+        NamedProcedure {
+            _: keyword("NamedProcedure"),
             name: varname(),
             args: lex_char('(').with(sep_by(expr(), lex_char(','))).skip(skipnocode()),
             local_args: optional(lex_char(';').with(sep_by(expr(), lex_char(',')))).map(
-                |x : Option<Vec<Element>>| x.unwrap_or(vec![])).skip(skipnocode()),
+                |x : Option<Vec<NamedElement>>| x.unwrap_or(vec![])).skip(skipnocode()),
             _: lex_char(')').with(lex_char(';')),
             statements: many(statement()),
-            _: keyword("endprocedure").with(lex_char(';'))
+            _: keyword("endNamedProcedure").with(lex_char(';'))
         }
     };
 
     let module = struct_parser!{
-        Module {
+        NamedModule {
             name: value("test".to_string()),
             global_statements: many(global_statement()),
             statements: between(lex_char('{'), lex_char('}'), many(statement())),
@@ -100,7 +101,7 @@ parser!{
     let input = keyword("IN").with(lex_char('=')).with(expr()).skip(lex_char(';'));
 
     skipnocode().with((input, many(procedure), many(module))).skip(eof()).map(
-        |(e,p,m) : (Element, Vec<Procedure>, Vec<Module>)| Program::new(e, m, p))
+        |(e,p,m) : (NamedElement, Vec<NamedProcedure>, Vec<NamedModule>)| Program::new(e, m, p))
 }
 }
 
@@ -113,48 +114,48 @@ parser!{
 }
 
 parser!{
-   fn dollarvar[I]()(I) -> (Element)
+   fn dollarvar[I]()(I) -> (NamedElement)
     where [I: Stream<Item=char>]
 {
    char('$').with(varname()).
-   and(optional(between(lex_char('('), lex_char(')'), expr()))).
-   map(|(x,ind)| Element::Dollar(VarName::Name(Box::new('$'.to_string() + &x)),
-                                 ind.map(|o| Box::new(o))))
+   and(optional(between(lex_char('['), lex_char(']'), expr()))).
+   map(|(x,ind)| NamedElement::Dollar('$'.to_string() + &x,
+                                 ind.map(Box::new)))
 }
 }
 
 parser!{
-   fn global_statement[I]()(I) -> Statement
+   fn global_statement[I]()(I) -> NamedStatement
     where [I: Stream<Item=char>]
 {
     let assign = (dollarvar(), lex_char('=').with(expr()).skip(statementend()))
-                 .map(|(d,e)| Statement::Assign(d, e));
+                 .map(|(d,e)| NamedStatement::Assign(d, e));
     let collect = keyword("collect").with(varname()).skip(statementend())
-                  .map(|x| Statement::Collect(VarName::Name(Box::new(x))));
+                  .map(|x| NamedStatement::Collect(x));
 
     choice!(assign, collect)
 }
 }
 
 parser!{
-   fn statement[I]()(I) -> Statement
+   fn statement[I]()(I) -> NamedStatement
     where [I: Stream<Item=char>]
 {
     let assign = (dollarvar(), lex_char('=').with(expr()).skip(statementend()))
-                 .map(|(d,e)| Statement::Assign(d, e));
+                 .map(|(d,e)| NamedStatement::Assign(d, e));
     let symmetrize = keyword("symmetrize").with(varname()).skip(statementend())
-                     .map(|x| Statement::Symmetrize(VarName::Name(Box::new(x))));
+                     .map(|x| NamedStatement::Symmetrize(x));
     let multiply = keyword("multiply").with(expr()).skip(statementend())
-                   .map(|x| Statement::Multiply(x));
+                   .map(|x| NamedStatement::Multiply(x));
     let splitarg = keyword("splitarg").with(varname()).skip(statementend())
-                   .map(|x| Statement::SplitArg(VarName::Name(Box::new(x))));
-    let expand = keyword("expand").skip(statementend()).map(|_| Statement::Expand);
-    let print = keyword("print").skip(statementend()).map(|_| Statement::Print);
-    let maximum = keyword("maximum").with(dollarvar()).skip(statementend()).map(|x| Statement::Maximum(x));
+                   .map(|x| NamedStatement::SplitArg(x));
+    let expand = keyword("expand").skip(statementend()).map(|_| NamedStatement::Expand);
+    let print = keyword("print").skip(statementend()).map(|_| NamedStatement::Print);
+    let maximum = keyword("maximum").with(dollarvar()).skip(statementend()).map(|x| NamedStatement::Maximum(x));
     let call_procedure = (keyword("call").with(varname()),
                           between(lex_char('('), lex_char(')'), sep_by(expr(), lex_char(','))))
                          .skip(statementend())
-                         .map(|(name, args) : (String, Vec<Element>)| Statement::Call(name, args));
+                         .map(|(name, args) : (String, Vec<NamedElement>)| NamedStatement::Call(name, args));
 
     let idmode = optional(choice!(keyword("once"), keyword("all"), keyword("many"))).map(|x| match x {
                     Some("all") => IdentityStatementMode::All,
@@ -162,7 +163,7 @@ parser!{
                     _ => IdentityStatementMode::Once
                 });
     let idstatement = struct_parser!{
-        IdentityStatement {
+        NamedIdentityStatement {
             _: keyword("id"),
             mode: idmode,
             lhs: expr(),
@@ -170,21 +171,21 @@ parser!{
             rhs: expr(),
             _: statementend()
         }
-    }.map(|x| Statement::IdentityStatement(x));
+    }.map(|x| NamedStatement::IdentityStatement(x));
 
     let repeat = keyword("repeat").with(
-        choice!(statementend().with(many(statement())).skip(keyword("endrepeat")).skip(statementend()).map(|x| Statement::Repeat(x)),
-            statement().map(|x| Statement::Repeat(vec![x]))
+        choice!(statementend().with(many(statement())).skip(keyword("endrepeat")).skip(statementend()).map(|x| NamedStatement::Repeat(x)),
+            statement().map(|x| NamedStatement::Repeat(vec![x]))
         ));
 
     let ifclause = between(lex_char('('),lex_char(')'), keyword("match").with(
         between(lex_char('('),lex_char(')'), expr())));
     let ifelse = (keyword("if").with(ifclause)
         ,choice!(statementend().with(many(statement())).skip(keyword("endif")).skip(statementend()),
-        statement().map(|x: Statement| vec![x])),
+        statement().map(|x: NamedStatement| vec![x])),
         optional(keyword("else").with(choice!(statementend().with(many(statement())).skip(keyword("endif")).skip(statementend()),
-        statement().map(|x: Statement| vec![x])))).map(|x : Option<Vec<Statement>>| x.unwrap_or(vec![]))). // parse the else
-        map(|(q,x,e) : (Element, Vec<Statement>, Vec<Statement>)| Statement::IfElse(q, x, e));
+        statement().map(|x: NamedStatement| vec![x])))).map(|x : Option<Vec<NamedStatement>>| x.unwrap_or(vec![]))). // parse the else
+        map(|(q,x,e) : (NamedElement, Vec<NamedStatement>, Vec<NamedStatement>)| NamedStatement::IfElse(q, x, e));
 
     choice!(call_procedure, assign, maximum, print, ifelse, expand, multiply,
         repeat, idstatement, splitarg, symmetrize.skip(skipnocode()))
@@ -192,19 +193,19 @@ parser!{
 }
 
 parser!{
-   fn number[I]()(I) -> Element
+   fn number[I]()(I) -> NamedElement
     where [I: Stream<Item=char>]
 {
     (optional(char('-')).map(|x| x.is_none()),
         many1(digit()).map(|d : String| d.parse::<u64>().unwrap()),
         optional(char('/').with(many1(digit()))).map(
             |x| x.map(|y : String| y.parse::<u64>().unwrap()).unwrap_or(1)
-    )).map(|(sign, num, den): (bool, u64, u64)| Element::Num(true, sign, num, den))
+    )).map(|(sign, num, den): (bool, u64, u64)| NamedElement::Num(true, sign, num, den))
 }
 }
 
 parser!{
-   fn factor[I]()(I) -> Element
+   fn factor[I]()(I) -> NamedElement
     where [I: Stream<Item=char>]
 {
     let funcarg = between(lex_char('('), lex_char(')'), sep_by(expr(), lex_char(',')));
@@ -213,24 +214,25 @@ parser!{
     string(">").map(|_| NumOrder::Greater), string("==").map(|_| NumOrder::Equal),
     try(string("<=")).map(|_| NumOrder::SmallerEqual), string("<").map(|_| NumOrder::Smaller)).skip(spaces());
     let numrange = (numorder, number()).map(|(r,b)| match b {
-        Element::Num(_,pos,num,den) => Element::NumberRange(pos,num,den,r),
+        NamedElement::Num(_,pos,num,den) => NamedElement::NumberRange(pos,num,den,r),
         _ => unreachable!()
     });
     let set = between(lex_char('{'),
                       lex_char('}'),
                       sep_by(choice!(expr(), numrange), lex_char(',')));
-    let variableargument = (char('?'), varname()).map(|(_, v)| Element::VariableArgument(VarName::Name(Box::new("?".to_owned() + &v))));
+    let variableargument = (char('?'), varname()).map(|(_, v)| NamedElement::VariableArgument("?".to_owned() + &v));
 
-    // read the variable name and then see if it is a wildcard, a function or variable
+    // read the variable name and then see if it is a wildcard, a NamedFunction or variable
     let namedfactor = varname()
                       .and(choice!(lex_char('?').and(optional(set).map(|x| x.unwrap_or(vec![]))).
-        map(|(_, s)| Element::Wildcard(VarName::ID(1), s)),
-        funcarg.map(|fa| Element::Fn(true, Func{ name: VarName::ID(1), args: fa })),
-        value(1).map(|_| Element::Var(VarName::ID(1))))).map(|(name, mut res)| {
+        map(|(_, s)| NamedElement::Wildcard(String::new(), s)),
+        funcarg.map(|fa| NamedElement::Fn(true, NamedFunc{ name: String::new(), args: fa })),
+        value(1).map(|_| NamedElement::Var(String::new())))).map(|(name, mut res)| {
             match res {
-                Element::Wildcard(ref mut n, ..)
-                | Element::Fn(_, Func { name: ref mut n, .. } )
-                | Element::Var(ref mut n) => *n = VarName::Name(Box::new(name)),
+                NamedElement::Wildcard(ref mut n, ..)
+
+                | NamedElement::Var(ref mut n) => *n = name,
+                NamedElement::Fn(_, NamedFunc { name: ref mut n, .. } ) => *n = name,
                 _ => unreachable!()
             }
             res
@@ -241,52 +243,52 @@ parser!{
 }
 
 parser!{
-   fn parenexpr[I]()(I) -> Element
+   fn parenexpr[I]()(I) -> NamedElement
     where [I: Stream<Item=char>]
 {
     between(lex_char('('), lex_char(')'), sep_by1(expr(), lex_char('+'))).
-        map(|x : Vec<Element>| Element::SubExpr(true, x))
+        map(|x : Vec<NamedElement>| NamedElement::SubExpr(true, x))
 }
 }
 
 parser!{
-   fn powfactor[I]()(I) -> Element
+   fn powfactor[I]()(I) -> NamedElement
     where [I: Stream<Item=char>]
 {
     // TODO: support a^b^c? use chainl?
     factor().and(optional(lex_char('^').with(factor()))).map(|(b, e)| match e {
-        Some(ee) => Element::Pow(true, Box::new((b, ee))),
+        Some(ee) => NamedElement::Pow(true, Box::new((b, ee))),
         _ => b
     })
 }
 }
 
 parser!{
-   fn terms[I]()(I) -> Element
+   fn terms[I]()(I) -> NamedElement
     where [I: Stream<Item=char>]
 {
-    sep_by1(powfactor(), lex_char('*')).map(|x : Vec<Element>| Element::Term(true, x))
+    sep_by1(powfactor(), lex_char('*')).map(|x : Vec<NamedElement>| NamedElement::Term(true, x))
 }
 }
 
 parser!{
-   fn minexpr[I]()(I) -> Element
+   fn minexpr[I]()(I) -> NamedElement
     where [I: Stream<Item=char>]
 {
     lex_char('-').with(choice!(parenexpr(), terms())).map(|mut x| { match x {
-        Element::Term(_, ref mut f) => f.push(Element::Num(false,false,1,1)),
-        _ => { x = Element::Term(true, vec![x,Element::Num(false,false,1,1)])}
+        NamedElement::Term(_, ref mut f) => f.push(NamedElement::Num(false,false,1,1)),
+        _ => { x = NamedElement::Term(true, vec![x,NamedElement::Num(false,false,1,1)])}
     }; x})
 }
 }
 
 parser!{
-   fn expr[I]()(I) -> Element
+   fn expr[I]()(I) -> NamedElement
     where [I: Stream<Item=char>]
 {
     (optional(lex_char('+')).with(choice!(minexpr(), terms())),
         many(choice!(minexpr(), lex_char('+').with(terms())))).
-        map(|(x, mut y) : (Element, Vec<Element>)|
-            Element::SubExpr(true, {y.push(x); y})).skip(spaces())
+        map(|(x, mut y) : (NamedElement, Vec<NamedElement>)|
+            NamedElement::SubExpr(true, {y.push(x); y})).skip(spaces())
 }
 }

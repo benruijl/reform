@@ -10,23 +10,6 @@ const TERM_ID: u8 = 4;
 const EXPR_ID: u8 = 5;
 const POW_ID: u8 = 6;
 
-impl VarName {
-    // convert a normalized Element to a linear representation
-    fn serialize(&self, buffer: &mut Write) -> usize {
-        match *self {
-            VarName::ID(id) => {
-                buffer.write_u32::<LittleEndian>(id).unwrap();
-            }
-            _ => unimplemented!("Name not supported in serialization"),
-        }
-        4
-    }
-
-    fn deserialize(buffer: &mut Read) -> VarName {
-        VarName::ID(buffer.read_u32::<LittleEndian>().unwrap())
-    }
-}
-
 fn serialize_list(args: &[Element], buffer: &mut Write) -> usize {
     let mut len = 4;
     buffer.write_u32::<LittleEndian>(args.len() as u32).unwrap();
@@ -59,12 +42,12 @@ impl Element {
             }
             Element::Fn(false, Func { ref name, ref args }) => {
                 buffer.write_u8(FN_ID).unwrap();
-                name.serialize(buffer);
+                buffer.write_u32::<LittleEndian>(*name).unwrap();
                 9 + serialize_list(args, buffer)
             }
             Element::Var(ref name) => {
                 buffer.write_u8(VAR_ID).unwrap();
-                name.serialize(buffer);
+                buffer.write_u32::<LittleEndian>(*name).unwrap();
                 9
             }
             Element::Term(false, ref args) => {
@@ -96,11 +79,11 @@ impl Element {
             FN_ID => Element::Fn(
                 false,
                 Func {
-                    name: VarName::deserialize(buffer),
+                    name: buffer.read_u32::<LittleEndian>().unwrap(),
                     args: deserialize_list(buffer),
                 },
             ),
-            VAR_ID => Element::Var(VarName::deserialize(buffer)),
+            VAR_ID => Element::Var(buffer.read_u32::<LittleEndian>().unwrap()),
             TERM_ID => Element::Term(false, deserialize_list(buffer)),
             EXPR_ID => Element::SubExpr(false, deserialize_list(buffer)),
             POW_ID => {

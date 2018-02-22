@@ -232,8 +232,10 @@ impl Statement {
                     }
                     (ref mut a, &Element::Term(_, ref xx)) => {
                         let mut r = xx.clone();
+                        r.reverse(); // FIXME: for testing
                         r.push(mem::replace(a, DUMMY_ELEM!()));
-                        Element::Term(true, r)
+                        r.reverse(); // FIXME: for testing
+                        Element::Term(false, r)
                     }
                     (ref mut a, aa) => {
                         Element::Term(true, vec![mem::replace(a, DUMMY_ELEM!()), aa.clone()])
@@ -511,7 +513,7 @@ impl Module {
                             // add the local variables to the list of variables
                             for lv in &p.local_args {
                                 match *lv {
-                                    Element::Var(VarName::Name(ref x)) => var_info.add_local(x),
+                                    //Element::Var(VarName::Name(ref x)) => var_info.add_local(x), // FIXME: not working yet
                                     Element::Var(_) => panic!("Subsituted name for local var"),
                                     _ => panic!("Only variables are allowed as local variables"),
                                 }
@@ -533,7 +535,7 @@ impl Module {
                                 .iter()
                                 .cloned()
                                 .map(|mut x| {
-                                    x.var_to_id(var_info);
+                                    //x.var_to_id(var_info); // FIXME: what to do?
                                     x
                                 })
                                 .map(|mut x| {
