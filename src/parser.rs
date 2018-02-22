@@ -1,7 +1,7 @@
 use std::io::prelude::*;
 use std::fs::File;
-use structure::{IdentityStatementMode, NamedElement, NamedFunc, NamedIdentityStatement,
-                NamedModule, NamedProcedure, NamedStatement, NumOrder, Program};
+use structure::{IdentityStatementMode, NamedElement, NamedIdentityStatement, NamedModule,
+                NamedProcedure, NamedStatement, NumOrder, Program};
 
 use combine::char::*;
 use combine::*;
@@ -226,13 +226,13 @@ parser!{
     let namedfactor = varname()
                       .and(choice!(lex_char('?').and(optional(set).map(|x| x.unwrap_or(vec![]))).
         map(|(_, s)| NamedElement::Wildcard(String::new(), s)),
-        funcarg.map(|fa| NamedElement::Fn(true, NamedFunc{ name: String::new(), args: fa })),
+        funcarg.map(|fa| NamedElement::Fn(true, String::new(), fa)),
         value(1).map(|_| NamedElement::Var(String::new())))).map(|(name, mut res)| {
             match res {
                 NamedElement::Wildcard(ref mut n, ..)
 
                 | NamedElement::Var(ref mut n) => *n = name,
-                NamedElement::Fn(_, NamedFunc { name: ref mut n, .. } ) => *n = name,
+                NamedElement::Fn(_, ref mut n, ..) => *n = name,
                 _ => unreachable!()
             }
             res

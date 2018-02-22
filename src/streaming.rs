@@ -8,7 +8,7 @@ use std::cmp::Ordering;
 use std::mem;
 use std::collections::VecDeque;
 
-use structure::{Element, ElementPrinter, Func, Statement, VarInfo};
+use structure::{Element, ElementPrinter, Statement, VarInfo};
 use normalize::merge_terms;
 
 pub const MAXTERMMEM: usize = 10_000_000; // maximum number of terms allowed in memory
@@ -199,13 +199,7 @@ impl OutputTermStreamer {
             for s in global_statements {
                 match *s {
                     Statement::Collect(ref v) => {
-                        a = Element::Fn(
-                            false,
-                            Func {
-                                name: v.clone(),
-                                args: vec![a],
-                            },
-                        );
+                        a = Element::Fn(false, v.clone(), vec![a]);
                     }
                     _ => {}
                 }
@@ -361,10 +355,8 @@ impl OutputTermStreamer {
                             self.mem_buffer = vec![
                                 Element::Fn(
                                     false,
-                                    Func {
-                                        name: v.clone(),
-                                        args: mem::replace(&mut self.mem_buffer, vec![]),
-                                    },
+                                    v.clone(),
+                                    mem::replace(&mut self.mem_buffer, vec![]),
                                 ),
                             ];
                         } else {

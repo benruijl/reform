@@ -214,7 +214,7 @@ pub enum NamedElement {
     Var(String),                                  // x
     Pow(bool, Box<(NamedElement, NamedElement)>), // (1+x)^3; dirty, base, exponent
     NumberRange(bool, u64, u64, NumOrder),        // >0, <=-5/2
-    Fn(bool, NamedFunc),                          // f(...)
+    Fn(bool, String, Vec<NamedElement>),          // f(...)
     Term(bool, Vec<NamedElement>),
     SubExpr(bool, Vec<NamedElement>),
     Num(bool, bool, u64, u64), // dirty, fraction (true=positive), make sure it is last for sorting
@@ -247,7 +247,7 @@ pub enum Element {
     Var(VarName),                          // x
     Pow(bool, Box<(Element, Element)>),    // (1+x)^3; dirty, base, exponent
     NumberRange(bool, u64, u64, NumOrder), // >0, <=-5/2
-    Fn(bool, Func),                        // f(...)
+    Fn(bool, VarName, Vec<Element>),       // f(...)
     Term(bool, Vec<Element>),
     SubExpr(bool, Vec<Element>),
     Num(bool, bool, u64, u64), // dirty, fraction (true=positive), make sure it is last for sorting
@@ -261,20 +261,6 @@ impl Default for Element {
 
 #[macro_export]
 macro_rules! DUMMY_ELEM { () => (Element::Num(false, true, 1, 1)) }
-
-// TODO: move Func into Element?
-#[derive(Debug, Clone)]
-pub struct NamedFunc {
-    pub name: String,
-    pub args: Vec<NamedElement>,
-}
-
-// TODO: move Func into Element?
-#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
-pub struct Func {
-    pub name: VarName,
-    pub args: Vec<Element>,
-}
 
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
 pub enum Statement {
@@ -337,22 +323,7 @@ impl Ord for Element {
 impl PartialOrd for Element {
     fn partial_cmp(&self, other: &Element) -> Option<Ordering> {
         match (self, other) {
-            (
-                &Element::Fn(
-                    _,
-                    Func {
-                        name: ref namea,
-                        args: ref argsa,
-                    },
-                ),
-                &Element::Fn(
-                    _,
-                    Func {
-                        name: ref nameb,
-                        args: ref argsb,
-                    },
-                ),
-            ) => {
+            (&Element::Fn(_, ref namea, ref argsa), &Element::Fn(_, ref nameb, ref argsb)) => {
                 let k = namea.partial_cmp(nameb);
                 match k {
                     Some(Ordering::Equal) => {}
@@ -725,7 +696,21 @@ impl Element {
                     }
                 }
             }
-            &Element::Fn(_, ref func) => func.fmt_output(f, var_info),
+            &Element::Fn(_, ref name, ref args) => {
+                fmt_varname(&name, f, var_info)?;
+                write!(f, "(")?;
+                match args.first() {
+                    Some(x) => x.fmt_output(f, var_info)?,
+                    None => {}
+                }
+
+                for x in args.iter().skip(1) {
+                    write!(f, ",")?;
+                    x.fmt_output(f, var_info)?;
+                }
+
+                write!(f, ")")
+            }
             &Element::Term(_, ref factors) => {
                 match factors.first() {
                     Some(s @ &Element::SubExpr(..)) if factors.len() > 1 => {
@@ -772,30 +757,6 @@ impl fmt::Display for Element {
     }
 }
 
-impl Func {
-    pub fn fmt_output(&self, f: &mut fmt::Formatter, var_info: &VarInfo) -> fmt::Result {
-        fmt_varname(&self.name, f, var_info)?;
-        write!(f, "(")?;
-        match self.args.first() {
-            Some(x) => x.fmt_output(f, var_info)?,
-            None => {}
-        }
-
-        for x in self.args.iter().skip(1) {
-            write!(f, ",")?;
-            x.fmt_output(f, var_info)?;
-        }
-
-        write!(f, ")")
-    }
-}
-
-impl fmt::Display for Func {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.fmt_output(f, &VarInfo::empty())
-    }
-}
-
 impl NamedElement {
     // replace a string name for a numerical ID
     pub fn var_to_id(&mut self, var_info: &mut VarInfo) -> Element {
@@ -834,18 +795,10 @@ impl NamedElement {
             NamedElement::SubExpr(_, ref mut f) => {
                 Element::SubExpr(true, f.iter_mut().map(|x| x.var_to_id(var_info)).collect())
             }
-            NamedElement::Fn(
-                _,
-                NamedFunc {
-                    ref mut name,
-                    ref mut args,
-                },
-            ) => Element::Fn(
+            NamedElement::Fn(_, ref mut name, ref mut args) => Element::Fn(
                 true,
-                Func {
-                    name: var_info.get_name(name),
-                    args: args.iter_mut().map(|x| x.var_to_id(var_info)).collect(),
-                },
+                var_info.get_name(name),
+                args.iter_mut().map(|x| x.var_to_id(var_info)).collect(),
             ),
         }
     }
@@ -893,13 +846,7 @@ impl Element {
                 *dirty |= changed;
                 return changed;
             }
-            Element::Fn(
-                ref mut dirty,
-                Func {
-                    ref mut name,
-                    ref mut args,
-                },
-            ) => {
+            Element::Fn(ref mut dirty, ref mut name, ref mut args) => {
                 if !dollar_only {
                     if let Some(x) = map.get(name) {
                         if let &Element::Var(ref y) = x {
@@ -943,13 +890,7 @@ impl Element {
                 }
                 *dirty
             }
-            Element::Fn(
-                ref mut dirty,
-                Func {
-                    name: ref _name,
-                    ref mut args,
-                },
-            ) => {
+            Element::Fn(ref mut dirty, ref _name, ref mut args) => {
                 for x in args {
                     *dirty |= x.replace(orig, new);
                 }

@@ -42,12 +42,10 @@ impl TermStreamWrapper {
 impl Element {
     fn expand(&self) -> Element {
         match *self {
-            Element::Fn(_, Func { ref name, ref args }) => Element::Fn(
+            Element::Fn(_, ref name, ref args) => Element::Fn(
                 true,
-                Func {
-                    name: name.clone(),
-                    args: args.iter().map(|x| x.expand()).collect(),
-                },
+                name.clone(),
+                args.iter().map(|x| x.expand()).collect(),
             ), // TODO: only flag when changed
             Element::Term(_, ref fs) => {
                 let mut r: Vec<Vec<Element>> = vec![vec![]];
@@ -154,28 +152,19 @@ impl Statement {
                 let subs = |n: &VarName, a: &Vec<Element>| {
                     Element::Fn(
                         false,
-                        Func {
-                            name: n.clone(),
-                            args: a.iter()
-                                .flat_map(|x| match *x {
-                                    Element::SubExpr(_, ref y) => y.clone(),
-                                    _ => vec![x.clone()],
-                                })
-                                .collect(),
-                        },
+                        n.clone(),
+                        a.iter()
+                            .flat_map(|x| match *x {
+                                Element::SubExpr(_, ref y) => y.clone(),
+                                _ => vec![x.clone()],
+                            })
+                            .collect(),
                     )
                 };
 
                 match *input {
                     // FIXME: check if the splitarg actually executed!
-                    Element::Fn(
-                        _,
-                        Func {
-                            name: ref mut n,
-                            args: ref mut a,
-                        },
-                    ) if *n == *name =>
-                    {
+                    Element::Fn(_, ref mut n, ref mut a) if *n == *name => {
                         StatementIter::Simple(subs(n, a), false)
                     }
                     Element::Term(_, ref fs) => StatementIter::Simple(
@@ -183,16 +172,7 @@ impl Statement {
                             false,
                             fs.iter()
                                 .map(|f| match *f {
-                                    Element::Fn(
-                                        _,
-                                        Func {
-                                            name: ref n,
-                                            args: ref a,
-                                        },
-                                    ) if *n == *name =>
-                                    {
-                                        subs(n, a)
-                                    }
+                                    Element::Fn(_, ref n, ref a) if *n == *name => subs(n, a),
                                     _ => f.clone(),
                                 })
                                 .collect(),
@@ -250,29 +230,16 @@ impl Statement {
             Statement::Symmetrize(ref name) => {
                 // sort function arguments at the ground level
                 let subs = |n: &VarName, a: &Vec<Element>| {
-                    Element::Fn(
-                        false,
-                        Func {
-                            name: n.clone(),
-                            args: {
-                                let mut b = a.clone();
-                                b.sort();
-                                b
-                            },
-                        },
-                    )
+                    Element::Fn(false, n.clone(), {
+                        let mut b = a.clone();
+                        b.sort();
+                        b
+                    })
                 };
 
                 match *input {
                     // FIXME: check if the symmetrize actually executed!
-                    Element::Fn(
-                        _,
-                        Func {
-                            name: ref n,
-                            args: ref a,
-                        },
-                    ) if *n == *name =>
-                    {
+                    Element::Fn(_, ref n, ref a) if *n == *name => {
                         StatementIter::Simple(subs(n, a), false)
                     }
                     Element::Term(_, ref fs) => StatementIter::Simple(
@@ -280,16 +247,7 @@ impl Statement {
                             false,
                             fs.iter()
                                 .map(|f| match *f {
-                                    Element::Fn(
-                                        _,
-                                        Func {
-                                            name: ref n,
-                                            args: ref a,
-                                        },
-                                    ) if *n == *name =>
-                                    {
-                                        subs(n, a)
-                                    }
+                                    Element::Fn(_, ref n, ref a) if *n == *name => subs(n, a),
                                     _ => f.clone(),
                                 })
                                 .collect(),

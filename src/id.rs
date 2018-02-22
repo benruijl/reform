@@ -1,4 +1,4 @@
-use structure::{Element, Func, IdentityStatement, IdentityStatementMode, StatementResult, VarName};
+use structure::{Element, IdentityStatement, IdentityStatementMode, StatementResult, VarName};
 use std;
 use std::fmt;
 use std::mem;
@@ -120,9 +120,23 @@ impl Element {
                 changed |= c;
                 MatchOptOwned::Single(Element::Pow(changed, Box::new((bb, pp))), changed)
             }
-            Element::Fn(_, ref f) => {
-                let (ff, c) = f.apply_map(m);
-                MatchOptOwned::Single(Element::Fn(c, ff), c)
+            Element::Fn(_, name, ref old_args) => {
+                let mut changed = false;
+                let mut args = vec![];
+                for a in old_args {
+                    match a.apply_map(m) {
+                        MatchOptOwned::Single(x, c) => {
+                            changed |= c;
+                            args.push(x)
+                        }
+                        MatchOptOwned::Multiple(x) => {
+                            changed = true;
+                            args.extend(x)
+                        }
+                    }
+                }
+
+                MatchOptOwned::Single(Element::Fn(changed, name, args), changed)
             }
             Element::Term(_, ref f) => {
                 let mut changed = false;
@@ -146,33 +160,6 @@ impl Element {
             }
             _ => MatchOptOwned::Single(self.clone(), false), // no match, so no change
         }
-    }
-}
-
-impl Func {
-    fn apply_map<'a>(&self, m: &MatchObject<'a>) -> (Func, bool) {
-        let mut changed = false;
-        let mut args = vec![];
-        for a in &self.args {
-            match a.apply_map(m) {
-                MatchOptOwned::Single(x, c) => {
-                    changed |= c;
-                    args.push(x)
-                }
-                MatchOptOwned::Multiple(x) => {
-                    changed = true;
-                    args.extend(x)
-                }
-            }
-        }
-
-        (
-            Func {
-                name: self.name.clone(),
-                args: args,
-            },
-            changed,
-        )
     }
 }
 
@@ -369,8 +356,14 @@ impl Element {
                     ElementIterSingle::None
                 }
             }
-            (&Element::Fn(_, ref f1), &Element::Fn(_, ref f2)) => {
-                ElementIterSingle::FnIter(f2.to_iter(f1, var_info))
+            (&Element::Fn(_, ref name1, ref args1), &Element::Fn(_, ref name2, ref args2)) => {
+                ElementIterSingle::FnIter(FuncIterator::from_element(
+                    name2,
+                    args2,
+                    name1,
+                    args1,
+                    var_info,
+                ))
             }
             (&Element::Term(_, ref f1), &Element::Term(_, ref f2))
             | (&Element::SubExpr(_, ref f1), &Element::SubExpr(_, ref f2)) => {
@@ -386,15 +379,26 @@ impl Element {
     }
 }
 
-impl Func {
-    fn to_iter<'a>(
-        &'a self,
-        target: &'a Func,
+// iterator over a pattern of a function
+#[derive(Debug)]
+pub struct FuncIterator<'a> {
+    args: &'a Vec<Element>,
+    iterators: Vec<ElementIter<'a>>,
+    matches: Vec<(&'a [Element], usize)>, // keep track of stack depth
+    var_info: &'a HashMap<VarName, Element>,
+}
+
+impl<'a> FuncIterator<'a> {
+    fn from_element(
+        name: &'a VarName,
+        args: &'a Vec<Element>,
+        target_name: &'a VarName,
+        target_args: &'a Vec<Element>,
         var_info: &'a HashMap<VarName, Element>,
     ) -> FuncIterator<'a> {
-        if self.name != target.name {
+        if name != target_name {
             return FuncIterator {
-                pattern: self,
+                args: args,
                 iterators: vec![],
                 matches: vec![],
                 var_info: var_info,
@@ -402,67 +406,55 @@ impl Func {
         }
 
         // shortcut if the number of arguments is wrong
-        let varargcount = self.args
-            .iter()
+        let varargcount = args.iter()
             .filter(|x| match **x {
                 Element::VariableArgument { .. } => true,
                 _ => false,
             })
             .count();
-        if self.args.len() - varargcount > target.args.len() {
+        if args.len() - varargcount > target_args.len() {
             return FuncIterator {
-                pattern: self,
+                args: args,
                 iterators: vec![],
                 matches: vec![],
                 var_info: var_info,
             };
         };
-        if varargcount == 0 && self.args.len() != target.args.len() {
+        if varargcount == 0 && args.len() != target_args.len() {
             return FuncIterator {
-                pattern: self,
+                args: args,
                 iterators: vec![],
                 matches: vec![],
                 var_info: var_info,
             };
         };
 
-        if varargcount == 0 && target.args.len() == 0 {
+        if varargcount == 0 && target_args.len() == 0 {
             // we match two functions without arguments
             // return an iterator that yields a success once
             return FuncIterator {
-                pattern: self,
+                args: args,
                 iterators: vec![ElementIter::Once],
                 matches: vec![(&[], MAXMATCH)],
                 var_info: var_info,
             };
         }
 
-        let mut iterator = (0..self.args.len())
+        let mut iterator = (0..args.len())
             .map(|_| ElementIter::None)
             .collect::<Vec<_>>(); // create placeholder iterators
-        iterator[0] = self.args[0].to_iter(&target.args, var_info); // initialize the first iterator
+        iterator[0] = args[0].to_iter(&target_args, var_info); // initialize the first iterator
 
-        let matches = vec![(&target.args[..], MAXMATCH); self.args.len()]; // placeholder matches
+        let matches = vec![(&target_args[..], MAXMATCH); args.len()]; // placeholder matches
 
         FuncIterator {
-            pattern: self,
+            args: args,
             iterators: iterator,
             matches: matches,
             var_info: var_info,
         }
     }
-}
 
-// iterator over a pattern of a function
-#[derive(Debug)]
-pub struct FuncIterator<'a> {
-    pattern: &'a Func,
-    iterators: Vec<ElementIter<'a>>,
-    matches: Vec<(&'a [Element], usize)>, // keep track of stack depth
-    var_info: &'a HashMap<VarName, Element>,
-}
-
-impl<'a> FuncIterator<'a> {
     fn next(&mut self, m: &mut MatchObject<'a>) -> Option<usize> {
         if self.iterators.len() == 0 {
             return None;
@@ -482,8 +474,7 @@ impl<'a> FuncIterator<'a> {
                 let mut j = i + 1;
                 while j < self.iterators.len() {
                     // create a new iterator at j based on the previous match dictionary and slice
-                    self.iterators[j] =
-                        self.pattern.args[j].to_iter(self.matches[j - 1].0, self.var_info);
+                    self.iterators[j] = self.args[j].to_iter(self.matches[j - 1].0, self.var_info);
 
                     match self.iterators[j].next(m) {
                         Some(y) => {

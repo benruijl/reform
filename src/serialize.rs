@@ -40,7 +40,7 @@ impl Element {
                 buffer.write_u64::<LittleEndian>(den).unwrap();
                 18
             }
-            Element::Fn(false, Func { ref name, ref args }) => {
+            Element::Fn(false, ref name, ref args) => {
                 buffer.write_u8(FN_ID).unwrap();
                 buffer.write_u32::<LittleEndian>(*name).unwrap();
                 9 + serialize_list(args, buffer)
@@ -78,10 +78,8 @@ impl Element {
             ),
             FN_ID => Element::Fn(
                 false,
-                Func {
-                    name: buffer.read_u32::<LittleEndian>().unwrap(),
-                    args: deserialize_list(buffer),
-                },
+                buffer.read_u32::<LittleEndian>().unwrap(),
+                deserialize_list(buffer),
             ),
             VAR_ID => Element::Var(buffer.read_u32::<LittleEndian>().unwrap()),
             TERM_ID => Element::Term(false, deserialize_list(buffer)),

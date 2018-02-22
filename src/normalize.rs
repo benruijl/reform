@@ -1,5 +1,5 @@
 use std::mem;
-use structure::{Element, Func, FUNCTION_DELTA, FUNCTION_MUL, FUNCTION_NARGS, FUNCTION_SUM};
+use structure::{Element, FUNCTION_DELTA, FUNCTION_MUL, FUNCTION_NARGS, FUNCTION_SUM};
 use tools::{add_fractions, add_one, exp_fraction, mul_fractions, normalize_fraction};
 use std::cmp::Ordering;
 use std::ptr;
@@ -10,13 +10,7 @@ impl Element {
     /// This function should be called during normalization.
     pub fn apply_builtin_functions(&mut self, _ground_level: bool) -> bool {
         *self = match *self {
-            Element::Fn(
-                _,
-                Func {
-                    name: ref mut n,
-                    args: ref mut a,
-                },
-            ) => {
+            Element::Fn(_, ref mut n, ref mut a) => {
                 match *n {
                     FUNCTION_DELTA => {
                         if a.len() == 1 {
@@ -133,15 +127,14 @@ impl Element {
                 };
                 return changed;
             }
-            Element::Fn(dirty, _) => {
+            Element::Fn(dirty, ..) => {
                 if dirty {
-                    if let Element::Fn(ref mut dirty, ref mut f) = *self {
-                        for x in &mut f.args {
+                    if let Element::Fn(ref mut dirty, ref _name, ref mut args) = *self {
+                        for x in args {
                             changed |= x.normalize_inplace();
                         }
-                        *dirty = false; // TODO: or should this be done by builtin_functions?
-
-                        //f.args.shrink_to_fit(); // make sure we keep memory in check
+                        *dirty = false;
+                        //args.shrink_to_fit(); // make sure we keep memory in check
                     }
                 }
                 changed |= self.apply_builtin_functions(false);
@@ -344,14 +337,12 @@ impl Element {
 
                 Element::Pow(false, Box::new((b, e)))
             }
-            &Element::Fn(dirty, ref f) => {
+            &Element::Fn(dirty, ref name, ref args) => {
                 if dirty {
                     let mut new_fun = Element::Fn(
                         false,
-                        Func {
-                            name: f.name.clone(),
-                            args: f.args.iter().map(|x| x.normalize()).collect(),
-                        },
+                        name.clone(),
+                        args.iter().map(|x| x.normalize()).collect(),
                     );
                     new_fun.apply_builtin_functions(false);
                     new_fun
