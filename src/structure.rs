@@ -152,6 +152,33 @@ impl Program {
         prog.procedures = parsed_procedures;
         prog
     }
+
+    /// Returns the string representation for the specified expression.
+    #[cfg(test)]
+    pub fn get_result(&mut self, name: &str) -> String {
+        if name != "IN" {
+            panic!("only one expression IN is supported for now");
+        }
+        // NOTE: This code breaks the contents in the input stream.
+        let mut terms = Vec::new();
+        while let Some(x) = self.input.read_term() {
+            terms.push(x);
+        }
+        if terms.is_empty() {
+            "0".to_string()
+        } else {
+            let terms = if terms.len() == 1 {
+                terms.pop().unwrap()
+            } else {
+                Element::SubExpr(true, terms)
+            };
+            let printer = ElementPrinter {
+                element: &terms,
+                var_info: &self.var_info,
+            };
+            printer.to_string()
+        }
+    }
 }
 
 #[derive(Debug)]

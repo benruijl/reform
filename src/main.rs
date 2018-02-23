@@ -21,8 +21,10 @@ mod normalize;
 mod streaming;
 mod tools;
 mod module;
-mod tests;
 mod serialize;
+
+#[cfg(test)]
+mod tests;
 
 use clap::{App, Arg};
 
