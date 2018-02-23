@@ -706,4 +706,11 @@ pub fn do_program(program: &mut Program, write_log: bool, num_threads: usize) {
             write_log,
         );
     }
+
+    #[cfg(test)]
+    {
+        // Return back the input streamer such that Program::get_result() works.
+        use std::mem::swap;
+        swap(&mut program.input, &mut input_stream);
+    }
 }

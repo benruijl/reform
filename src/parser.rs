@@ -22,6 +22,18 @@ pub fn parse_file(filename: &str) -> Program {
     }
 }
 
+/// Parses a reFORM program.
+#[cfg(test)]
+pub fn parse_string(source: &str) -> Program {
+    match program().parse(State::new(&source[..])) {
+        Ok((v, _)) => v,
+        Err(err) => {
+            error!("{}", err);
+            panic!();
+        }
+    }
+}
+
 parser!{
    fn linecomment[I]()(I) -> ()
     where [I: Stream<Item=char>]
