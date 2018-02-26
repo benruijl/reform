@@ -40,13 +40,18 @@ impl TermStreamWrapper {
 }
 
 impl Element {
+    // TODO: mutate self to prevent unnecessary cloning
     fn expand(&self) -> Element {
         match *self {
-            Element::Fn(_, ref name, ref args) => Element::Fn(
-                true,
-                name.clone(),
-                args.iter().map(|x| x.expand()).collect(),
-            ), // TODO: only flag when changed
+            Element::Fn(_, ref name, ref args) => {
+                let mut f = Element::Fn(
+                    true,
+                    name.clone(),
+                    args.iter().map(|x| x.expand()).collect(),
+                );
+                f.normalize_inplace();
+                f
+            } // TODO: only flag when changed
             Element::Term(_, ref fs) => {
                 let mut r: Vec<Vec<Element>> = vec![vec![]];
 
@@ -77,6 +82,7 @@ impl Element {
                     true,
                     r.into_iter().map(|x| Element::Term(true, x)).collect(),
                 );
+
                 e.normalize_inplace();
                 e
             }
@@ -94,11 +100,11 @@ impl Element {
                     if let Element::SubExpr(_, ref t) = eb {
                         let mut e = exponentiate(t, n);
                         e.normalize_inplace();
-                        return e;
+                        return e.expand();
                     }
 
                     //  (x*y)^z -> x^z*y^z
-                    if let Element::Term(_, ref t) = *b {
+                    if let Element::Term(_, t) = eb {
                         let mut e = Element::Term(
                             true,
                             t.iter()
@@ -111,11 +117,13 @@ impl Element {
                                 .collect(),
                         );
                         e.normalize_inplace();
-                        return e;
+                        return e.expand();
                     }
                 }
 
-                self.clone()
+                let mut e = Element::Pow(true, Box::new((eb, ee)));
+                e.normalize_inplace();
+                e
             }
             _ => self.clone(),
         }
