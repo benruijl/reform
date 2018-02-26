@@ -73,24 +73,46 @@ impl Element {
                 }
 
                 // FIXME: this should not happen for the ground level
-                Element::SubExpr(
+                let mut e = Element::SubExpr(
                     true,
                     r.into_iter().map(|x| Element::Term(true, x)).collect(),
-                ).normalize()
+                );
+                e.normalize_inplace();
+                e
             }
             Element::SubExpr(_, ref f) => {
-                Element::SubExpr(true, f.iter().map(|x| x.expand()).collect()).normalize()
+                let mut e = Element::SubExpr(true, f.iter().map(|x| x.expand()).collect());
+                e.normalize_inplace();
+                e
             }
             Element::Pow(_, ref be) => {
                 let (ref b, ref e) = **be;
-                if let Element::Num(_, true, n, 1) = *e {
-                    if let Element::SubExpr(_, ref t) = *b {
+
+                let (eb, ee) = (b.expand(), e.expand());
+
+                if let Element::Num(_, true, n, 1) = ee {
+                    if let Element::SubExpr(_, ref t) = eb {
                         let mut e = exponentiate(t, n);
                         e.normalize_inplace();
                         return e;
                     }
 
-                    // TODO: simplify (x*y)^z to z^z*y^z?
+                    //  (x*y)^z -> x^z*y^z
+                    if let Element::Term(_, ref t) = *b {
+                        let mut e = Element::Term(
+                            true,
+                            t.iter()
+                                .map(|x| {
+                                    Element::Pow(
+                                        true,
+                                        Box::new((x.clone(), Element::Num(false, true, n, 1))),
+                                    )
+                                })
+                                .collect(),
+                        );
+                        e.normalize_inplace();
+                        return e;
+                    }
                 }
 
                 self.clone()
