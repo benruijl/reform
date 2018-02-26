@@ -180,10 +180,10 @@ pub enum ElementIterSingle<'a> {
 
 #[derive(Debug)]
 pub enum ElementIter<'a> {
-    SliceIter(&'a VarName, usize, &'a [Element]), // slice from 0 to Element end
-    SingleArg(&'a [Element], ElementIterSingle<'a>), // iters consuming a single argument
-    Once,                                         // match without any changes
-    None,                                         // no match
+    SliceIter(&'a VarName, usize, usize, &'a [Element]), // slice
+    SingleArg(&'a [Element], ElementIterSingle<'a>),     // iters consuming a single argument
+    Once,                                                // match without any changes
+    None,                                                // no match
 }
 
 impl<'a> ElementIterSingle<'a> {
@@ -242,14 +242,14 @@ impl<'a> ElementIter<'a> {
                     _ => panic!(),                       // never reached
                 }
             }
-            ElementIter::SliceIter(name, ref mut index, target) => {
+            ElementIter::SliceIter(name, ref mut curlength, upper_bound, target) => {
                 // if the slice is already found, we can immediately compare
-                if *index > target.len() {
+                if *curlength > upper_bound {
                     return None;
                 }
 
                 if let Some(&MatchOpt::Multiple(v)) = find_match(m, name) {
-                    *index = target.len() + 1; // make sure next call gives None
+                    *curlength = upper_bound + 1; // make sure next call gives None
                     if v.len() > target.len() {
                         return None;
                     }
@@ -261,9 +261,9 @@ impl<'a> ElementIter<'a> {
                     }
                 }
 
-                'findcandidate: while *index <= target.len() {
-                    let (f, l) = target.split_at(*index);
-                    *index += 1;
+                'findcandidate: while *curlength <= target.len() {
+                    let (f, l) = target.split_at(*curlength);
+                    *curlength += 1;
 
                     //let rr = f.iter().map(|x| x).collect();
                     match push_match_slice(m, name, f) {
@@ -283,11 +283,13 @@ impl Element {
     fn to_iter<'a>(
         &'a self,
         target: &'a [Element],
+        slice_min_bound: usize,
+        slice_max_bound: usize,
         var_info: &'a HashMap<VarName, Element>,
     ) -> ElementIter<'a> {
         // go through all possible options (slice sizes) for the variable argument
         if let Element::VariableArgument(ref name) = *self {
-            return ElementIter::SliceIter(name, 0, target);
+            return ElementIter::SliceIter(name, slice_min_bound, slice_max_bound, target);
         }
 
         // is the slice non-zero length?
@@ -443,7 +445,26 @@ impl<'a> FuncIterator<'a> {
         let mut iterator = (0..args.len())
             .map(|_| ElementIter::None)
             .collect::<Vec<_>>(); // create placeholder iterators
-        iterator[0] = args[0].to_iter(&target_args, var_info); // initialize the first iterator
+                                  // compute limits for wildcards
+        if let Element::VariableArgument(_) = args[0] {
+            let mut minbound = target_args.len();
+            let mut maxbound = target_args.len();
+
+            for a in &args[1..] {
+                if let Element::VariableArgument(_) = *a {
+                    minbound = 0;
+                } else {
+                    if minbound > 0 {
+                        minbound -= 1;
+                    }
+                    maxbound -= 1;
+                }
+            }
+
+            iterator[0] = args[0].to_iter(&target_args, minbound, maxbound, var_info); // initialize the first iterator
+        } else {
+            iterator[0] = args[0].to_iter(&target_args, 0, 0, var_info); // initialize the first iterator
+        }
 
         let matches = vec![(&target_args[..], MAXMATCH); args.len()]; // placeholder matches
 
@@ -463,7 +484,7 @@ impl<'a> FuncIterator<'a> {
         // find the first iterator from the back that is not None
         let mut i = self.iterators.len() - 1;
         'next: loop {
-            //println!("matching {:?} {:?}", self.pattern, m);
+            //println!("matching {:?} {:?}", self.args, m);
             // FIXME: not correct. the iters should pop the stack on a next match
             m.truncate(self.matches[i].1); // pop the matches from the stack
 
@@ -474,7 +495,28 @@ impl<'a> FuncIterator<'a> {
                 let mut j = i + 1;
                 while j < self.iterators.len() {
                     // create a new iterator at j based on the previous match dictionary and slice
-                    self.iterators[j] = self.args[j].to_iter(self.matches[j - 1].0, self.var_info);
+                    let slicem = self.matches[j - 1].0;
+                    if let Element::VariableArgument(_) = self.args[j] {
+                        let mut minbound = slicem.len();
+                        let mut maxbound = slicem.len();
+
+                        for a in &self.args[j + 1..] {
+                            if let Element::VariableArgument(_) = *a {
+                                minbound = 0;
+                            } else {
+                                if minbound > 0 {
+                                    minbound -= 1;
+                                }
+                                maxbound -= 1;
+                            }
+                        }
+
+                        self.iterators[j] =
+                            self.args[j].to_iter(slicem, minbound, maxbound, self.var_info);
+                    } else {
+                        self.iterators[j] =
+                            self.args[j].to_iter(self.matches[j - 1].0, 0, 0, self.var_info);
+                    }
 
                     match self.iterators[j].next(m) {
                         Some(y) => {
