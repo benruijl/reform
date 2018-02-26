@@ -457,7 +457,6 @@ impl Module {
                 }
                 &Statement::Call(ref name, ref args) => {
                     // copy the procedure and rename local variables
-                    var_info.clear_local(); // remove all previous maps
                     for p in procedures {
                         if p.name == *name {
                             if p.args.len() != args.len() {
@@ -468,34 +467,30 @@ impl Module {
                                     args.len()
                                 );
                             }
-                            // add the local variables to the list of variables
-                            for lv in &p.local_args {
-                                match *lv {
-                                    //Element::Var(VarName::Name(ref x)) => var_info.add_local(x), // FIXME: not working yet
-                                    Element::Var(_) => panic!("Subsituted name for local var"),
-                                    _ => panic!("Only variables are allowed as local variables"),
+
+                            // add the map for the procedure arguments
+                            let mut map = HashMap::new();
+                            for (k, v) in p.args.iter().zip(args.iter()) {
+                                if let Element::Var(map_source) = *k {
+                                    map.insert(map_source.clone(), v.clone());
+                                } else {
+                                    panic!("Argument in procedure header should be a variable");
                                 }
                             }
 
-                            // now map all the procedure arguments
-                            let mut map = HashMap::new();
-                            for (k, v) in p.args.iter().zip(args.iter()) {
-                                if let Element::Var(ref x) = *k {
-                                    let mut y = x.clone();
-                                    var_info.replace_name(&mut y); // FIXME: make the replacement earlier?
-                                    map.insert(y, v.clone());
-                                } else {
-                                    panic!("Argument in procedure header should be a variable");
+                            for lv in &p.local_args {
+                                // create unique variable
+                                if let Element::Var(name) = *lv {
+                                    map.insert(
+                                        name.clone(),
+                                        Element::Var(var_info.add_local(&name)),
+                                    );
                                 }
                             }
 
                             let newmod = p.statements
                                 .iter()
                                 .cloned()
-                                .map(|mut x| {
-                                    //x.var_to_id(var_info); // FIXME: what to do?
-                                    x
-                                })
                                 .map(|mut x| {
                                     x.replace_vars(&map, false);
                                     x

@@ -25,7 +25,6 @@ pub struct Program {
 pub struct VarInfo {
     inv_name_map: Vec<String>,
     name_map: HashMap<String, u32>,
-    local_map: HashMap<u32, u32>, // (temporary) map from ids to new ids in a procedure
     pub variables: HashMap<VarName, Element>, // local map of (dollar) variables
     pub global_variables: HashMap<VarName, Element>, // global map of (dollar) variables
 }
@@ -35,7 +34,6 @@ impl VarInfo {
         VarInfo {
             inv_name_map: vec![],
             name_map: HashMap::new(),
-            local_map: HashMap::new(),
             variables: HashMap::new(),
             global_variables: HashMap::new(),
         }
@@ -55,7 +53,6 @@ impl VarInfo {
         VarInfo {
             inv_name_map,
             name_map,
-            local_map: HashMap::new(),
             variables: HashMap::new(),
             global_variables: HashMap::new(),
         }
@@ -64,37 +61,22 @@ impl VarInfo {
     pub fn get_name(&mut self, s: &String) -> u32 {
         let nm = &mut self.name_map;
         let inv = &mut self.inv_name_map;
-        let lm = &mut self.local_map;
         *nm.entry(s.clone()).or_insert_with(|| {
             inv.push(s.clone());
             (inv.len() - 1) as u32
         })
     }
 
-    pub fn replace_name(&mut self, name: &mut VarName) {
-        let nm = &mut self.name_map;
-        let inv = &mut self.inv_name_map;
-        let lm = &mut self.local_map;
-
-        *name = *lm.get(name).unwrap_or(name);
-    }
-
-    pub fn add_local(&mut self, name: &str) {
-        if let Some(y) = self.name_map.get(name) {
-            self.local_map.insert(*y, self.name_map.len() as u32); // we have seen this variable before
-        }
-        self.name_map.insert(
-            format!("{}_{}", name, self.inv_name_map.len() as u32),
-            self.inv_name_map.len() as u32,
-        );
+    pub fn add_local(&mut self, name: &VarName) -> VarName {
+        let newvarid = self.inv_name_map.len() as u32;
+        let newvarname = format!("{}_{}", name, newvarid);
+        self.name_map.insert(newvarname.clone(), newvarid);
+        self.inv_name_map.push(newvarname);
+        newvarid
     }
 
     pub fn add_dollar(&mut self, name: VarName, value: Element) {
         self.variables.insert(name, value);
-    }
-
-    pub fn clear_local(&mut self) {
-        self.local_map.clear();
     }
 }
 
@@ -114,7 +96,7 @@ impl Program {
 
         // convert all the names to IDs
 
-        let mut parsed_input = input.var_to_id(&mut prog.var_info);
+        let mut parsed_input = input.to_element(&mut prog.var_info);
         parsed_input.normalize_inplace();
 
         match parsed_input {
@@ -132,11 +114,11 @@ impl Program {
                 name: m.name.clone(),
                 statements: m.statements
                     .iter_mut()
-                    .map(|s| s.var_to_id(&mut prog.var_info))
+                    .map(|s| s.to_element(&mut prog.var_info))
                     .collect(),
                 global_statements: m.global_statements
                     .iter_mut()
-                    .map(|s| s.var_to_id(&mut prog.var_info))
+                    .map(|s| s.to_element(&mut prog.var_info))
                     .collect(),
             });
         }
@@ -148,15 +130,15 @@ impl Program {
                 name: m.name.clone(),
                 args: m.args
                     .iter_mut()
-                    .map(|s| s.var_to_id(&mut prog.var_info))
+                    .map(|s| s.to_element(&mut prog.var_info))
                     .collect(),
                 local_args: m.local_args
                     .iter_mut()
-                    .map(|s| s.var_to_id(&mut prog.var_info))
+                    .map(|s| s.to_element(&mut prog.var_info))
                     .collect(),
                 statements: m.statements
                     .iter_mut()
-                    .map(|s| s.var_to_id(&mut prog.var_info))
+                    .map(|s| s.to_element(&mut prog.var_info))
                     .collect(),
             });
         }
@@ -759,14 +741,14 @@ impl fmt::Display for Element {
 
 impl NamedElement {
     // replace a string name for a numerical ID
-    pub fn var_to_id(&mut self, var_info: &mut VarInfo) -> Element {
+    pub fn to_element(&mut self, var_info: &mut VarInfo) -> Element {
         match *self {
             NamedElement::NumberRange(s, n, d, ref c) => Element::NumberRange(s, n, d, c.clone()),
             NamedElement::Num(_, s, n, d) => Element::Num(true, s, n, d),
             NamedElement::Dollar(ref mut name, ref mut inds) => {
                 Element::Dollar(var_info.get_name(name), {
                     match *inds {
-                        Some(ref mut x) => Some(Box::new(x.var_to_id(var_info))),
+                        Some(ref mut x) => Some(Box::new(x.to_element(var_info))),
                         None => None,
                     }
                 })
@@ -779,26 +761,26 @@ impl NamedElement {
                 var_info.get_name(name),
                 restrictions
                     .iter_mut()
-                    .map(|x| x.var_to_id(var_info))
+                    .map(|x| x.to_element(var_info))
                     .collect(),
             ),
             NamedElement::Pow(_, ref mut be) => {
                 let (ref mut b, ref mut e) = *&mut **be;
                 Element::Pow(
                     true,
-                    Box::new((b.var_to_id(var_info), e.var_to_id(var_info))),
+                    Box::new((b.to_element(var_info), e.to_element(var_info))),
                 )
             }
             NamedElement::Term(_, ref mut f) => {
-                Element::Term(true, f.iter_mut().map(|x| x.var_to_id(var_info)).collect())
+                Element::Term(true, f.iter_mut().map(|x| x.to_element(var_info)).collect())
             }
             NamedElement::SubExpr(_, ref mut f) => {
-                Element::SubExpr(true, f.iter_mut().map(|x| x.var_to_id(var_info)).collect())
+                Element::SubExpr(true, f.iter_mut().map(|x| x.to_element(var_info)).collect())
             }
             NamedElement::Fn(_, ref mut name, ref mut args) => Element::Fn(
                 true,
                 var_info.get_name(name),
-                args.iter_mut().map(|x| x.var_to_id(var_info)).collect(),
+                args.iter_mut().map(|x| x.to_element(var_info)).collect(),
             ),
         }
     }
@@ -902,7 +884,7 @@ impl Element {
 }
 
 impl NamedStatement {
-    pub fn var_to_id(&mut self, var_info: &mut VarInfo) -> Statement {
+    pub fn to_element(&mut self, var_info: &mut VarInfo) -> Statement {
         match *self {
             NamedStatement::IdentityStatement(NamedIdentityStatement {
                 ref mode,
@@ -910,30 +892,30 @@ impl NamedStatement {
                 ref mut rhs,
             }) => Statement::IdentityStatement(IdentityStatement {
                 mode: mode.clone(),
-                lhs: lhs.var_to_id(var_info),
-                rhs: rhs.var_to_id(var_info),
+                lhs: lhs.to_element(var_info),
+                rhs: rhs.to_element(var_info),
             }),
             NamedStatement::Repeat(ref mut ss) => {
-                Statement::Repeat(ss.iter_mut().map(|s| s.var_to_id(var_info)).collect())
+                Statement::Repeat(ss.iter_mut().map(|s| s.to_element(var_info)).collect())
             }
             NamedStatement::IfElse(ref mut e, ref mut ss, ref mut sse) => Statement::IfElse(
-                e.var_to_id(var_info),
-                ss.iter_mut().map(|s| s.var_to_id(var_info)).collect(),
-                sse.iter_mut().map(|s| s.var_to_id(var_info)).collect(),
+                e.to_element(var_info),
+                ss.iter_mut().map(|s| s.to_element(var_info)).collect(),
+                sse.iter_mut().map(|s| s.to_element(var_info)).collect(),
             ),
             NamedStatement::SplitArg(ref name) => Statement::SplitArg(var_info.get_name(name)),
             NamedStatement::Symmetrize(ref name) => Statement::Symmetrize(var_info.get_name(name)),
             NamedStatement::Collect(ref name) => Statement::Collect(var_info.get_name(name)),
-            NamedStatement::Multiply(ref mut e) => Statement::Multiply(e.var_to_id(var_info)),
+            NamedStatement::Multiply(ref mut e) => Statement::Multiply(e.to_element(var_info)),
             NamedStatement::Expand => Statement::Expand,
             NamedStatement::Print => Statement::Print,
-            NamedStatement::Maximum(ref mut e) => Statement::Maximum(e.var_to_id(var_info)),
+            NamedStatement::Maximum(ref mut e) => Statement::Maximum(e.to_element(var_info)),
             NamedStatement::Call(ref name, ref mut es) => Statement::Call(
                 name.clone(),
-                es.iter_mut().map(|s| s.var_to_id(var_info)).collect(),
+                es.iter_mut().map(|s| s.to_element(var_info)).collect(),
             ),
             NamedStatement::Assign(ref mut d, ref mut e) => {
-                Statement::Assign(d.var_to_id(var_info), e.var_to_id(var_info))
+                Statement::Assign(d.to_element(var_info), e.to_element(var_info))
             }
         }
     }
