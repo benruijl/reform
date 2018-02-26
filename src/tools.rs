@@ -194,7 +194,11 @@ pub fn add_one(pos: &mut bool, num: &mut u64, den: &mut u64) {
         *pos = true;
         *num = *den - *num;
     } else {
-        *num += *den;
+        if *pos {
+            *num += *den;
+        } else {
+            *num -= *den;
+        }
     }
 }
 
