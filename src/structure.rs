@@ -58,13 +58,16 @@ impl VarInfo {
         }
     }
 
-    pub fn get_name(&mut self, s: &String) -> u32 {
+    pub fn get_name(&mut self, s: &String) -> VarName {
         let nm = &mut self.name_map;
         let inv = &mut self.inv_name_map;
-        *nm.entry(s.clone()).or_insert_with(|| {
-            inv.push(s.clone());
-            (inv.len() - 1) as u32
-        })
+        if let Some(id) = nm.get(s) {
+            return id.clone();
+        }
+        let id = inv.len() as VarName;
+        inv.push(s.clone());
+        nm.insert(s.clone(), id);
+        id
     }
 
     pub fn add_local(&mut self, name: &VarName) -> VarName {

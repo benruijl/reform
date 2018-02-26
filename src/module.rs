@@ -380,16 +380,20 @@ fn do_module_rec(
         Statement::Maximum(ref dollar) => {
             if let Element::Dollar(ref d, ..) = *dollar {
                 if let Some(x) = var_info.variables.get(d) {
-                    match var_info.global_variables.entry(d.clone()) {
-                        Entry::Occupied(mut y) => {
-                            if *y.get() < *x {
-                                *y.get_mut() = x.clone();
-                            }
+                    // NOTE: if let ... else ... doesn't work due to the borrow checker
+                    // (rust-lang/rust#43234).
+                    if if let Some(y) = var_info.global_variables.get_mut(d) {
+                        if &*y < x {
+                            *y = x.clone();
+                            false
+                        } else {
+                            true
                         }
-                        Entry::Vacant(y) => {
-                            y.insert(x.clone());
-                        }
-                    };
+                    } else {
+                        true
+                    } {
+                        var_info.global_variables.insert(d.clone(), x.clone());
+                    }
                 }
             }
             return do_module_rec(
