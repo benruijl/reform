@@ -1,3 +1,8 @@
+// "cargo bench" is still unstable (rust-lang/rfcs#2287).
+#![cfg_attr(all(test, feature = "nightly"), feature(test))]
+#[cfg(all(test, feature = "nightly"))]
+extern crate test;
+
 extern crate clap;
 #[macro_use]
 extern crate combine;
@@ -21,8 +26,13 @@ mod normalize;
 mod streaming;
 mod tools;
 mod module;
-mod tests;
 mod serialize;
+
+#[cfg(test)]
+mod tests;
+
+#[cfg(all(test, feature = "nightly"))]
+mod benches;
 
 use clap::{App, Arg};
 
