@@ -359,9 +359,8 @@ impl PartialOrd for Element {
                 }
             }
             (&Element::Term(_, ref ta), &Element::Term(_, ref tb)) => {
-                // ignore coefficients
-                // FIXME: only ignore coefficients on ground level
-                // we can assume the coefficients are at the end and that the term is in proper order
+                /*
+                // TODO: ignore coefficients of terms on the ground level
                 let tamin = if let Some(&Element::Num(..)) = ta.last() {
                     ta.len() - 1
                 } else {
@@ -371,7 +370,10 @@ impl PartialOrd for Element {
                     tb.len() - 1
                 } else {
                     tb.len()
-                };
+                };*/
+                let tamin = ta.len();
+                let tbmin = tb.len();
+
                 if tamin != tbmin {
                     return tamin.partial_cmp(&tbmin);
                 }
@@ -379,7 +381,7 @@ impl PartialOrd for Element {
                 for (taa, tbb) in ta.iter().zip(tb) {
                     if let &Element::Num(..) = taa {
                         if let &Element::Num(..) = tbb {
-                            continue; // don't compare numbers
+                            //continue; // TODO: don't compare numbers on ground level
                         }
                     }
 
