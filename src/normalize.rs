@@ -544,14 +544,21 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element) -> bool {
 }
 
 // returns true if merged
-pub fn merge_terms(first: &mut Element, sec: &mut Element) -> bool {
+pub fn merge_terms(mut first: &mut Element, sec: &mut Element) -> bool {
     // filter +0
     if let Element::Num(_, _, 0, _) = *sec {
         return true;
     }
 
-    match (sec, first) {
-        (&mut Element::Term(_, ref mut t1), &mut Element::Term(ref mut d2, ref mut t2)) => {
+    if let Element::Num(_, _, 0, _) = *first {
+        mem::swap(first, sec);
+        return true;
+    }
+
+    let mut is_zero = false;
+
+    match (sec, &mut first) {
+        (&mut Element::Term(_, ref mut t1), &mut &mut Element::Term(ref mut d2, ref mut t2)) => {
             // treat the case where the term doesn't have a coefficient
             assert!(!t1.is_empty() && !t2.is_empty());
 
@@ -591,26 +598,37 @@ pub fn merge_terms(first: &mut Element, sec: &mut Element) -> bool {
             if let Some(&mut Element::Num(_, ref mut pos, ref mut num, ref mut den)) = t2.last_mut()
             {
                 add_fractions(pos, num, den, pos1, num1, den1);
-                return true;
+
+                // if 0, we return an empty term
+                if *num == 0 {
+                    is_zero = true;
+                } else {
+                    return true;
+                }
             }
 
             // add 1
-            add_one(&mut pos1, &mut num1, &mut den1);
-            t2.push(Element::Num(false, pos1, num1, den1));
-            if t2.capacity() - t2.len() > 10 {
-                // FIXME: what value?
-                // t2.shrink_to_fit(); // make sure the term doesn't grow too much
+            if !is_zero {
+                add_one(&mut pos1, &mut num1, &mut den1);
+                t2.push(Element::Num(false, pos1, num1, den1));
+
+                if num1 == 0 {
+                    is_zero = true;
+                }
             }
         }
         // x + x/2
         // (1+x) + (1+x)/2
-        (ref a, &mut Element::Term(_, ref mut t2)) => {
+        (ref a, &mut &mut Element::Term(_, ref mut t2)) => {
             assert!(!t2.is_empty());
 
             if **a == t2[0] && t2.len() == 2 {
                 match t2[1] {
                     Element::Num(_, ref mut pos, ref mut num, ref mut den) => {
                         add_one(pos, num, den);
+                        if *num == 0 {
+                            is_zero = true;
+                        }
                     }
                     _ => {
                         return false;
@@ -623,11 +641,14 @@ pub fn merge_terms(first: &mut Element, sec: &mut Element) -> bool {
         (&mut Element::Term(_, ref t2), ref mut a) => {
             assert!(!t2.is_empty());
 
-            if **a == t2[0] && t2.len() == 2 {
+            if ***a == t2[0] && t2.len() == 2 {
                 match t2[1] {
                     Element::Num(_, mut pos, mut num, mut den) => {
                         add_one(&mut pos, &mut num, &mut den);
-                        **a = Element::Term(
+                        if num == 0 {
+                            is_zero = true;
+                        }
+                        ***a = Element::Term(
                             false,
                             vec![
                                 mem::replace(a, DUMMY_ELEM!()),
@@ -645,12 +666,15 @@ pub fn merge_terms(first: &mut Element, sec: &mut Element) -> bool {
         }
         (
             &mut Element::Num(_, pos1, num1, den1),
-            &mut Element::Num(_, ref mut pos, ref mut num, ref mut den),
+            &mut &mut Element::Num(_, ref mut pos, ref mut num, ref mut den),
         ) => {
             add_fractions(pos, num, den, pos1, num1, den1);
+            if *num == 0 {
+                is_zero = true;
+            }
         }
-        (ref a1, ref mut a2) if a1 == a2 => {
-            **a2 = Element::Term(
+        (ref a1, ref mut a2) if a1 == *a2 => {
+            ***a2 = Element::Term(
                 false,
                 vec![
                     mem::replace(a2, DUMMY_ELEM!()),
@@ -659,6 +683,10 @@ pub fn merge_terms(first: &mut Element, sec: &mut Element) -> bool {
             )
         }
         _ => return false,
+    }
+
+    if is_zero {
+        *first = Element::Num(false, true, 0, 1);
     }
 
     true
