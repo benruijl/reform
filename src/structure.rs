@@ -228,7 +228,7 @@ pub enum Element {
     Dollar(VarName, Option<Box<Element>>), // $x[y]
     Var(VarName),                          // x
     Pow(bool, Box<(Element, Element)>),    // (1+x)^3; dirty, base, exponent
-    NumberRange(bool, u64, u64, NumOrder), // >0, <=-5/2
+    NumberRange(bool, u64, u64, NumOrder), // >0, <=-5/2; sign, numerator, denominator, operator
     Fn(bool, VarName, Vec<Element>),       // f(...)
     Term(bool, Vec<Element>),
     SubExpr(bool, Vec<Element>),

@@ -58,25 +58,49 @@ impl Element {
         true
     }
 
+    /// Returns the dirty flag.
+    #[inline]
+    pub fn is_dirty(&self) -> bool {
+        match *self {
+            Element::Pow(dirty, ..)
+            | Element::Fn(dirty, ..)
+            | Element::Term(dirty, ..)
+            | Element::SubExpr(dirty, ..)
+            | Element::Num(dirty, ..) => dirty,
+            Element::Wildcard(..) => true, // TODO
+            _ => false,
+        }
+    }
+
     /// Normalize an element in-place. Returns true if element changed.
+    #[inline]
     pub fn normalize_inplace(&mut self) -> bool {
-        let mut changed = false;
+        // First, check the dirty flag (inlined). If the element is clean, we can immediately
+        // return `false` without any function call.
+        if self.is_dirty() {
+            self.normalize_inplace_impl()
+        } else {
+            false
+        }
+    }
+
+    pub fn normalize_inplace_impl(&mut self) -> bool {
+        debug_assert!(self.is_dirty());
         match *self {
             Element::Num(ref mut dirty, ref mut pos, ref mut num, ref mut den) => {
-                if *dirty {
-                    normalize_fraction(pos, num, den);
-                    *dirty = false;
-                    changed = true;
-                }
+                normalize_fraction(pos, num, den);
+                *dirty = false;
+                true
             }
-            Element::Wildcard(_, ref mut restriction) => for x in restriction {
-                changed |= x.normalize_inplace();
-            },
-            Element::Pow(dirty, ..) => {
-                if !dirty {
-                    return false;
+            Element::Wildcard(_, ref mut restriction) => {
+                let mut changed = false;
+                for x in restriction {
+                    changed |= x.normalize_inplace();
                 }
-
+                changed
+            }
+            Element::Pow(..) => {
+                let mut changed = false;
                 *self = if let Element::Pow(ref mut dirty, ref mut be) = *self {
                     let (ref mut b, ref mut e) = *&mut **be;
                     changed |= b.normalize_inplace();
@@ -125,25 +149,22 @@ impl Element {
                 } else {
                     unreachable!();
                 };
-                return changed;
+                changed
             }
-            Element::Fn(dirty, ..) => {
-                if dirty {
-                    if let Element::Fn(ref mut dirty, ref _name, ref mut args) = *self {
-                        for x in args {
-                            changed |= x.normalize_inplace();
-                        }
-                        *dirty = false;
-                        //args.shrink_to_fit(); // make sure we keep memory in check
+            Element::Fn(..) => {
+                let mut changed = false;
+                if let Element::Fn(ref mut dirty, ref _name, ref mut args) = *self {
+                    for x in args {
+                        changed |= x.normalize_inplace();
                     }
+                    *dirty = false;
+                    //args.shrink_to_fit(); // make sure we keep memory in check
                 }
                 changed |= self.apply_builtin_functions(false);
+                changed
             }
-            Element::Term(dirty, _) => {
-                if !dirty {
-                    return false;
-                }
-
+            Element::Term(..) => {
+                let mut changed = false;
                 *self = if let Element::Term(ref mut dirty, ref mut ts) = *self {
                     *dirty = false;
 
@@ -213,12 +234,11 @@ impl Element {
                     }
                 } else {
                     unreachable!()
-                }
+                };
+                changed
             }
-            Element::SubExpr(dirty, _) => {
-                if !dirty {
-                    return false;
-                }
+            Element::SubExpr(..) => {
+                let mut changed = false;
                 *self = if let Element::SubExpr(ref mut dirty, ref mut ts) = *self {
                     *dirty = false;
 
@@ -272,11 +292,13 @@ impl Element {
                     }
                 } else {
                     unreachable!();
-                }
+                };
+                changed
             }
-            _ => {}
-        };
-        changed
+            _ => {
+                unreachable!();
+            }
+        }
     }
 
     /// Return a normalized clone of this element.
