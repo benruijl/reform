@@ -1,9 +1,6 @@
 use structure::{Element, IdentityStatement, IdentityStatementMode, StatementResult, VarName};
-use std;
 use std::fmt;
 use std::mem;
-use itertools;
-use itertools::Itertools;
 use tools::{add_terms, is_number_in_range, Heap, SliceRef};
 use std::collections::HashMap;
 
@@ -640,75 +637,99 @@ impl<'a> SequenceIter<'a> {
     }
 }
 
-// match a pattern to a subset of the terms
-// FIXME: nasty structure
+/// An iterator that matches a pattern of multiple factors to
+/// a subset of a term.
+/// For example:
+/// `IN = f(1,2,3)*g(1,2,3)*g(4,5,6);
+/// {
+///     id all f(?a,n?,?b)*g(?c,n?,?d) = f(n?)*g(n?);
+/// }
+///`
+/// uses this iterator to match the `g` to one of the `g`s in the input.
 #[derive(Debug)]
-pub struct MatchTermIterator<'a> {
-    pattern: &'a [Element],
+pub struct SubSequenceIter<'a> {
+    pattern: &'a [Element], // input term
     target: &'a [Element],
-    subtarget: Option<Vec<&'a Element>>,
-    remaining: Option<Vec<&'a Element>>,
-    m: MatchObject<'a>,
-    combinator: itertools::Combinations<std::slice::Iter<'a, Element>>,
-    permutator: ElementIterSingle<'a>,
+    iterators: Vec<ElementIterSingle<'a>>,
+    indices: Vec<usize>,
+    initialized: bool,
+    matches: Vec<usize>, // keep track of stack depth
     var_info: &'a HashMap<VarName, Element>,
 }
 
-impl<'a> MatchTermIterator<'a> {
+impl<'a> SubSequenceIter<'a> {
     fn new(
         pattern: &'a [Element],
         target: &'a [Element],
         var_info: &'a HashMap<VarName, Element>,
-    ) -> MatchTermIterator<'a> {
-        let combinator = target.iter().combinations(pattern.len());
-
-        MatchTermIterator {
+    ) -> SubSequenceIter<'a> {
+        SubSequenceIter {
             pattern: pattern,
+            iterators: (0..pattern.len())
+                .map(|_| ElementIterSingle::None)
+                .collect(),
+            matches: vec![MAXMATCH; pattern.len()],
+            indices: vec![0; pattern.len()],
             target: target,
-            subtarget: None,
-            remaining: None,
-            m: vec![],
-            combinator: combinator,
-            permutator: ElementIterSingle::None,
             var_info,
+            initialized: false,
         }
     }
 
-    fn next(&mut self) -> Option<(Vec<&'a Element>, MatchObject<'a>)> {
+    fn next(&mut self, m: &mut MatchObject<'a>) -> Option<(Vec<usize>, usize)> {
         if self.pattern.len() > self.target.len() {
             return None;
         }
 
+        let mut i = if self.initialized {
+            // find the first iterator from the back that is not None
+            self.iterators.len() - 1
+        } else {
+            // build the first iterator from the start
+            self.indices = (0..self.pattern.len())
+                .map(|_| self.target.len() + 1)
+                .collect(); // start with unique indices
+            0
+        };
+        self.initialized = true;
+
         loop {
-            if self.subtarget.is_some() {
-                if self.permutator.next(&mut self.m).is_some() {
-                    if let Some(ref x) = self.remaining {
-                        return Some((x.clone(), self.m.clone()));
-                    }
+            m.truncate(self.matches[i]); // pop the matches from the stack
+
+            if let Some(x) = self.iterators[i].next(m) {
+                self.matches[i] = x;
+
+                // we have found a match!
+                if i + 1 == self.pattern.len() {
+                    return Some((self.indices.clone(), self.matches[i]));
                 }
-            }
-
-            if let Some(x) = self.combinator.next() {
-                self.permutator = ElementIterSingle::PermIter(
-                    self.pattern,
-                    Heap::new(x.iter().map(|x| *x).collect::<Vec<_>>()),
-                    SequenceIter::dummy(self.pattern, self.var_info),
-                    self.var_info,
-                );
-
-                SequenceIter::new(&SliceRef::BorrowedSlice(self.pattern), x[0], self.var_info);
-
-                // construct the factors that are not affected
-                let mut rem = vec![];
-                for y in self.target.iter() {
-                    if !x.contains(&y) {
-                        rem.push(y); // FIXME: does this work? we need to check pointers!
-                    }
-                }
-                self.remaining = Some(rem);
-                self.subtarget = Some(x);
+                i += 1;
             } else {
-                return None;
+                // find a new empty position
+                if self.indices[i] == self.target.len() + 1 {
+                    self.indices[i] = 0; // initialize
+                } else {
+                    self.indices[i] += 1;
+                }
+                while self.indices[..i].iter().any(|x| self.indices[i] == *x)
+                    && self.indices[i] < self.target.len()
+                {
+                    self.indices[i] += 1;
+                }
+
+                if self.indices[i] == self.target.len() {
+                    // out of tries, fall back one level
+                    if i == 0 {
+                        // we are out of matches
+                        return None;
+                    }
+
+                    self.indices[i] = self.target.len() + 1; // reset the index
+                    i -= 1;
+                } else {
+                    self.iterators[i] = self.pattern[i]
+                        .to_iter_single(&self.target[self.indices[i]], self.var_info);
+                }
             }
         }
     }
@@ -725,7 +746,7 @@ pub enum MatchKind<'a> {
         usize,
         &'a HashMap<VarName, Element>,
     ),
-    Many(MatchTermIterator<'a>),
+    Many(MatchObject<'a>, SubSequenceIter<'a>),
     None,
 }
 
@@ -737,7 +758,7 @@ impl<'a> MatchKind<'a> {
     ) -> MatchKind<'a> {
         match (pattern, target) {
             (&Element::Term(_, ref x), &Element::Term(_, ref y)) => {
-                MatchKind::Many(MatchTermIterator::new(x, y, var_info))
+                MatchKind::Many(vec![], SubSequenceIter::new(x, y, var_info))
             }
             (a, &Element::Term(_, ref y)) => {
                 MatchKind::SinglePat(a, vec![], ElementIterSingle::None, y, 0, var_info)
@@ -749,7 +770,21 @@ impl<'a> MatchKind<'a> {
     pub fn next(&mut self) -> Option<(Vec<&'a Element>, MatchObject<'a>)> {
         match *self {
             MatchKind::Single(ref mut m, ref mut x) => x.next(m).map(|_| (vec![], m.clone())),
-            MatchKind::Many(ref mut x) => x.next(),
+            MatchKind::Many(ref mut m, ref mut x) => {
+                if let Some((indices, _)) = x.next(m) {
+                    // construct the factors that are not affected
+                    let mut rem = vec![];
+                    for (i, y) in x.target.iter().enumerate() {
+                        if !indices.contains(&i) {
+                            rem.push(y);
+                        }
+                    }
+
+                    Some((rem, m.clone()))
+                } else {
+                    None
+                }
+            }
             MatchKind::SinglePat(pat, ref mut m, ref mut it, target, ref mut index, var_info) => {
                 loop {
                     if it.next(m).is_some() {
