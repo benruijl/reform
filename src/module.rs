@@ -227,10 +227,6 @@ impl Statement {
                     a => StatementIter::Simple(a, false),
                 }
             }
-            Statement::Print => {
-                println!("\t+{}", input);
-                StatementIter::Simple(mem::replace(input, Element::default()), false)
-            }
             Statement::Multiply(ref x) => {
                 let mut res = match (input, x) {
                     (&mut Element::Term(_, ref mut xx), &Element::Term(_, ref yy)) => {
@@ -393,6 +389,23 @@ fn do_module_rec(
                     };
                 }
             }
+            return do_module_rec(
+                input,
+                statements,
+                var_info,
+                current_index + 1,
+                term_affected,
+                output,
+            );
+        }
+        Statement::Print => {
+            println!(
+                "\t+{}",
+                ElementPrinter {
+                    element: &input,
+                    var_info: var_info,
+                }
+            );
             return do_module_rec(
                 input,
                 statements,
