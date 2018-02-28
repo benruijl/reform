@@ -359,8 +359,6 @@ impl PartialOrd for Element {
                 }
             }
             (&Element::Term(_, ref ta), &Element::Term(_, ref tb)) => {
-                /*
-                // TODO: ignore coefficients of terms on the ground level
                 let tamin = if let Some(&Element::Num(..)) = ta.last() {
                     ta.len() - 1
                 } else {
@@ -370,9 +368,7 @@ impl PartialOrd for Element {
                     tb.len() - 1
                 } else {
                     tb.len()
-                };*/
-                let tamin = ta.len();
-                let tbmin = tb.len();
+                };
 
                 if tamin != tbmin {
                     return tamin.partial_cmp(&tbmin);
