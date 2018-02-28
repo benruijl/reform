@@ -188,7 +188,7 @@ parser!{
         map(|(q,x,e) : (NamedElement, Vec<NamedStatement>, Vec<NamedStatement>)| NamedStatement::IfElse(q, x, e));
 
     choice!(call_procedure, assign, maximum, print, ifelse, expand, multiply,
-        repeat, idstatement, splitarg, symmetrize.skip(skipnocode()))
+        repeat, idstatement, splitarg, symmetrize)
 }
 }
 
@@ -200,7 +200,7 @@ parser!{
         many1(digit()).map(|d : String| d.parse::<u64>().unwrap()),
         optional(char('/').with(many1(digit()))).map(
             |x| x.map(|y : String| y.parse::<u64>().unwrap()).unwrap_or(1)
-    )).map(|(sign, num, den): (bool, u64, u64)| NamedElement::Num(true, sign, num, den))
+    )).map(|(sign, num, den): (bool, u64, u64)| NamedElement::Num(true, sign, num, den)).skip(skipnocode())
 }
 }
 
