@@ -56,7 +56,8 @@ impl Element {
                 let mut r: Vec<Vec<Element>> = vec![vec![]];
 
                 for f in fs {
-                    match *f {
+                    let fe = f.expand();
+                    match fe {
                         Element::SubExpr(_, ref s) => {
                             // use cartesian product function?
                             r = r.iter()
@@ -64,7 +65,7 @@ impl Element {
                                     s.iter()
                                         .map(|y| {
                                             let mut k = x.clone();
-                                            k.push(y.expand());
+                                            k.push(y.clone());
                                             k
                                         })
                                         .collect::<Vec<_>>()
@@ -72,7 +73,7 @@ impl Element {
                                 .collect();
                         }
                         _ => for rr in &mut r {
-                            rr.push(f.expand());
+                            rr.push(fe.clone());
                         },
                     }
                 }
