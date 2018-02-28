@@ -204,9 +204,6 @@ pub fn add_one(pos: &mut bool, num: &mut u64, den: &mut u64) {
 
 pub fn add_terms(dest: &mut Element, to_add: &[Element]) {
     match *dest {
-        Element::SubExpr(..) => {
-            unreachable!("Subexpression should be filtered earlier");
-        }
         Element::Term(ref mut dirty, ref mut t) => {
             for x in to_add.iter() {
                 t.push(x.clone());
