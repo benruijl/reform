@@ -887,7 +887,7 @@ impl<'a> MatchIterator<'a> {
                     add_terms(&mut res, &self.remaining);
                 }
                 res.replace_vars(&self.var_info.local_info.variables, true); // subsitute dollars in rhs
-                res.normalize_inplace();
+                res.normalize_inplace(self.var_info.global_info);
                 res
             }
             x => {
@@ -897,7 +897,7 @@ impl<'a> MatchIterator<'a> {
                     add_terms(&mut res, &self.remaining);
                 }
                 res.replace_vars(&self.var_info.local_info.variables, true); // subsitute dollars in rhs
-                res.normalize_inplace();
+                res.normalize_inplace(self.var_info.global_info);
                 res
             }
         })

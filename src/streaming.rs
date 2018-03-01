@@ -8,7 +8,7 @@ use std::cmp::Ordering;
 use std::mem;
 use std::collections::VecDeque;
 
-use structure::{Element, ElementPrinter, Statement, VarInfo};
+use structure::{Element, ElementPrinter, GlobalVarInfo, Statement, VarInfo};
 use normalize::merge_terms;
 
 pub const MAXTERMMEM: usize = 10_000_000; // maximum number of terms allowed in memory
@@ -118,7 +118,7 @@ impl OutputTermStreamer {
     // add a term. First try to add it to the
     // in-memory buffer. If that one is full
     // write it to file
-    pub fn add_term(&mut self, element: Element) {
+    pub fn add_term(&mut self, element: Element, var_info: &GlobalVarInfo) {
         // print intermediate statistics
         if self.termcounter >= SMALL_BUFFER && self.termcounter % SMALL_BUFFER == 0 {
             println!("    -- generated: {}", self.termcounter);
@@ -127,7 +127,7 @@ impl OutputTermStreamer {
             let mut tmp = vec![];
             mem::swap(&mut self.mem_buffer, &mut tmp);
             let mut a = Element::SubExpr(true, tmp);
-            a.normalize_inplace();
+            a.normalize_inplace(var_info);
 
             match a {
                 Element::SubExpr(_, ref mut x) => mem::swap(&mut self.mem_buffer, x),
@@ -192,7 +192,7 @@ impl OutputTermStreamer {
             let mut tmp = vec![];
             mem::swap(&mut self.mem_buffer, &mut tmp);
             let mut a = Element::SubExpr(true, tmp);
-            a.normalize_inplace();
+            a.normalize_inplace(&var_info.global_info);
             input_streamer.input = None;
 
             // execute the global statements

@@ -1,5 +1,6 @@
 use std::mem;
-use structure::{Element, FUNCTION_DELTA, FUNCTION_MUL, FUNCTION_NARGS, FUNCTION_SUM};
+use structure::{Element, FunctionAttributes, GlobalVarInfo, FUNCTION_DELTA, FUNCTION_MUL,
+                FUNCTION_NARGS, FUNCTION_SUM};
 use tools::{add_fractions, add_one, exp_fraction, mul_fractions, normalize_fraction};
 use std::cmp::Ordering;
 use std::ptr;
@@ -59,7 +60,7 @@ impl Element {
     }
 
     /// Normalize an element in-place. Returns true if element changed.
-    pub fn normalize_inplace(&mut self) -> bool {
+    pub fn normalize_inplace(&mut self, var_info: &GlobalVarInfo) -> bool {
         let mut changed = false;
         match *self {
             Element::Num(ref mut dirty, ref mut pos, ref mut num, ref mut den) => {
@@ -70,7 +71,7 @@ impl Element {
                 }
             }
             Element::Wildcard(_, ref mut restriction) => for x in restriction {
-                changed |= x.normalize_inplace();
+                changed |= x.normalize_inplace(var_info);
             },
             Element::Pow(dirty, ..) => {
                 if !dirty {
@@ -79,8 +80,8 @@ impl Element {
 
                 *self = if let Element::Pow(ref mut dirty, ref mut be) = *self {
                     let (ref mut b, ref mut e) = *&mut **be;
-                    changed |= b.normalize_inplace();
-                    changed |= e.normalize_inplace();
+                    changed |= b.normalize_inplace(var_info);
+                    changed |= e.normalize_inplace(var_info);
                     *dirty = false;
 
                     // TODO: Clippy doesn't like loops that never actually loop #[warn(never_loop)]
@@ -127,12 +128,26 @@ impl Element {
                 };
                 return changed;
             }
-            Element::Fn(dirty, ..) => {
+            Element::Fn(mut dirty, name, ..) => {
+                // check for symmetry flag
+                let mut sort = false;
+                if let Some(attribs) = var_info.func_attribs.get(&name) {
+                    if attribs.contains(&FunctionAttributes::Symmetric) {
+                        dirty = true; // for now always set it to dirty
+                        sort = true;
+                    }
+                }
+
                 if dirty {
                     if let Element::Fn(ref mut dirty, ref _name, ref mut args) = *self {
-                        for x in args {
-                            changed |= x.normalize_inplace();
+                        for x in args.iter_mut() {
+                            changed |= x.normalize_inplace(var_info);
                         }
+
+                        if sort {
+                            args.sort_unstable();
+                        }
+
                         *dirty = false;
                         //args.shrink_to_fit(); // make sure we keep memory in check
                     }
@@ -151,7 +166,7 @@ impl Element {
                     // TODO: check for 0 here
                     let mut restructure = false;
                     for x in ts.iter_mut() {
-                        changed |= x.normalize_inplace();
+                        changed |= x.normalize_inplace(var_info);
                         if let Element::Term(..) = *x {
                             restructure = true;
                             changed = true;
@@ -225,7 +240,7 @@ impl Element {
                     // normalize factors and flatten
                     let mut restructure = false;
                     for x in ts.iter_mut() {
-                        changed |= x.normalize_inplace();
+                        changed |= x.normalize_inplace(var_info);
                         if let Element::SubExpr(..) = *x {
                             restructure = true;
                             changed = true;
@@ -305,7 +320,7 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element) -> bool {
                 Element::Num(false, true, 2, 1),
             )),
         );
-        first.normalize_inplace();
+        //first.normalize_inplace(); // TODO: why normalize?
         return true;
     }
 
@@ -363,7 +378,7 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element) -> bool {
             changed = true;
         }
     };
-    first.normalize_inplace();
+    //first.normalize_inplace(); // FIXME: we should normalize
     changed
 }
 

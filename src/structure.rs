@@ -145,7 +145,7 @@ impl Program {
         // convert all the names to IDs
 
         let mut parsed_input = input.to_element(&mut prog.var_info);
-        parsed_input.normalize_inplace();
+        parsed_input.normalize_inplace(&prog.var_info.global_info);
 
         match parsed_input {
             Element::SubExpr(_, t) => for mut x in t {

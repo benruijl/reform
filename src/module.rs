@@ -31,32 +31,32 @@ impl TermStreamWrapper {
         }
     }
 
-    fn add_term(&mut self, e: Element) {
+    fn add_term(&mut self, e: Element, var_info: &GlobalVarInfo) {
         match *self {
-            TermStreamWrapper::Threaded(ref mut x) => x.lock().unwrap().add_term(e),
-            TermStreamWrapper::Single(ref mut x) => x.add_term(e),
+            TermStreamWrapper::Threaded(ref mut x) => x.lock().unwrap().add_term(e, var_info),
+            TermStreamWrapper::Single(ref mut x) => x.add_term(e, var_info),
         }
     }
 }
 
 impl Element {
     // TODO: mutate self to prevent unnecessary cloning
-    fn expand(&self) -> Element {
+    fn expand(&self, var_info: &GlobalVarInfo) -> Element {
         match *self {
             Element::Fn(_, ref name, ref args) => {
                 let mut f = Element::Fn(
                     true,
                     name.clone(),
-                    args.iter().map(|x| x.expand()).collect(),
+                    args.iter().map(|x| x.expand(var_info)).collect(),
                 );
-                f.normalize_inplace();
+                f.normalize_inplace(var_info);
                 f
             } // TODO: only flag when changed
             Element::Term(_, ref fs) => {
                 let mut r: Vec<Vec<Element>> = vec![vec![]];
 
                 for f in fs {
-                    let fe = f.expand();
+                    let fe = f.expand(var_info);
                     match fe {
                         Element::SubExpr(_, ref s) => {
                             // use cartesian product function?
@@ -84,24 +84,24 @@ impl Element {
                     r.into_iter().map(|x| Element::Term(true, x)).collect(),
                 );
 
-                e.normalize_inplace();
+                e.normalize_inplace(var_info);
                 e
             }
             Element::SubExpr(_, ref f) => {
-                let mut e = Element::SubExpr(true, f.iter().map(|x| x.expand()).collect());
-                e.normalize_inplace();
+                let mut e = Element::SubExpr(true, f.iter().map(|x| x.expand(var_info)).collect());
+                e.normalize_inplace(var_info);
                 e
             }
             Element::Pow(_, ref be) => {
                 let (ref b, ref e) = **be;
 
-                let (eb, ee) = (b.expand(), e.expand());
+                let (eb, ee) = (b.expand(var_info), e.expand(var_info));
 
                 if let Element::Num(_, true, n, 1) = ee {
                     if let Element::SubExpr(_, ref t) = eb {
                         let mut e = exponentiate(t, n);
-                        e.normalize_inplace();
-                        return e.expand();
+                        e.normalize_inplace(var_info);
+                        return e.expand(var_info);
                     }
 
                     //  (x*y)^z -> x^z*y^z
@@ -117,13 +117,13 @@ impl Element {
                                 })
                                 .collect(),
                         );
-                        e.normalize_inplace();
-                        return e.expand();
+                        e.normalize_inplace(var_info);
+                        return e.expand(var_info);
                     }
                 }
 
                 let mut e = Element::Pow(true, Box::new((eb, ee)));
-                e.normalize_inplace();
+                e.normalize_inplace(var_info);
                 e
             }
             _ => self.clone(),
@@ -216,7 +216,7 @@ impl Statement {
             Statement::Expand => {
                 // FIXME: treat ground level differently in the expand routine
                 // don't generate all terms in one go
-                match input.expand() {
+                match input.expand(var_info.global_info) {
                     Element::SubExpr(_, mut f) => {
                         if f.len() == 1 {
                             StatementIter::Simple(f.swap_remove(0), false)
@@ -250,7 +250,7 @@ impl Statement {
                 };
 
                 res.replace_vars(&var_info.local_info.variables, true); // apply the dollar variables
-                res.normalize_inplace();
+                res.normalize_inplace(&var_info.global_info);
                 StatementIter::Simple(res, true)
             }
             // TODO: use visitor pattern? this is almost a copy of splitarg
@@ -302,7 +302,7 @@ fn do_module_rec(
         return; // drop 0
     }
     if current_index == statements.len() {
-        output.add_term(input);
+        output.add_term(input, global_var_info);
         return;
     }
 
@@ -394,7 +394,7 @@ fn do_module_rec(
         Statement::Assign(ref dollar, ref e) => {
             let mut ee = e.clone();
             if ee.replace_vars(&local_var_info.variables, true) {
-                ee.normalize_inplace();
+                ee.normalize_inplace(&global_var_info);
             }
             if let Element::Dollar(ref d, ..) = *dollar {
                 local_var_info.add_dollar(d.clone(), ee);
@@ -608,7 +608,7 @@ impl Module {
                 Statement::Assign(ref dollar, ref e) => {
                     let mut ee = e.clone();
                     ee.replace_vars(&var_info.local_info.variables, true);
-                    ee.normalize_inplace();
+                    ee.normalize_inplace(&var_info.global_info);
                     if let Element::Dollar(ref d, ..) = *dollar {
                         var_info.local_info.add_dollar(d.clone(), ee);
                     }
@@ -643,13 +643,13 @@ impl Module {
                     ref mut rhs,
                     ..
                 }) => {
-                    lhs.normalize_inplace();
-                    rhs.normalize_inplace();
+                    lhs.normalize_inplace(&var_info.global_info);
+                    rhs.normalize_inplace(&var_info.global_info);
                 }
                 Statement::Multiply(ref mut e)
                 | Statement::Eval(ref mut e, _)
                 | Statement::Assign(_, ref mut e) => {
-                    e.normalize_inplace();
+                    e.normalize_inplace(&var_info.global_info);
                 }
                 _ => {}
             }
