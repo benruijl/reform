@@ -129,27 +129,70 @@ impl Element {
                 return changed;
             }
             Element::Fn(mut dirty, name, ..) => {
-                // check for symmetry flag
-                let mut sort = false;
-                if let Some(attribs) = var_info.func_attribs.get(&name) {
-                    if attribs.contains(&FunctionAttributes::Symmetric) {
-                        dirty = true; // for now always set it to dirty
-                        sort = true;
-                    }
+                if let Some(_) = var_info.func_attribs.get(&name) {
+                    dirty = true; // for now, always set the dirty flag if a function has attributes
                 }
 
                 if dirty {
-                    if let Element::Fn(ref mut dirty, ref _name, ref mut args) = *self {
+                    let mut newvalue = None;
+
+                    if let Element::Fn(ref mut dirty, ref name, ref mut args) = *self {
                         for x in args.iter_mut() {
                             changed |= x.normalize_inplace(var_info);
                         }
 
-                        if sort {
-                            args.sort_unstable();
-                        }
+                        newvalue = loop {
+                            if let Some(attribs) = var_info.func_attribs.get(&name) {
+                                if attribs.contains(&FunctionAttributes::Linear) {
+                                    // split the function if any of its arguments is a subexpr
+                                    let mut subv = vec![];
+                                    let mut replace_index = 0;
+                                    for (i, x) in args.iter_mut().enumerate() {
+                                        if let Element::SubExpr(_, ref mut args1) = *x {
+                                            mem::swap(args1, &mut subv);
+                                            replace_index = i;
+                                            break;
+                                        }
+                                    }
 
-                        *dirty = false;
-                        //args.shrink_to_fit(); // make sure we keep memory in check
+                                    if !subv.is_empty() {
+                                        changed = true;
+
+                                        // create a subexpr of functions
+                                        let mut subexprs = Vec::with_capacity(subv.len());
+                                        for a in &mut subv {
+                                            let mut rest = Vec::with_capacity(args.len());
+
+                                            for (ii, xx) in args.iter().enumerate() {
+                                                if ii != replace_index {
+                                                    rest.push(xx.clone());
+                                                } else {
+                                                    rest.push(mem::replace(a, DUMMY_ELEM!()));
+                                                }
+                                            }
+
+                                            subexprs.push(Element::Fn(true, name.clone(), rest));
+                                        }
+
+                                        let mut e = Element::SubExpr(true, subexprs);
+                                        e.normalize_inplace(var_info);
+                                        break Some(e);
+                                    }
+                                }
+
+                                if attribs.contains(&FunctionAttributes::Symmetric) {
+                                    args.sort_unstable();
+                                }
+                            }
+
+                            *dirty = false;
+                            break None; // the function remains a function
+                        }
+                    }
+
+                    if let Some(x) = newvalue {
+                        *self = x;
+                        return true;
                     }
                 }
                 changed |= self.apply_builtin_functions(false);
