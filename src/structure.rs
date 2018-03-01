@@ -155,34 +155,23 @@ impl Program {
 }
 
 #[derive(Debug)]
-pub struct NamedModule {
+pub struct Module<ID: Id = VarName> {
     pub name: String,
-    pub statements: Vec<NamedStatement>,
-    pub global_statements: Vec<NamedStatement>,
+    pub statements: Vec<Statement<ID>>,
+    pub global_statements: Vec<Statement<ID>>,
 }
 
-#[derive(Debug)]
-pub struct NamedProcedure {
-    pub name: String,
-    pub args: Vec<NamedElement>,
-    pub local_args: Vec<NamedElement>,
-    pub statements: Vec<NamedStatement>,
-}
+pub type NamedModule = Module<String>;
 
 #[derive(Debug)]
-pub struct Module {
+pub struct Procedure<ID: Id = VarName> {
     pub name: String,
-    pub statements: Vec<Statement>,
-    pub global_statements: Vec<Statement>,
+    pub args: Vec<Element<ID>>,
+    pub local_args: Vec<Element<ID>>,
+    pub statements: Vec<Statement<ID>>,
 }
 
-#[derive(Debug)]
-pub struct Procedure {
-    pub name: String,
-    pub args: Vec<Element>,
-    pub local_args: Vec<Element>,
-    pub statements: Vec<Statement>,
-}
+pub type NamedProcedure = Procedure<String>;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum NumOrder {
@@ -191,22 +180,6 @@ pub enum NumOrder {
     Equal,
     GreaterEqual,
     SmallerEqual,
-}
-
-#[derive(Debug, Clone)]
-pub enum NamedStatement {
-    IdentityStatement(NamedIdentityStatement),
-    SplitArg(String),
-    Repeat(Vec<NamedStatement>),
-    IfElse(NamedElement, Vec<NamedStatement>, Vec<NamedStatement>),
-    Expand,
-    Print,
-    Multiply(NamedElement),
-    Symmetrize(String),
-    Collect(String),
-    Assign(NamedElement, NamedElement),
-    Maximum(NamedElement),
-    Call(String, Vec<NamedElement>),
 }
 
 // all the algebraic elements. A bool as the first
@@ -239,25 +212,28 @@ impl<ID: Id> Default for Element<ID> {
 macro_rules! DUMMY_ELEM { () => (Element::Num(false, true, 1, 1)) }
 
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
-pub enum Statement {
-    IdentityStatement(IdentityStatement),
-    SplitArg(VarName),
-    Repeat(Vec<Statement>),
-    IfElse(Element, Vec<Statement>, Vec<Statement>),
+pub enum Statement<ID: Id = VarName> {
+    IdentityStatement(IdentityStatement<ID>),
+    SplitArg(ID),
+    Repeat(Vec<Statement<ID>>),
+    IfElse(Element<ID>, Vec<Statement<ID>>, Vec<Statement<ID>>),
     Expand,
     Print,
-    Multiply(Element),
-    Symmetrize(VarName),
-    Collect(VarName),
-    Assign(Element, Element),
-    Maximum(Element),
-    Call(String, Vec<Element>),
+    Multiply(Element<ID>),
+    Symmetrize(ID),
+    Collect(ID),
+    Assign(Element<ID>, Element<ID>),
+    Maximum(Element<ID>),
+    Call(String, Vec<Element<ID>>),
     // internal commands
-    Jump(usize),          // unconditional jump
-    Eval(Element, usize), // evaluate and jump if eval is false
-    JumpIfChanged(usize), // jump and pop change flag
-    PushChange,           // push a new change flag
+    Jump(usize),              // unconditional jump
+    Eval(Element<ID>, usize), // evaluate and jump if eval is false
+    JumpIfChanged(usize),     // jump and pop change flag
+    PushChange,               // push a new change flag
 }
+
+pub type NamedStatement = Statement<String>;
+
 /*
 impl PartialEq for Element {
      fn eq(&self, other: &Element) -> bool {
@@ -430,19 +406,14 @@ pub enum StatementResult<T> {
     Done,
 }
 
-#[derive(Debug, Clone)]
-pub struct NamedIdentityStatement {
+#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
+pub struct IdentityStatement<ID: Id = VarName> {
     pub mode: IdentityStatementMode,
-    pub lhs: NamedElement,
-    pub rhs: NamedElement,
+    pub lhs: Element<ID>,
+    pub rhs: Element<ID>,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
-pub struct IdentityStatement {
-    pub mode: IdentityStatementMode,
-    pub lhs: Element,
-    pub rhs: Element,
-}
+pub type NamedIdentityStatement = IdentityStatement<String>;
 
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
 pub enum IdentityStatementMode {
@@ -878,7 +849,7 @@ impl Element {
 impl NamedStatement {
     pub fn to_element(&mut self, var_info: &mut VarInfo) -> Statement {
         match *self {
-            NamedStatement::IdentityStatement(NamedIdentityStatement {
+            Statement::IdentityStatement(IdentityStatement {
                 ref mode,
                 ref mut lhs,
                 ref mut rhs,
@@ -887,27 +858,30 @@ impl NamedStatement {
                 lhs: lhs.to_element(var_info),
                 rhs: rhs.to_element(var_info),
             }),
-            NamedStatement::Repeat(ref mut ss) => {
+            Statement::Repeat(ref mut ss) => {
                 Statement::Repeat(ss.iter_mut().map(|s| s.to_element(var_info)).collect())
             }
-            NamedStatement::IfElse(ref mut e, ref mut ss, ref mut sse) => Statement::IfElse(
+            Statement::IfElse(ref mut e, ref mut ss, ref mut sse) => Statement::IfElse(
                 e.to_element(var_info),
                 ss.iter_mut().map(|s| s.to_element(var_info)).collect(),
                 sse.iter_mut().map(|s| s.to_element(var_info)).collect(),
             ),
-            NamedStatement::SplitArg(ref name) => Statement::SplitArg(var_info.get_name(name)),
-            NamedStatement::Symmetrize(ref name) => Statement::Symmetrize(var_info.get_name(name)),
-            NamedStatement::Collect(ref name) => Statement::Collect(var_info.get_name(name)),
-            NamedStatement::Multiply(ref mut e) => Statement::Multiply(e.to_element(var_info)),
-            NamedStatement::Expand => Statement::Expand,
-            NamedStatement::Print => Statement::Print,
-            NamedStatement::Maximum(ref mut e) => Statement::Maximum(e.to_element(var_info)),
-            NamedStatement::Call(ref name, ref mut es) => Statement::Call(
+            Statement::SplitArg(ref name) => Statement::SplitArg(var_info.get_name(name)),
+            Statement::Symmetrize(ref name) => Statement::Symmetrize(var_info.get_name(name)),
+            Statement::Collect(ref name) => Statement::Collect(var_info.get_name(name)),
+            Statement::Multiply(ref mut e) => Statement::Multiply(e.to_element(var_info)),
+            Statement::Expand => Statement::Expand,
+            Statement::Print => Statement::Print,
+            Statement::Maximum(ref mut e) => Statement::Maximum(e.to_element(var_info)),
+            Statement::Call(ref name, ref mut es) => Statement::Call(
                 name.clone(),
                 es.iter_mut().map(|s| s.to_element(var_info)).collect(),
             ),
-            NamedStatement::Assign(ref mut d, ref mut e) => {
+            Statement::Assign(ref mut d, ref mut e) => {
                 Statement::Assign(d.to_element(var_info), e.to_element(var_info))
+            }
+            _ => {
+                unreachable!();
             }
         }
     }

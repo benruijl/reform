@@ -1,7 +1,7 @@
 use std::io::prelude::*;
 use std::fs::File;
 use structure::{Element, IdentityStatementMode, NamedElement, NamedIdentityStatement, NamedModule,
-                NamedProcedure, NamedStatement, NumOrder, Program};
+                NamedProcedure, NamedStatement, NumOrder, Program, Statement};
 
 use combine::char::*;
 use combine::*;
@@ -129,9 +129,9 @@ parser!{
     where [I: Stream<Item=char>]
 {
     let assign = (dollarvar(), lex_char('=').with(expr()).skip(statementend()))
-                 .map(|(d,e)| NamedStatement::Assign(d, e));
+                 .map(|(d,e)| Statement::Assign(d, e));
     let collect = keyword("collect").with(varname()).skip(statementend())
-                  .map(|x| NamedStatement::Collect(x));
+                  .map(|x| Statement::Collect(x));
 
     choice!(assign, collect)
 }
@@ -142,20 +142,20 @@ parser!{
     where [I: Stream<Item=char>]
 {
     let assign = (dollarvar(), lex_char('=').with(expr()).skip(statementend()))
-                 .map(|(d,e)| NamedStatement::Assign(d, e));
+                 .map(|(d,e)| Statement::Assign(d, e));
     let symmetrize = keyword("symmetrize").with(varname()).skip(statementend())
-                     .map(|x| NamedStatement::Symmetrize(x));
+                     .map(|x| Statement::Symmetrize(x));
     let multiply = keyword("multiply").with(expr()).skip(statementend())
-                   .map(|x| NamedStatement::Multiply(x));
+                   .map(|x| Statement::Multiply(x));
     let splitarg = keyword("splitarg").with(varname()).skip(statementend())
-                   .map(|x| NamedStatement::SplitArg(x));
-    let expand = keyword("expand").skip(statementend()).map(|_| NamedStatement::Expand);
-    let print = keyword("print").skip(statementend()).map(|_| NamedStatement::Print);
-    let maximum = keyword("maximum").with(dollarvar()).skip(statementend()).map(|x| NamedStatement::Maximum(x));
+                   .map(|x| Statement::SplitArg(x));
+    let expand = keyword("expand").skip(statementend()).map(|_| Statement::Expand);
+    let print = keyword("print").skip(statementend()).map(|_| Statement::Print);
+    let maximum = keyword("maximum").with(dollarvar()).skip(statementend()).map(|x| Statement::Maximum(x));
     let call_procedure = (keyword("call").with(varname()),
                           between(lex_char('('), lex_char(')'), sep_by(expr(), lex_char(','))))
                          .skip(statementend())
-                         .map(|(name, args) : (String, Vec<NamedElement>)| NamedStatement::Call(name, args));
+                         .map(|(name, args) : (String, Vec<NamedElement>)| Statement::Call(name, args));
 
     let idmode = optional(choice!(keyword("once"), keyword("all"), keyword("many"))).map(|x| match x {
                     Some("all") => IdentityStatementMode::All,
@@ -171,11 +171,11 @@ parser!{
             rhs: expr(),
             _: statementend()
         }
-    }.map(|x| NamedStatement::IdentityStatement(x));
+    }.map(|x| Statement::IdentityStatement(x));
 
     let repeat = keyword("repeat").with(
-        choice!(statementend().with(many(statement())).skip(keyword("endrepeat")).skip(statementend()).map(|x| NamedStatement::Repeat(x)),
-            statement().map(|x| NamedStatement::Repeat(vec![x]))
+        choice!(statementend().with(many(statement())).skip(keyword("endrepeat")).skip(statementend()).map(|x| Statement::Repeat(x)),
+            statement().map(|x| Statement::Repeat(vec![x]))
         ));
 
     let ifclause = between(lex_char('('),lex_char(')'), keyword("match").with(
@@ -185,7 +185,7 @@ parser!{
         statement().map(|x: NamedStatement| vec![x])),
         optional(keyword("else").with(choice!(statementend().with(many(statement())).skip(keyword("endif")).skip(statementend()),
         statement().map(|x: NamedStatement| vec![x])))).map(|x : Option<Vec<NamedStatement>>| x.unwrap_or(vec![]))). // parse the else
-        map(|(q,x,e) : (NamedElement, Vec<NamedStatement>, Vec<NamedStatement>)| NamedStatement::IfElse(q, x, e));
+        map(|(q,x,e) : (NamedElement, Vec<NamedStatement>, Vec<NamedStatement>)| Statement::IfElse(q, x, e));
 
     choice!(call_procedure, assign, maximum, print, ifelse, expand, multiply,
         repeat, idstatement, splitarg, symmetrize)
