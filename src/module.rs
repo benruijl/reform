@@ -171,12 +171,11 @@ impl Statement {
     fn to_iter<'a>(
         &'a self,
         input: &'a mut Element,
-        local_var_info: &'a mut LocalVarInfo,
-        global_var_info: &GlobalVarInfo,
+        var_info: &'a BorrowedVarInfo<'a>,
     ) -> StatementIter<'a> {
         match *self {
             Statement::IdentityStatement(ref id) => {
-                StatementIter::IdentityStatement(id.to_iter(input, &local_var_info.variables))
+                StatementIter::IdentityStatement(id.to_iter(input, var_info))
             }
             Statement::SplitArg(ref name) => {
                 // TODO: use mutability to prevent unnecessary copy
@@ -250,7 +249,7 @@ impl Statement {
                     }
                 };
 
-                res.replace_vars(&local_var_info.variables, true); // apply the dollar variables
+                res.replace_vars(&var_info.local_info.variables, true); // apply the dollar variables
                 res.normalize_inplace();
                 StatementIter::Simple(res, true)
             }
@@ -348,8 +347,14 @@ fn do_module_rec(
         Statement::Eval(ref cond, i) => {
             // if statement
             // do the match
-            if MatchKind::from_element(cond, &input, &local_var_info.variables)
-                .next()
+            if MatchKind::from_element(
+                cond,
+                &input,
+                &BorrowedVarInfo {
+                    global_info: global_var_info,
+                    local_info: local_var_info,
+                },
+            ).next()
                 .is_some()
             {
                 return do_module_rec(
@@ -452,9 +457,12 @@ fn do_module_rec(
 
     // TODO: generate first two elements? performance doesnt seem too much affected though
     {
-        let mut oldvarinfo = local_var_info.clone(); // TODO: prevent clone somehow? if one term is in the output, the clone is unnecessary
-        let mut it =
-            statements[current_index].to_iter(&mut input, &mut oldvarinfo, global_var_info);
+        let oldvarinfo = local_var_info.clone(); // TODO: prevent clone somehow? if one term is in the output, the clone is unnecessary
+        let var_info = BorrowedVarInfo {
+            global_info: global_var_info,
+            local_info: &oldvarinfo,
+        };
+        let mut it = statements[current_index].to_iter(&mut input, &var_info);
         loop {
             match it.next() {
                 // for every term

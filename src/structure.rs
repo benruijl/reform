@@ -21,7 +21,7 @@ pub struct Program {
     pub var_info: VarInfo,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum FunctionAttributes {
     NonCommutative,
     Symmetric,
@@ -67,6 +67,12 @@ impl LocalVarInfo {
     pub fn add_dollar(&mut self, name: VarName, value: Element) {
         self.variables.insert(name, value);
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct BorrowedVarInfo<'a> {
+    pub global_info: &'a GlobalVarInfo,
+    pub local_info: &'a LocalVarInfo,
 }
 
 /// Keep track of local state. This includes the global state as well
