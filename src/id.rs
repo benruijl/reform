@@ -1,8 +1,8 @@
-use structure::{Element, IdentityStatement, IdentityStatementMode, StatementResult, VarName};
+use structure::{BorrowedVarInfo, Element, FunctionAttributes, IdentityStatement,
+                IdentityStatementMode, StatementResult, VarName};
 use std::fmt;
 use std::mem;
 use tools::{add_terms, is_number_in_range, Heap, SliceRef};
-use std::collections::HashMap;
 
 pub const MAXMATCH: usize = 1_000_000; // maximum number of matches
 
@@ -106,7 +106,9 @@ impl Element {
     fn apply_map<'a>(&self, m: &MatchObject<'a>) -> MatchOptOwned {
         match *self {
             Element::VariableArgument(ref name) | Element::Wildcard(ref name, ..) => {
-                find_match(m, name).unwrap().to_owned()
+                find_match(m, name)
+                    .expect("Unknown wildcard in rhs")
+                    .to_owned()
             }
             Element::Pow(_, ref be) => {
                 let (ref b, ref e) = **be;
@@ -163,13 +165,14 @@ impl Element {
 #[derive(Debug)]
 pub enum ElementIterSingle<'a> {
     FnIter(FuncIterator<'a>),            // match function
-    Once,                                // matching without wildcard, ie number vs number
+    SymFuncIter(SubSequenceIter<'a>), // match a symmetric function without variable argument wildcards
+    Once,                             // matching without wildcard, ie number vs number
     OnceMatch(&'a VarName, &'a Element), // simple match of variable
     PermIter(
         &'a [Element],
         Heap<&'a Element>,
         SequenceIter<'a>,
-        &'a HashMap<VarName, Element>,
+        &'a BorrowedVarInfo<'a>,
     ), // term and arg combinations,
     SeqIt(Vec<&'a Element>, SequenceIter<'a>), // target and iterator
     None,
@@ -204,6 +207,7 @@ impl<'a> ElementIterSingle<'a> {
                 }
             }
             ElementIterSingle::FnIter(ref mut f) => f.next(m),
+            ElementIterSingle::SymFuncIter(ref mut f) => f.next(m).map(|(_, s)| s),
             ElementIterSingle::PermIter(pat, ref mut heap, ref mut termit, var_info) => {
                 if pat.len() != heap.data.len() {
                     return None;
@@ -282,7 +286,7 @@ impl Element {
         target: &'a [Element],
         slice_min_bound: usize,
         slice_max_bound: usize,
-        var_info: &'a HashMap<VarName, Element>,
+        var_info: &'a BorrowedVarInfo<'a>,
     ) -> ElementIter<'a> {
         // go through all possible options (slice sizes) for the variable argument
         if let Element::VariableArgument(ref name) = *self {
@@ -300,7 +304,7 @@ impl Element {
     fn to_iter_single<'a>(
         &'a self,
         target: &'a Element,
-        var_info: &'a HashMap<VarName, Element>,
+        var_info: &'a BorrowedVarInfo<'a>,
     ) -> ElementIterSingle<'a> {
         match (target, self) {
             (&Element::Pow(_, ref be1), &Element::Pow(_, ref be2)) => {
@@ -312,7 +316,7 @@ impl Element {
                 )
             }
             (i1, &Element::Dollar(ref i2, _)) => {
-                if var_info.get(i2) == Some(i1) {
+                if var_info.local_info.variables.get(i2) == Some(i1) {
                     ElementIterSingle::Once
                 } else {
                     ElementIterSingle::None
@@ -356,6 +360,30 @@ impl Element {
                 }
             }
             (&Element::Fn(_, ref name1, ref args1), &Element::Fn(_, ref name2, ref args2)) => {
+                // check if we have a symmetric function
+                if name1 == name2 && args1.len() == args2.len() {
+                    if let Some(attribs) = var_info.global_info.func_attribs.get(name1) {
+                        // check if the pattern contains no wildcard
+                        if attribs.contains(&FunctionAttributes::Symmetric) {
+                            if !args2.iter().any(|x| {
+                                if let Element::VariableArgument(_) = *x {
+                                    true
+                                } else {
+                                    false
+                                }
+                            }) {
+                                return ElementIterSingle::SymFuncIter(SubSequenceIter::new(
+                                    args2,
+                                    args1,
+                                    var_info,
+                                ));
+                            } else {
+                                println!("Warning: used ?a in symmetric function pattern match. Ignoring symmetric property.");
+                            }
+                        }
+                    }
+                }
+
                 ElementIterSingle::FnIter(FuncIterator::from_element(
                     name2,
                     args2,
@@ -384,7 +412,7 @@ pub struct FuncIterator<'a> {
     args: &'a Vec<Element>,
     iterators: Vec<ElementIter<'a>>,
     matches: Vec<(&'a [Element], usize)>, // keep track of stack depth
-    var_info: &'a HashMap<VarName, Element>,
+    var_info: &'a BorrowedVarInfo<'a>,
 }
 
 impl<'a> FuncIterator<'a> {
@@ -393,7 +421,7 @@ impl<'a> FuncIterator<'a> {
         args: &'a Vec<Element>,
         target_name: &'a VarName,
         target_args: &'a Vec<Element>,
-        var_info: &'a HashMap<VarName, Element>,
+        var_info: &'a BorrowedVarInfo<'a>,
     ) -> FuncIterator<'a> {
         if name != target_name {
             return FuncIterator {
@@ -560,11 +588,11 @@ pub struct SequenceIter<'a> {
     pattern: SliceRef<'a, Element>, // input term
     iterators: Vec<ElementIterSingle<'a>>,
     matches: Vec<usize>, // keep track of stack depth
-    var_info: &'a HashMap<VarName, Element>,
+    var_info: &'a BorrowedVarInfo<'a>,
 }
 
 impl<'a> SequenceIter<'a> {
-    fn dummy(pattern: &'a [Element], var_info: &'a HashMap<VarName, Element>) -> SequenceIter<'a> {
+    fn dummy(pattern: &'a [Element], var_info: &'a BorrowedVarInfo<'a>) -> SequenceIter<'a> {
         SequenceIter {
             pattern: SliceRef::BorrowedSlice(pattern),
             iterators: vec![],
@@ -576,7 +604,7 @@ impl<'a> SequenceIter<'a> {
     fn new(
         pattern: &SliceRef<'a, Element>,
         first: &'a Element,
-        var_info: &'a HashMap<VarName, Element>,
+        var_info: &'a BorrowedVarInfo<'a>,
     ) -> SequenceIter<'a> {
         let mut its = (0..pattern.len())
             .map(|_| ElementIterSingle::None)
@@ -654,14 +682,14 @@ pub struct SubSequenceIter<'a> {
     indices: Vec<usize>,
     initialized: bool,
     matches: Vec<usize>, // keep track of stack depth
-    var_info: &'a HashMap<VarName, Element>,
+    var_info: &'a BorrowedVarInfo<'a>,
 }
 
 impl<'a> SubSequenceIter<'a> {
     fn new(
         pattern: &'a [Element],
         target: &'a [Element],
-        var_info: &'a HashMap<VarName, Element>,
+        var_info: &'a BorrowedVarInfo<'a>,
     ) -> SubSequenceIter<'a> {
         SubSequenceIter {
             pattern: pattern,
@@ -744,7 +772,7 @@ pub enum MatchKind<'a> {
         ElementIterSingle<'a>,
         &'a [Element],
         usize,
-        &'a HashMap<VarName, Element>,
+        &'a BorrowedVarInfo<'a>,
     ),
     Many(MatchObject<'a>, SubSequenceIter<'a>),
     None,
@@ -754,7 +782,7 @@ impl<'a> MatchKind<'a> {
     pub fn from_element(
         pattern: &'a Element,
         target: &'a Element,
-        var_info: &'a HashMap<VarName, Element>,
+        var_info: &'a BorrowedVarInfo<'a>,
     ) -> MatchKind<'a> {
         match (pattern, target) {
             (&Element::Term(_, ref x), &Element::Term(_, ref y)) => {
@@ -817,8 +845,7 @@ pub struct MatchIterator<'a> {
     it: MatchKind<'a>,
     rhsp: usize, // current rhs index,
     hasmatch: bool,
-    input: &'a Element,
-    var_info: &'a HashMap<VarName, Element>,
+    var_info: &'a BorrowedVarInfo<'a>,
 }
 
 // iterate over the output terms of a match
@@ -859,8 +886,8 @@ impl<'a> MatchIterator<'a> {
                 if !self.remaining.is_empty() {
                     add_terms(&mut res, &self.remaining);
                 }
-                res.replace_vars(self.var_info, true); // subsitute dollars in rhs
-                res.normalize_inplace();
+                res.replace_vars(&self.var_info.local_info.variables, true); // subsitute dollars in rhs
+                res.normalize_inplace(self.var_info.global_info);
                 res
             }
             x => {
@@ -869,8 +896,8 @@ impl<'a> MatchIterator<'a> {
                 if !self.remaining.is_empty() {
                     add_terms(&mut res, &self.remaining);
                 }
-                res.replace_vars(self.var_info, true); // subsitute dollars in rhs
-                res.normalize_inplace();
+                res.replace_vars(&self.var_info.local_info.variables, true); // subsitute dollars in rhs
+                res.normalize_inplace(self.var_info.global_info);
                 res
             }
         })
@@ -881,17 +908,16 @@ impl IdentityStatement {
     pub fn to_iter<'a>(
         &'a self,
         input: &'a Element,
-        var_info: &'a HashMap<VarName, Element>,
+        var_info: &'a BorrowedVarInfo<'a>,
     ) -> MatchIterator<'a> {
         MatchIterator {
-            input: input,
             hasmatch: false,
             m: vec![],
             remaining: vec![],
             mode: self.mode.clone(),
             rhs: &self.rhs,
             rhsp: 0,
-            it: MatchKind::from_element(&self.lhs, input, var_info),
+            it: MatchKind::from_element(&self.lhs, input, &var_info),
             var_info,
         }
     }

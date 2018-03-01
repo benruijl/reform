@@ -1,7 +1,7 @@
 use std::io::prelude::*;
 use std::fs::File;
-use structure::{Element, IdentityStatement, IdentityStatementMode, Module, NumOrder, Procedure,
-                Program, Statement};
+use structure::{Element, FunctionAttributes, IdentityStatement, IdentityStatementMode, Module,
+                NumOrder, Procedure, Program, Statement};
 
 use combine::char::*;
 use combine::*;
@@ -168,7 +168,15 @@ parser!{
         .skip(statementend())
         .map(|x| Statement::Collect(x));
 
-    choice!(assign, collect)
+    let attribs = choice!(keyword("symmetric").map(|_| FunctionAttributes::Symmetric),
+                         keyword("linear").map(|_| FunctionAttributes::Linear),
+                         keyword("noncommutative").map(|_| FunctionAttributes::NonCommutative));
+
+    let attrib = (keyword("attrib").with(factor()), lex_char('=').with(
+            sep_by(attribs, lex_char('+')).skip(statementend())))
+                 .map(|(d,e)| Statement::Attrib(d, e));
+
+    choice!(assign, collect, attrib)
 }
 }
 

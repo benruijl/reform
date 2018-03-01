@@ -33,10 +33,10 @@ impl TermStreamWrapper {
         }
     }
 
-    fn add_term(&mut self, e: Element) {
+    fn add_term(&mut self, e: Element, var_info: &GlobalVarInfo) {
         match *self {
-            TermStreamWrapper::Threaded(ref mut x) => x.lock().unwrap().add_term(e),
-            TermStreamWrapper::Single(ref mut x) => x.add_term(e),
+            TermStreamWrapper::Threaded(ref mut x) => x.lock().unwrap().add_term(e, var_info),
+            TermStreamWrapper::Single(ref mut x) => x.add_term(e, var_info),
             TermStreamWrapper::Owned(ref mut x) => x.push(e),
         }
     }
@@ -44,22 +44,22 @@ impl TermStreamWrapper {
 
 impl Element {
     // TODO: mutate self to prevent unnecessary cloning
-    fn expand(&self) -> Element {
+    fn expand(&self, var_info: &GlobalVarInfo) -> Element {
         match *self {
             Element::Fn(_, ref name, ref args) => {
                 let mut f = Element::Fn(
                     true,
                     name.clone(),
-                    args.iter().map(|x| x.expand()).collect(),
+                    args.iter().map(|x| x.expand(var_info)).collect(),
                 );
-                f.normalize_inplace();
+                f.normalize_inplace(var_info);
                 f
             } // TODO: only flag when changed
             Element::Term(_, ref fs) => {
                 let mut r: Vec<Vec<Element>> = vec![vec![]];
 
                 for f in fs {
-                    let fe = f.expand();
+                    let fe = f.expand(var_info);
                     match fe {
                         Element::SubExpr(_, ref s) => {
                             // use cartesian product function?
@@ -87,24 +87,24 @@ impl Element {
                     r.into_iter().map(|x| Element::Term(true, x)).collect(),
                 );
 
-                e.normalize_inplace();
+                e.normalize_inplace(var_info);
                 e
             }
             Element::SubExpr(_, ref f) => {
-                let mut e = Element::SubExpr(true, f.iter().map(|x| x.expand()).collect());
-                e.normalize_inplace();
+                let mut e = Element::SubExpr(true, f.iter().map(|x| x.expand(var_info)).collect());
+                e.normalize_inplace(var_info);
                 e
             }
             Element::Pow(_, ref be) => {
                 let (ref b, ref e) = **be;
 
-                let (eb, ee) = (b.expand(), e.expand());
+                let (eb, ee) = (b.expand(var_info), e.expand(var_info));
 
                 if let Element::Num(_, true, n, 1) = ee {
                     if let Element::SubExpr(_, ref t) = eb {
                         let mut e = exponentiate(t, n);
-                        e.normalize_inplace();
-                        return e.expand();
+                        e.normalize_inplace(var_info);
+                        return e.expand(var_info);
                     }
 
                     //  (x*y)^z -> x^z*y^z
@@ -120,13 +120,13 @@ impl Element {
                                 })
                                 .collect(),
                         );
-                        e.normalize_inplace();
-                        return e.expand();
+                        e.normalize_inplace(var_info);
+                        return e.expand(var_info);
                     }
                 }
 
                 let mut e = Element::Pow(true, Box::new((eb, ee)));
-                e.normalize_inplace();
+                e.normalize_inplace(var_info);
                 e
             }
             _ => self.clone(),
@@ -174,7 +174,7 @@ impl Statement {
     fn to_iter<'a>(
         &'a self,
         input: &'a mut Element,
-        var_info: &'a HashMap<VarName, Element>,
+        var_info: &'a BorrowedVarInfo<'a>,
     ) -> StatementIter<'a> {
         match *self {
             Statement::IdentityStatement(ref id) => {
@@ -219,7 +219,7 @@ impl Statement {
             Statement::Expand => {
                 // FIXME: treat ground level differently in the expand routine
                 // don't generate all terms in one go
-                match input.expand() {
+                match input.expand(var_info.global_info) {
                     Element::SubExpr(_, mut f) => {
                         if f.len() == 1 {
                             StatementIter::Simple(f.swap_remove(0), false)
@@ -252,8 +252,8 @@ impl Statement {
                     }
                 };
 
-                res.replace_vars(var_info, true); // apply the dollar variables
-                res.normalize_inplace();
+                res.replace_vars(&var_info.local_info.variables, true); // apply the dollar variables
+                res.normalize_inplace(&var_info.global_info);
                 StatementIter::Simple(res, true)
             }
             // TODO: use visitor pattern? this is almost a copy of splitarg
@@ -295,7 +295,8 @@ impl Statement {
 fn do_module_rec(
     mut input: Element,
     statements: &[Statement],
-    var_info: &mut VarInfo,
+    local_var_info: &mut LocalVarInfo,
+    global_var_info: &GlobalVarInfo,
     current_index: usize,
     term_affected: &mut Vec<bool>,
     output: &mut TermStreamWrapper,
@@ -304,7 +305,7 @@ fn do_module_rec(
         return; // drop 0
     }
     if current_index == statements.len() {
-        output.add_term(input);
+        output.add_term(input, global_var_info);
         return;
     }
 
@@ -315,7 +316,8 @@ fn do_module_rec(
             return do_module_rec(
                 input,
                 statements,
-                var_info,
+                local_var_info,
+                global_var_info,
                 current_index + 1,
                 term_affected,
                 output,
@@ -323,13 +325,22 @@ fn do_module_rec(
         }
         Statement::JumpIfChanged(i) => {
             if Some(&true) == term_affected.last() {
-                return do_module_rec(input, statements, var_info, i, term_affected, output);
+                return do_module_rec(
+                    input,
+                    statements,
+                    local_var_info,
+                    global_var_info,
+                    i,
+                    term_affected,
+                    output,
+                );
             } else {
                 term_affected.pop(); // it should be as if the repeated wasn't there
                 return do_module_rec(
                     input,
                     statements,
-                    var_info,
+                    local_var_info,
+                    global_var_info,
                     current_index + 1,
                     term_affected,
                     output,
@@ -339,39 +350,63 @@ fn do_module_rec(
         Statement::Eval(ref cond, i) => {
             // if statement
             // do the match
-            if MatchKind::from_element(cond, &input, &var_info.variables)
-                .next()
+            if MatchKind::from_element(
+                cond,
+                &input,
+                &BorrowedVarInfo {
+                    global_info: global_var_info,
+                    local_info: local_var_info,
+                },
+            ).next()
                 .is_some()
             {
                 return do_module_rec(
                     input,
                     statements,
-                    var_info,
+                    local_var_info,
+                    global_var_info,
                     current_index + 1,
                     term_affected,
                     output,
                 );
             } else {
-                return do_module_rec(input, statements, var_info, i, term_affected, output);
+                return do_module_rec(
+                    input,
+                    statements,
+                    local_var_info,
+                    global_var_info,
+                    i,
+                    term_affected,
+                    output,
+                );
             }
         }
         Statement::Jump(i) => {
-            return do_module_rec(input, statements, var_info, i, term_affected, output);
+            return do_module_rec(
+                input,
+                statements,
+                local_var_info,
+                global_var_info,
+                i,
+                term_affected,
+                output,
+            );
         }
         // TODO: not a control flow instruction
         // move to iter if we decide how to propagate the var_info
         Statement::Assign(ref dollar, ref e) => {
             let mut ee = e.clone();
-            if ee.replace_vars(&var_info.variables, true) {
-                ee.normalize_inplace();
+            if ee.replace_vars(&local_var_info.variables, true) {
+                ee.normalize_inplace(&global_var_info);
             }
             if let Element::Dollar(ref d, ..) = *dollar {
-                var_info.add_dollar(d.clone(), ee);
+                local_var_info.add_dollar(d.clone(), ee);
             }
             return do_module_rec(
                 input,
                 statements,
-                var_info,
+                local_var_info,
+                global_var_info,
                 current_index + 1,
                 term_affected,
                 output,
@@ -392,7 +427,8 @@ fn do_module_rec(
                                 do_module_rec(
                                     x.clone(), // TODO: prevent clone
                                     sts,
-                                    var_info,
+                                    local_var_info,
+                                    global_var_info,
                                     0,
                                     term_affected, // TODO: what to do here?
                                     &mut tsr,
@@ -404,7 +440,7 @@ fn do_module_rec(
                                         1 => newfuncarg.push(nfa.swap_remove(0)),
                                         _ => {
                                             let mut sub = Element::SubExpr(true, nfa);
-                                            sub.normalize_inplace();
+                                            sub.normalize_inplace(global_var_info);
                                             newfuncarg.push(sub)
                                         }
                                     }
@@ -414,12 +450,13 @@ fn do_module_rec(
                             }
 
                             let mut newfunc = Element::Fn(true, name1.clone(), newfuncarg);
-                            newfunc.normalize_inplace();
+                            newfunc.normalize_inplace(global_var_info);
 
                             return do_module_rec(
                                 newfunc,
                                 statements,
-                                var_info,
+                                local_var_info,
+                                global_var_info,
                                 current_index + 1,
                                 term_affected,
                                 output,
@@ -439,7 +476,8 @@ fn do_module_rec(
                                         do_module_rec(
                                             x.clone(), // TODO: prevent clone
                                             sts,
-                                            var_info,
+                                            local_var_info,
+                                            global_var_info,
                                             0,
                                             term_affected, // TODO: what to do here?
                                             &mut tsr,
@@ -453,7 +491,7 @@ fn do_module_rec(
                                                 1 => newfuncarg.push(nfa.swap_remove(0)),
                                                 _ => {
                                                     let mut sub = Element::SubExpr(true, nfa);
-                                                    sub.normalize_inplace();
+                                                    sub.normalize_inplace(global_var_info);
                                                     newfuncarg.push(sub)
                                                 }
                                             }
@@ -463,7 +501,7 @@ fn do_module_rec(
                                     }
 
                                     let mut newfunc = Element::Fn(true, name1.clone(), newfuncarg);
-                                    newfunc.normalize_inplace();
+                                    newfunc.normalize_inplace(global_var_info);
                                     newfactors.push(newfunc);
                                 } else {
                                     newfactors.push(Element::Fn(d, name1, args));
@@ -474,12 +512,13 @@ fn do_module_rec(
                         }
 
                         let mut newterm = Element::Term(true, newfactors);
-                        newterm.normalize_inplace();
+                        newterm.normalize_inplace(global_var_info);
 
                         return do_module_rec(
                             newterm,
                             statements,
-                            var_info,
+                            local_var_info,
+                            global_var_info,
                             current_index + 1,
                             term_affected,
                             output,
@@ -490,7 +529,8 @@ fn do_module_rec(
                         return do_module_rec(
                             input,
                             statements,
-                            var_info,
+                            local_var_info,
+                            global_var_info,
                             current_index + 1,
                             term_affected,
                             output,
@@ -503,8 +543,8 @@ fn do_module_rec(
         }
         Statement::Maximum(ref dollar) => {
             if let Element::Dollar(ref d, ..) = *dollar {
-                if let Some(x) = var_info.variables.get(d) {
-                    match var_info.global_variables.entry(d.clone()) {
+                if let Some(x) = local_var_info.variables.get(d) {
+                    match local_var_info.global_variables.entry(d.clone()) {
                         Entry::Occupied(mut y) => {
                             if *y.get() < *x {
                                 *y.get_mut() = x.clone();
@@ -519,7 +559,8 @@ fn do_module_rec(
             return do_module_rec(
                 input,
                 statements,
-                var_info,
+                local_var_info,
+                global_var_info,
                 current_index + 1,
                 term_affected,
                 output,
@@ -530,13 +571,14 @@ fn do_module_rec(
                 "\t+{}",
                 ElementPrinter {
                     element: &input,
-                    var_info: var_info,
+                    var_info: &global_var_info,
                 }
             );
             return do_module_rec(
                 input,
                 statements,
-                var_info,
+                local_var_info,
+                global_var_info,
                 current_index + 1,
                 term_affected,
                 output,
@@ -545,9 +587,14 @@ fn do_module_rec(
         _ => {}
     }
 
+    // TODO: generate first two elements? performance doesnt seem too much affected though
     {
-        let oldvarinfo = var_info.variables.clone(); // TODO: prevent clone somehow?
-        let mut it = statements[current_index].to_iter(&mut input, &oldvarinfo);
+        let oldvarinfo = local_var_info.clone(); // TODO: prevent clone somehow? if one term is in the output, the clone is unnecessary
+        let var_info = BorrowedVarInfo {
+            global_info: global_var_info,
+            local_info: &oldvarinfo,
+        };
+        let mut it = statements[current_index].to_iter(&mut input, &var_info);
         loop {
             match it.next() {
                 // for every term
@@ -557,7 +604,8 @@ fn do_module_rec(
                     do_module_rec(
                         f,
                         statements,
-                        var_info,
+                        local_var_info,
+                        global_var_info,
                         current_index + 1,
                         term_affected,
                         output,
@@ -567,7 +615,8 @@ fn do_module_rec(
                 StatementResult::NotExecuted(f) => do_module_rec(
                     f,
                     statements,
-                    var_info,
+                    local_var_info,
+                    global_var_info,
                     current_index + 1,
                     term_affected,
                     output,
@@ -586,7 +635,8 @@ fn do_module_rec(
     do_module_rec(
         input,
         statements,
-        var_info,
+        local_var_info,
+        global_var_info,
         current_index + 1,
         term_affected,
         output,
@@ -695,12 +745,23 @@ impl Module {
             match *x {
                 Statement::Assign(ref dollar, ref e) => {
                     let mut ee = e.clone();
-                    ee.replace_vars(&var_info.variables, true);
-                    ee.normalize_inplace();
+                    ee.replace_vars(&var_info.local_info.variables, true);
+                    ee.normalize_inplace(&var_info.global_info);
                     if let Element::Dollar(ref d, ..) = *dollar {
-                        var_info.add_dollar(d.clone(), ee);
+                        var_info.local_info.add_dollar(d.clone(), ee);
                     }
                 }
+                Statement::Attrib(ref f, ref attribs) => match *f {
+                    Element::Var(ref name) => {
+                        var_info
+                            .global_info
+                            .func_attribs
+                            .insert(name.clone(), attribs.clone());
+                    }
+                    _ => {
+                        panic!("Can only assign attributes to functions");
+                    }
+                },
                 _ => unimplemented!(),
             }
         }
@@ -714,7 +775,7 @@ impl Module {
         );
 
         for x in &mut self.statements {
-            x.normalize();
+            x.normalize(&var_info.global_info);
         }
     }
 }
@@ -727,10 +788,13 @@ pub fn do_program(program: &mut Program, write_log: bool, num_threads: usize) {
     for module in &mut program.modules {
         // move global statements from the previous module into the new one
         // TODO: do swap instead of clone?
-        program.var_info.variables = program.var_info.global_variables.clone();
+        program.var_info.local_info.variables =
+            program.var_info.local_info.global_variables.clone();
 
         module.normalize_module(&mut program.var_info, &program.procedures);
         debug!("{}", module); // print module code
+
+        let global_info = program.var_info.global_info.clone();
 
         let mut output = OutputTermStreamer::new();
 
@@ -738,13 +802,13 @@ pub fn do_program(program: &mut Program, write_log: bool, num_threads: usize) {
             let mut output_mutarc = Arc::new(Mutex::new(output));
 
             let queue: MsQueue<Option<Element>> = MsQueue::new();
-            let thread_varinfo = program.var_info.clone();
+            let thread_local_varinfo = program.var_info.local_info.clone();
 
             // create threads that process terms
             crossbeam::scope(|scope| {
                 for _ in 0..num_threads {
                     scope.spawn(|| {
-                        let mut thread_varinfo = thread_varinfo.clone();
+                        let mut thread_varinfo = thread_local_varinfo.clone();
                         let mut executed = vec![false];
                         let mut output = TermStreamWrapper::Threaded(output_mutarc.clone());
                         while let Some(x) = queue.pop() {
@@ -752,6 +816,7 @@ pub fn do_program(program: &mut Program, write_log: bool, num_threads: usize) {
                                 x,
                                 &module.statements,
                                 &mut thread_varinfo,
+                                &global_info,
                                 0,
                                 &mut executed,
                                 &mut output,
@@ -795,7 +860,8 @@ pub fn do_program(program: &mut Program, write_log: bool, num_threads: usize) {
                 do_module_rec(
                     x,
                     &module.statements,
-                    &mut program.var_info,
+                    &mut program.var_info.local_info,
+                    &program.var_info.global_info,
                     0,
                     &mut executed,
                     &mut output_wrapped,

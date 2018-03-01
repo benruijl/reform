@@ -1,5 +1,6 @@
 use std::mem;
-use structure::{Element, FUNCTION_DELTA, FUNCTION_MUL, FUNCTION_NARGS, FUNCTION_SUM};
+use structure::{Element, FunctionAttributes, GlobalVarInfo, FUNCTION_DELTA, FUNCTION_MUL,
+                FUNCTION_NARGS, FUNCTION_SUM};
 use tools::{add_fractions, add_one, exp_fraction, mul_fractions, normalize_fraction};
 use std::cmp::Ordering;
 use std::ptr;
@@ -59,7 +60,7 @@ impl Element {
     }
 
     /// Normalize an element in-place. Returns true if element changed.
-    pub fn normalize_inplace(&mut self) -> bool {
+    pub fn normalize_inplace(&mut self, var_info: &GlobalVarInfo) -> bool {
         let mut changed = false;
         match *self {
             Element::Num(ref mut dirty, ref mut pos, ref mut num, ref mut den) => {
@@ -70,7 +71,7 @@ impl Element {
                 }
             }
             Element::Wildcard(_, ref mut restriction) => for x in restriction {
-                changed |= x.normalize_inplace();
+                changed |= x.normalize_inplace(var_info);
             },
             Element::Pow(dirty, ..) => {
                 if !dirty {
@@ -79,8 +80,8 @@ impl Element {
 
                 *self = if let Element::Pow(ref mut dirty, ref mut be) = *self {
                     let (ref mut b, ref mut e) = *&mut **be;
-                    changed |= b.normalize_inplace();
-                    changed |= e.normalize_inplace();
+                    changed |= b.normalize_inplace(var_info);
+                    changed |= e.normalize_inplace(var_info);
                     *dirty = false;
 
                     // TODO: Clippy doesn't like loops that never actually loop #[warn(never_loop)]
@@ -127,14 +128,71 @@ impl Element {
                 };
                 return changed;
             }
-            Element::Fn(dirty, ..) => {
+            Element::Fn(mut dirty, name, ..) => {
+                if let Some(_) = var_info.func_attribs.get(&name) {
+                    dirty = true; // for now, always set the dirty flag if a function has attributes
+                }
+
                 if dirty {
-                    if let Element::Fn(ref mut dirty, ref _name, ref mut args) = *self {
-                        for x in args {
-                            changed |= x.normalize_inplace();
+                    let mut newvalue = None;
+
+                    if let Element::Fn(ref mut dirty, ref name, ref mut args) = *self {
+                        for x in args.iter_mut() {
+                            changed |= x.normalize_inplace(var_info);
                         }
-                        *dirty = false;
-                        //args.shrink_to_fit(); // make sure we keep memory in check
+
+                        newvalue = loop {
+                            if let Some(attribs) = var_info.func_attribs.get(&name) {
+                                if attribs.contains(&FunctionAttributes::Linear) {
+                                    // split the function if any of its arguments is a subexpr
+                                    let mut subv = vec![];
+                                    let mut replace_index = 0;
+                                    for (i, x) in args.iter_mut().enumerate() {
+                                        if let Element::SubExpr(_, ref mut args1) = *x {
+                                            mem::swap(args1, &mut subv);
+                                            replace_index = i;
+                                            break;
+                                        }
+                                    }
+
+                                    if !subv.is_empty() {
+                                        changed = true;
+
+                                        // create a subexpr of functions
+                                        let mut subexprs = Vec::with_capacity(subv.len());
+                                        for a in &mut subv {
+                                            let mut rest = Vec::with_capacity(args.len());
+
+                                            for (ii, xx) in args.iter().enumerate() {
+                                                if ii != replace_index {
+                                                    rest.push(xx.clone());
+                                                } else {
+                                                    rest.push(mem::replace(a, DUMMY_ELEM!()));
+                                                }
+                                            }
+
+                                            subexprs.push(Element::Fn(true, name.clone(), rest));
+                                        }
+
+                                        let mut e = Element::SubExpr(true, subexprs);
+                                        e.normalize_inplace(var_info);
+                                        break Some(e);
+                                    }
+                                }
+
+                                if attribs.contains(&FunctionAttributes::Symmetric) {
+                                    args.sort_unstable();
+                                }
+                            }
+
+                            *dirty = false;
+                            break None; // the function remains a function
+                        }
+                    }
+
+                    if let Some(x) = newvalue {
+                        *self = x;
+                        return true;
                     }
                 }
                 changed |= self.apply_builtin_functions(false);
@@ -151,7 +209,7 @@ impl Element {
                     // TODO: check for 0 here
                     let mut restructure = false;
                     for x in ts.iter_mut() {
-                        changed |= x.normalize_inplace();
+                        changed |= x.normalize_inplace(var_info);
                         if let Element::Term(..) = *x {
                             restructure = true;
                             changed = true;
@@ -172,7 +230,7 @@ impl Element {
 
                     // sort and merge the terms at the same time
                     if cfg!(_YES_) {
-                        changed |= expr_sort(ts, merge_factors);
+                        changed |= expr_sort(ts, merge_factors, var_info);
                     } else {
                         // TODO: this is faster than expr_sort. presumable because there are fewer
                         // merge_factor calls
@@ -184,7 +242,7 @@ impl Element {
 
                         for i in 1..ts.len() {
                             let (a, b) = ts.split_at_mut(i);
-                            if !merge_factors(&mut a[lastindex], &mut b[0]) {
+                            if !merge_factors(&mut a[lastindex], &mut b[0], var_info) {
                                 if lastindex + 1 < i {
                                     a[lastindex + 1] = mem::replace(&mut b[0], DUMMY_ELEM!());
                                 }
@@ -225,7 +283,7 @@ impl Element {
                     // normalize factors and flatten
                     let mut restructure = false;
                     for x in ts.iter_mut() {
-                        changed |= x.normalize_inplace();
+                        changed |= x.normalize_inplace(var_info);
                         if let Element::SubExpr(..) = *x {
                             restructure = true;
                             changed = true;
@@ -246,7 +304,7 @@ impl Element {
 
                     // sort and merge the terms at the same time
                     if cfg!(_YES_) {
-                        changed |= expr_sort(ts, merge_terms);
+                        changed |= expr_sort(ts, merge_terms, var_info);
                     } else {
                         changed = true; // TODO: tell if changed?
                         ts.sort_unstable(); // TODO: slow!
@@ -255,7 +313,7 @@ impl Element {
 
                         for i in 1..ts.len() {
                             let (a, b) = ts.split_at_mut(i);
-                            if !merge_terms(&mut a[lastindex], &mut b[0]) {
+                            if !merge_terms(&mut a[lastindex], &mut b[0], var_info) {
                                 if lastindex + 1 < i {
                                     a[lastindex + 1] = mem::replace(&mut b[0], DUMMY_ELEM!());
                                 }
@@ -281,7 +339,7 @@ impl Element {
 }
 
 /// Merge factor `sec` into `first` if possible. Returns true if merged.
-pub fn merge_factors(first: &mut Element, sec: &mut Element) -> bool {
+pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVarInfo) -> bool {
     let mut changed = false;
 
     if let Element::Num(_, ref mut pos, ref mut num, ref mut den) = *first {
@@ -299,13 +357,12 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element) -> bool {
     // x*x => x^2
     if first == sec {
         *first = Element::Pow(
-            true,
+            false,
             Box::new((
                 mem::replace(first, DUMMY_ELEM!()),
                 Element::Num(false, true, 2, 1),
             )),
         );
-        first.normalize_inplace();
         return true;
     }
 
@@ -363,12 +420,12 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element) -> bool {
             changed = true;
         }
     };
-    first.normalize_inplace();
+    first.normalize_inplace(var_info);
     changed
 }
 
 // returns true if merged
-pub fn merge_terms(mut first: &mut Element, sec: &mut Element) -> bool {
+pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &GlobalVarInfo) -> bool {
     // filter +0
     if let Element::Num(_, _, 0, _) = *sec {
         return true;
@@ -519,9 +576,9 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element) -> bool {
 /// Sorts a vector `a`, using the `merger` function to merge identical terms.
 /// This function can be used to sort subexpressions and terms.
 /// Returns true if the vector has been changed.
-pub fn expr_sort<T: PartialOrd, F>(a: &mut Vec<T>, merger: F) -> bool
+pub fn expr_sort<F>(a: &mut Vec<Element>, merger: F, var_info: &GlobalVarInfo) -> bool
 where
-    F: Fn(&mut T, &mut T) -> bool,
+    F: Fn(&mut Element, &mut Element, &GlobalVarInfo) -> bool,
 {
     if a.is_empty() {
         return false;
@@ -537,7 +594,7 @@ where
     for x in 1..a.len() {
         {
             let (old, new) = a.split_at_mut(x);
-            if merger(&mut old[writepos - 1], &mut new[0]) {
+            if merger(&mut old[writepos - 1], &mut new[0], var_info) {
                 changed = true;
                 continue;
             }
@@ -590,7 +647,7 @@ where
     a.truncate(writepos);
 
     // allocate buffer, TODO: could be half the size
-    let mut b: Vec<T> = Vec::with_capacity(a.len());
+    let mut b: Vec<Element> = Vec::with_capacity(a.len());
     grouplen.push(groupcount);
 
     //a.shrink_to_fit(); // slow!
@@ -614,6 +671,7 @@ where
                         &mut b,
                         writepos,
                         &merger,
+                        var_info,
                     );
                 } else {
                     newsize = sub_merge_sort(
@@ -624,6 +682,7 @@ where
                         &mut b,
                         writepos,
                         &merger,
+                        var_info,
                     );
                     startpos += grouplen[groupcount * 2] + grouplen[groupcount * 2 + 1];
                 }
@@ -642,17 +701,18 @@ where
     true
 }
 
-unsafe fn sub_merge_sort<T: PartialOrd, F>(
-    a: &mut [T],
+unsafe fn sub_merge_sort<F>(
+    a: &mut [Element],
     left: usize,
     right: usize,
     end: usize,
-    buf: &mut [T],
-    mut writepos: *mut T,
+    buf: &mut [Element],
+    mut writepos: *mut Element,
     merger: &F,
+    var_info: &GlobalVarInfo,
 ) -> usize
 where
-    F: Fn(&mut T, &mut T) -> bool,
+    F: Fn(&mut Element, &mut Element, &GlobalVarInfo) -> bool,
 {
     let mut i = left;
     let mut j = right;
@@ -661,7 +721,7 @@ where
 
     // copy left part to array
     let mut leftp = buf.as_mut_ptr();
-    let mut rightp = a.get_unchecked_mut(right) as *mut T;
+    let mut rightp = a.get_unchecked_mut(right) as *mut Element;
 
     ptr::copy_nonoverlapping(&a[left], buf.as_mut_ptr(), right - left);
 
@@ -669,7 +729,8 @@ where
         if i < right && j < end {
             match (*leftp).partial_cmp(&*rightp) {
                 Some(Ordering::Greater) => {
-                    if lastsource != 1 || !merger(&mut *writepos.offset(-1), &mut *rightp) {
+                    if lastsource != 1 || !merger(&mut *writepos.offset(-1), &mut *rightp, var_info)
+                    {
                         // FIXME: it should drop at writep! does this cause leaks?
                         assert!(writepos != rightp);
                         ptr::copy_nonoverlapping(rightp, writepos, 1);
@@ -681,7 +742,8 @@ where
                 }
                 // TODO: special case if they are equal/mergeable
                 _ => {
-                    if lastsource != 2 || !merger(&mut *writepos.offset(-1), &mut *leftp) {
+                    if lastsource != 2 || !merger(&mut *writepos.offset(-1), &mut *leftp, var_info)
+                    {
                         ptr::copy_nonoverlapping(leftp, writepos, 1);
                         writepos = writepos.offset(1);
                         lastsource = 1;
@@ -692,7 +754,7 @@ where
             }
         } else {
             if i < right {
-                if lastsource != 2 || !merger(&mut *writepos.offset(-1), &mut *leftp) {
+                if lastsource != 2 || !merger(&mut *writepos.offset(-1), &mut *leftp, var_info) {
                     ptr::copy_nonoverlapping(leftp, writepos, 1);
                     writepos = writepos.offset(1);
                     lastsource = 1;
@@ -700,7 +762,7 @@ where
                 i += 1;
                 leftp = leftp.offset(1);
             } else {
-                if lastsource != 1 || !merger(&mut *writepos.offset(-1), &mut *rightp) {
+                if lastsource != 1 || !merger(&mut *writepos.offset(-1), &mut *rightp, var_info) {
                     assert!(writepos != rightp);
                     ptr::copy_nonoverlapping(rightp, writepos, 1);
                     writepos = writepos.offset(1);

@@ -1,3 +1,4 @@
+use std::mem;
 use std::fmt;
 use streaming::InputTermStreamer;
 use std::collections::HashMap;
@@ -25,25 +26,69 @@ pub struct Program {
     pub var_info: VarInfo,
 }
 
-// keeps track of global state
+#[derive(Debug, Clone, PartialEq)]
+pub enum FunctionAttributes {
+    NonCommutative,
+    Symmetric,
+    Linear,
+}
+
+impl fmt::Display for FunctionAttributes {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            FunctionAttributes::NonCommutative => write!(f, "NonCommutative"),
+            FunctionAttributes::Symmetric => write!(f, "Symmetric"),
+            FunctionAttributes::Linear => write!(f, "Linear"),
+        }
+    }
+}
+
+/// Keeps track of global state that is immutable during execution.
 #[derive(Debug, Clone)]
-pub struct VarInfo {
+pub struct GlobalVarInfo {
     inv_name_map: Vec<String>,
     name_map: HashMap<String, VarName>,
+    pub func_attribs: HashMap<VarName, Vec<FunctionAttributes>>,
+}
+
+impl GlobalVarInfo {
+    pub fn empty() -> GlobalVarInfo {
+        GlobalVarInfo {
+            inv_name_map: vec![],
+            name_map: HashMap::new(),
+            func_attribs: HashMap::new(),
+        }
+    }
+}
+
+/// Keep track of local state, such as the values for dollar variables.
+#[derive(Debug, Clone)]
+pub struct LocalVarInfo {
     pub variables: HashMap<VarName, Element>, // local map of (dollar) variables
     pub global_variables: HashMap<VarName, Element>, // global map of (dollar) variables
 }
 
-impl VarInfo {
-    pub fn empty() -> VarInfo {
-        VarInfo {
-            inv_name_map: vec![],
-            name_map: HashMap::new(),
-            variables: HashMap::new(),
-            global_variables: HashMap::new(),
-        }
+impl LocalVarInfo {
+    pub fn add_dollar(&mut self, name: VarName, value: Element) {
+        self.variables.insert(name, value);
     }
+}
 
+#[derive(Debug, Clone)]
+pub struct BorrowedVarInfo<'a> {
+    pub global_info: &'a GlobalVarInfo,
+    pub local_info: &'a LocalVarInfo,
+}
+
+/// Keep track of local state. This includes the global state as well
+/// as the values for dollar variables.
+#[derive(Debug, Clone)]
+pub struct VarInfo {
+    pub global_info: GlobalVarInfo,
+    pub local_info: LocalVarInfo,
+}
+
+impl VarInfo {
     pub fn new() -> VarInfo {
         let mut inv_name_map = vec![];
         let mut name_map = HashMap::new();
@@ -56,16 +101,21 @@ impl VarInfo {
             i += 1;
         }
         VarInfo {
-            inv_name_map,
-            name_map,
-            variables: HashMap::new(),
-            global_variables: HashMap::new(),
+            global_info: GlobalVarInfo {
+                inv_name_map,
+                name_map,
+                func_attribs: HashMap::new(),
+            },
+            local_info: LocalVarInfo {
+                variables: HashMap::new(),
+                global_variables: HashMap::new(),
+            },
         }
     }
 
-    pub fn get_name(&mut self, s: &String) -> VarName {
-        let nm = &mut self.name_map;
-        let inv = &mut self.inv_name_map;
+    pub fn get_name(&mut self, s: &String) -> u32 {
+        let nm = &mut self.global_info.name_map;
+        let inv = &mut self.global_info.inv_name_map;
         *nm.entry(s.clone()).or_insert_with(|| {
             inv.push(s.clone());
             (inv.len() - 1) as VarName
@@ -73,15 +123,13 @@ impl VarInfo {
     }
 
     pub fn add_local(&mut self, name: &VarName) -> VarName {
-        let newvarid = self.inv_name_map.len() as VarName;
+        let newvarid = self.global_info.inv_name_map.len() as u32;
         let newvarname = format!("{}_{}", name, newvarid);
-        self.name_map.insert(newvarname.clone(), newvarid);
-        self.inv_name_map.push(newvarname);
+        self.global_info
+            .name_map
+            .insert(newvarname.clone(), newvarid);
+        self.global_info.inv_name_map.push(newvarname);
         newvarid
-    }
-
-    pub fn add_dollar(&mut self, name: VarName, value: Element) {
-        self.variables.insert(name, value);
     }
 }
 
@@ -102,7 +150,7 @@ impl Program {
         // convert all the names to IDs
 
         let mut parsed_input = input.to_element(&mut prog.var_info);
-        parsed_input.normalize_inplace();
+        parsed_input.normalize_inplace(&prog.var_info.global_info);
 
         match parsed_input {
             Element::SubExpr(_, t) => for mut x in t {
@@ -231,7 +279,7 @@ impl<ID: Id> Default for Element<ID> {
 #[macro_export]
 macro_rules! DUMMY_ELEM { () => (Element::Num(false, true, 1, 1)) }
 
-#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Statement<ID: Id = VarName> {
     IdentityStatement(IdentityStatement<ID>),
     SplitArg(ID),
@@ -246,6 +294,7 @@ pub enum Statement<ID: Id = VarName> {
     Assign(Element<ID>, Element<ID>),
     Maximum(Element<ID>),
     Call(String, Vec<Element<ID>>),
+    Attrib(Element<ID>, Vec<FunctionAttributes>),
     // internal commands
     Jump(usize),              // unconditional jump
     Eval(Element<ID>, usize), // evaluate and jump if eval is false
@@ -549,6 +598,18 @@ impl fmt::Display for Statement {
                 writeln!(f, ");")
             }
             Statement::Assign(ref d, ref e) => writeln!(f, "{}={};", d, e),
+            Statement::Attrib(ref ff, ref a) => {
+                writeln!(f, "Attrib {}=", ff)?;
+                match a.first() {
+                    Some(x) => write!(f, "{}", x)?,
+                    None => {}
+                }
+
+                for x in a.iter().skip(1) {
+                    write!(f, "+{}", x)?;
+                }
+                writeln!(f, ";")
+            }
             Statement::Maximum(ref d) => writeln!(f, "Maximum {};", d),
             Statement::Jump(ref i) => writeln!(f, "JMP {}", i),
             Statement::Eval(ref n, ref i) => writeln!(f, "IF NOT {} JMP {}", n, i),
@@ -558,7 +619,7 @@ impl fmt::Display for Statement {
     }
 }
 
-fn fmt_varname(v: &VarName, f: &mut fmt::Formatter, var_info: &VarInfo) -> fmt::Result {
+fn fmt_varname(v: &VarName, f: &mut fmt::Formatter, var_info: &GlobalVarInfo) -> fmt::Result {
     if var_info.inv_name_map.len() == 0 {
         write!(f, "var_{}", v)
     } else {
@@ -596,7 +657,7 @@ impl fmt::Display for IdentityStatementMode {
 
 pub struct ElementPrinter<'a> {
     pub element: &'a Element,
-    pub var_info: &'a VarInfo,
+    pub var_info: &'a GlobalVarInfo,
 }
 
 impl<'a> fmt::Display for ElementPrinter<'a> {
@@ -606,7 +667,7 @@ impl<'a> fmt::Display for ElementPrinter<'a> {
 }
 
 impl Element {
-    pub fn fmt_output(&self, f: &mut fmt::Formatter, var_info: &VarInfo) -> fmt::Result {
+    pub fn fmt_output(&self, f: &mut fmt::Formatter, var_info: &GlobalVarInfo) -> fmt::Result {
         match self {
             &Element::VariableArgument(ref name) => {
                 write!(f, "?")?;
@@ -724,7 +785,7 @@ impl Element {
 
 impl fmt::Display for Element {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.fmt_output(f, &VarInfo::empty())
+        self.fmt_output(f, &GlobalVarInfo::empty())
     }
 }
 
@@ -910,9 +971,13 @@ impl Statement<String> {
             Statement::Assign(ref mut d, ref mut e) => {
                 Statement::Assign(d.to_element(var_info), e.to_element(var_info))
             }
-            _ => {
-                unreachable!();
+            Statement::Attrib(ref mut f, ref mut l) => {
+                Statement::Attrib(f.to_element(var_info), mem::replace(l, vec![]))
             }
+            Statement::Jump(x) => Statement::Jump(x),
+            Statement::Eval(ref mut e, i) => Statement::Eval(e.to_element(var_info), i),
+            Statement::JumpIfChanged(i) => Statement::JumpIfChanged(i),
+            Statement::PushChange => Statement::PushChange,
         }
     }
 }
@@ -967,23 +1032,23 @@ impl Statement {
         changed
     }
 
-    pub fn normalize(&mut self) {
+    pub fn normalize(&mut self, var_info: &GlobalVarInfo) {
         match *self {
             Statement::IdentityStatement(IdentityStatement {
                 ref mut lhs,
                 ref mut rhs,
                 ..
             }) => {
-                lhs.normalize_inplace();
-                rhs.normalize_inplace();
+                lhs.normalize_inplace(var_info);
+                rhs.normalize_inplace(var_info);
             }
             Statement::Multiply(ref mut e)
             | Statement::Eval(ref mut e, _)
             | Statement::Assign(_, ref mut e) => {
-                e.normalize_inplace();
+                e.normalize_inplace(var_info);
             }
             Statement::Argument(_, ref mut ss) => for s in ss {
-                s.normalize();
+                s.normalize(var_info);
             },
             _ => {}
         }
