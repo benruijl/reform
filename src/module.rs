@@ -171,11 +171,12 @@ impl Statement {
     fn to_iter<'a>(
         &'a self,
         input: &'a mut Element,
-        var_info: &'a HashMap<VarName, Element>,
+        local_var_info: &'a mut LocalVarInfo,
+        global_var_info: &GlobalVarInfo,
     ) -> StatementIter<'a> {
         match *self {
             Statement::IdentityStatement(ref id) => {
-                StatementIter::IdentityStatement(id.to_iter(input, var_info))
+                StatementIter::IdentityStatement(id.to_iter(input, &local_var_info.variables))
             }
             Statement::SplitArg(ref name) => {
                 // TODO: use mutability to prevent unnecessary copy
@@ -249,7 +250,7 @@ impl Statement {
                     }
                 };
 
-                res.replace_vars(var_info, true); // apply the dollar variables
+                res.replace_vars(&local_var_info.variables, true); // apply the dollar variables
                 res.normalize_inplace();
                 StatementIter::Simple(res, true)
             }
@@ -292,7 +293,8 @@ impl Statement {
 fn do_module_rec(
     mut input: Element,
     statements: &[Statement],
-    var_info: &mut VarInfo,
+    local_var_info: &mut LocalVarInfo,
+    global_var_info: &GlobalVarInfo,
     current_index: usize,
     term_affected: &mut Vec<bool>,
     output: &mut TermStreamWrapper,
@@ -312,7 +314,8 @@ fn do_module_rec(
             return do_module_rec(
                 input,
                 statements,
-                var_info,
+                local_var_info,
+                global_var_info,
                 current_index + 1,
                 term_affected,
                 output,
@@ -320,13 +323,22 @@ fn do_module_rec(
         }
         Statement::JumpIfChanged(i) => {
             if Some(&true) == term_affected.last() {
-                return do_module_rec(input, statements, var_info, i, term_affected, output);
+                return do_module_rec(
+                    input,
+                    statements,
+                    local_var_info,
+                    global_var_info,
+                    i,
+                    term_affected,
+                    output,
+                );
             } else {
                 term_affected.pop(); // it should be as if the repeated wasn't there
                 return do_module_rec(
                     input,
                     statements,
-                    var_info,
+                    local_var_info,
+                    global_var_info,
                     current_index + 1,
                     term_affected,
                     output,
@@ -336,39 +348,57 @@ fn do_module_rec(
         Statement::Eval(ref cond, i) => {
             // if statement
             // do the match
-            if MatchKind::from_element(cond, &input, &var_info.variables)
+            if MatchKind::from_element(cond, &input, &local_var_info.variables)
                 .next()
                 .is_some()
             {
                 return do_module_rec(
                     input,
                     statements,
-                    var_info,
+                    local_var_info,
+                    global_var_info,
                     current_index + 1,
                     term_affected,
                     output,
                 );
             } else {
-                return do_module_rec(input, statements, var_info, i, term_affected, output);
+                return do_module_rec(
+                    input,
+                    statements,
+                    local_var_info,
+                    global_var_info,
+                    i,
+                    term_affected,
+                    output,
+                );
             }
         }
         Statement::Jump(i) => {
-            return do_module_rec(input, statements, var_info, i, term_affected, output);
+            return do_module_rec(
+                input,
+                statements,
+                local_var_info,
+                global_var_info,
+                i,
+                term_affected,
+                output,
+            );
         }
         // TODO: not a control flow instruction
         // move to iter if we decide how to propagate the var_info
         Statement::Assign(ref dollar, ref e) => {
             let mut ee = e.clone();
-            if ee.replace_vars(&var_info.variables, true) {
+            if ee.replace_vars(&local_var_info.variables, true) {
                 ee.normalize_inplace();
             }
             if let Element::Dollar(ref d, ..) = *dollar {
-                var_info.add_dollar(d.clone(), ee);
+                local_var_info.add_dollar(d.clone(), ee);
             }
             return do_module_rec(
                 input,
                 statements,
-                var_info,
+                local_var_info,
+                global_var_info,
                 current_index + 1,
                 term_affected,
                 output,
@@ -376,8 +406,8 @@ fn do_module_rec(
         }
         Statement::Maximum(ref dollar) => {
             if let Element::Dollar(ref d, ..) = *dollar {
-                if let Some(x) = var_info.variables.get(d) {
-                    match var_info.global_variables.entry(d.clone()) {
+                if let Some(x) = local_var_info.variables.get(d) {
+                    match local_var_info.global_variables.entry(d.clone()) {
                         Entry::Occupied(mut y) => {
                             if *y.get() < *x {
                                 *y.get_mut() = x.clone();
@@ -392,7 +422,8 @@ fn do_module_rec(
             return do_module_rec(
                 input,
                 statements,
-                var_info,
+                local_var_info,
+                global_var_info,
                 current_index + 1,
                 term_affected,
                 output,
@@ -403,13 +434,14 @@ fn do_module_rec(
                 "\t+{}",
                 ElementPrinter {
                     element: &input,
-                    var_info: var_info,
+                    var_info: &global_var_info,
                 }
             );
             return do_module_rec(
                 input,
                 statements,
-                var_info,
+                local_var_info,
+                global_var_info,
                 current_index + 1,
                 term_affected,
                 output,
@@ -418,9 +450,11 @@ fn do_module_rec(
         _ => {}
     }
 
+    // TODO: generate first two elements? performance doesnt seem too much affected though
     {
-        let oldvarinfo = var_info.variables.clone(); // TODO: prevent clone somehow?
-        let mut it = statements[current_index].to_iter(&mut input, &oldvarinfo);
+        let mut oldvarinfo = local_var_info.clone(); // TODO: prevent clone somehow? if one term is in the output, the clone is unnecessary
+        let mut it =
+            statements[current_index].to_iter(&mut input, &mut oldvarinfo, global_var_info);
         loop {
             match it.next() {
                 // for every term
@@ -430,7 +464,8 @@ fn do_module_rec(
                     do_module_rec(
                         f,
                         statements,
-                        var_info,
+                        local_var_info,
+                        global_var_info,
                         current_index + 1,
                         term_affected,
                         output,
@@ -440,7 +475,8 @@ fn do_module_rec(
                 StatementResult::NotExecuted(f) => do_module_rec(
                     f,
                     statements,
-                    var_info,
+                    local_var_info,
+                    global_var_info,
                     current_index + 1,
                     term_affected,
                     output,
@@ -459,7 +495,8 @@ fn do_module_rec(
     do_module_rec(
         input,
         statements,
-        var_info,
+        local_var_info,
+        global_var_info,
         current_index + 1,
         term_affected,
         output,
@@ -562,12 +599,23 @@ impl Module {
             match *x {
                 Statement::Assign(ref dollar, ref e) => {
                     let mut ee = e.clone();
-                    ee.replace_vars(&var_info.variables, true);
+                    ee.replace_vars(&var_info.local_info.variables, true);
                     ee.normalize_inplace();
                     if let Element::Dollar(ref d, ..) = *dollar {
-                        var_info.add_dollar(d.clone(), ee);
+                        var_info.local_info.add_dollar(d.clone(), ee);
                     }
                 }
+                Statement::Attrib(ref f, ref attribs) => match *f {
+                    Element::Var(ref name) => {
+                        var_info
+                            .global_info
+                            .func_attribs
+                            .insert(name.clone(), attribs.clone());
+                    }
+                    _ => {
+                        panic!("Can only assign attributes to functions");
+                    }
+                },
                 _ => unimplemented!(),
             }
         }
@@ -609,10 +657,13 @@ pub fn do_program(program: &mut Program, write_log: bool, num_threads: usize) {
     for module in &mut program.modules {
         // move global statements from the previous module into the new one
         // TODO: do swap instead of clone?
-        program.var_info.variables = program.var_info.global_variables.clone();
+        program.var_info.local_info.variables =
+            program.var_info.local_info.global_variables.clone();
 
         module.normalize_module(&mut program.var_info, &program.procedures);
         debug!("{}", module); // print module code
+
+        let global_info = program.var_info.global_info.clone();
 
         let mut output = OutputTermStreamer::new();
 
@@ -620,13 +671,13 @@ pub fn do_program(program: &mut Program, write_log: bool, num_threads: usize) {
             let mut output_mutarc = Arc::new(Mutex::new(output));
 
             let queue: MsQueue<Option<Element>> = MsQueue::new();
-            let thread_varinfo = program.var_info.clone();
+            let thread_local_varinfo = program.var_info.local_info.clone();
 
             // create threads that process terms
             crossbeam::scope(|scope| {
                 for _ in 0..num_threads {
                     scope.spawn(|| {
-                        let mut thread_varinfo = thread_varinfo.clone();
+                        let mut thread_varinfo = thread_local_varinfo.clone();
                         let mut executed = vec![false];
                         let mut output = TermStreamWrapper::Threaded(output_mutarc.clone());
                         while let Some(x) = queue.pop() {
@@ -634,6 +685,7 @@ pub fn do_program(program: &mut Program, write_log: bool, num_threads: usize) {
                                 x,
                                 &module.statements,
                                 &mut thread_varinfo,
+                                &global_info,
                                 0,
                                 &mut executed,
                                 &mut output,
@@ -677,7 +729,8 @@ pub fn do_program(program: &mut Program, write_log: bool, num_threads: usize) {
                 do_module_rec(
                     x,
                     &module.statements,
-                    &mut program.var_info,
+                    &mut program.var_info.local_info,
+                    &program.var_info.global_info,
                     0,
                     &mut executed,
                     &mut output_wrapped,

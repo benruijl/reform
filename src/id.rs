@@ -817,7 +817,6 @@ pub struct MatchIterator<'a> {
     it: MatchKind<'a>,
     rhsp: usize, // current rhs index,
     hasmatch: bool,
-    input: &'a Element,
     var_info: &'a HashMap<VarName, Element>,
 }
 
@@ -884,7 +883,6 @@ impl IdentityStatement {
         var_info: &'a HashMap<VarName, Element>,
     ) -> MatchIterator<'a> {
         MatchIterator {
-            input: input,
             hasmatch: false,
             m: vec![],
             remaining: vec![],

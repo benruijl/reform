@@ -6,9 +6,8 @@ use std::io::{BufReader, BufWriter, SeekFrom};
 use std::collections::BinaryHeap;
 use std::cmp::Ordering;
 use std::mem;
-use std::collections::VecDeque;
 
-use structure::{Element, ElementPrinter, Statement, VarInfo};
+use structure::{Element, ElementPrinter, Func, Statement, VarInfo};
 use normalize::merge_terms;
 
 pub const MAXTERMMEM: usize = 10_000_000; // maximum number of terms allowed in memory
@@ -33,40 +32,39 @@ impl PartialOrd for ElementStreamTuple {
 
 #[derive(Debug)]
 pub struct InputTermStreamer {
-    input: Option<BufReader<File>>,      // the input file
-    mem_buffer_input: VecDeque<Element>, // the memory buffer, storing unserialized terms
-    termcounter_input: u64,              // input term count
+    input: Option<BufReader<File>>, // the input file
+    mem_buffer_input: Vec<Element>, // the memory buffer, storing unserialized terms
+    termcounter_input: u64,         // input term count
 }
 
 impl InputTermStreamer {
     pub fn new(source: Option<BufReader<File>>) -> InputTermStreamer {
         InputTermStreamer {
             input: source,
-            mem_buffer_input: VecDeque::with_capacity(SMALL_BUFFER as usize),
-            termcounter_input: 0,
+            mem_buffer_input: vec![],
         }
     }
 
     // get the next term from the input
     pub fn read_term(&mut self) -> Option<Element> {
-        if !self.mem_buffer_input.is_empty() {
-            self.termcounter_input -= 1;
-            return self.mem_buffer_input.pop_front();
+        // TODO: decrease termcounter?
+        if self.mem_buffer_input.len() > 0 {
+            return self.mem_buffer_input.pop();
         } else {
             // read the next terms from the input file,
             // so that the membuffer is filled
             if let Some(ref mut x) = self.input {
                 for _ in 0..MAXTERMMEM {
                     if let Ok(e) = Element::deserialize(x) {
-                        self.mem_buffer_input.push_front(e);
+                        self.mem_buffer_input.push(e);
                     } else {
                         break;
                     }
                 }
 
-                if !self.mem_buffer_input.is_empty() {
-                    self.termcounter_input -= 1;
-                    return self.mem_buffer_input.pop_front();
+                self.mem_buffer_input.reverse(); // FIXME: wasteful...
+                if self.mem_buffer_input.len() > 0 {
+                    return self.mem_buffer_input.pop();
                 }
             }
         }
@@ -74,7 +72,7 @@ impl InputTermStreamer {
     }
 
     pub fn add_term_input(&mut self, element: Element) {
-        self.mem_buffer_input.push_back(element);
+        self.mem_buffer_input.push(element);
         self.termcounter_input += 1;
     }
 
@@ -88,14 +86,17 @@ impl InputTermStreamer {
 pub struct OutputTermStreamer {
     sortfiles: Vec<File>,     // the sort files, a buffer for each file
     mem_buffer: Vec<Element>, // the memory buffer, storing unserialized terms
-    termcounter: u64,         // current term count
+
+    termcounter: u64, // current term count
 }
 
 impl OutputTermStreamer {
     pub fn new() -> OutputTermStreamer {
-        OutputTermStreamer {
+        TermStreamer {
             sortfiles: vec![],
             mem_buffer: vec![], // TODO: prevent internal allocation to go beyond MAXTERMMEM
+            mem_buffer_input: vec![],
+            termcounter_input: 0,
             termcounter: 0,
         }
     }
@@ -131,7 +132,7 @@ impl OutputTermStreamer {
 
             match a {
                 Element::SubExpr(_, ref mut x) => mem::swap(&mut self.mem_buffer, x),
-                x => self.mem_buffer = vec![x],
+                x => self.mem_buffer_input = vec![x],
             }
         }
 
@@ -167,76 +168,73 @@ impl OutputTermStreamer {
 		}
     }*/
 
-    /*
-    Sort the output stream and create a new input stream.
-    */
     pub fn sort(
         &mut self,
         input_streamer: &mut InputTermStreamer,
         var_info: &mut VarInfo,
         global_statements: &[Statement],
-        _write_log: bool,
+        write_log: bool,
     ) {
         let inpterm = input_streamer.termcount();
         let genterm = self.termcounter;
 
         self.termcounter = 0; // reset the output term counter
-        input_streamer.termcounter_input = 0;
+        self.termcounter_input = 0;
 
-        assert!(input_streamer.mem_buffer_input.is_empty());
+        assert!(input_streamer.mem_buffer_input.len() == 0);
 
         // can the sort be done completely in memory?
-        if self.sortfiles.is_empty() {
+        if self.sortfiles.len() == 0 {
             debug!("In-memory sorting {} terms", self.mem_buffer.len());
 
             let mut tmp = vec![];
             mem::swap(&mut self.mem_buffer, &mut tmp);
             let mut a = Element::SubExpr(true, tmp);
             a.normalize_inplace();
-            input_streamer.input = None;
+            self.input = None;
 
             // execute the global statements
             for s in global_statements {
-                match *s {
-                    Statement::Collect(ref v) => {
-                        a = Element::Fn(false, v.clone(), vec![a]);
+                match s {
+                    &Statement::Collect(ref v) => {
+                        a = Element::Fn(
+                            false,
+                            Func {
+                                name: v.clone(),
+                                args: vec![a],
+                            },
+                        );
                     }
-                    _ => {}
+                    _ => unreachable!(),
                 }
             }
 
             // for now, print the dollar variables
-            for (k, v) in &var_info.local_info.global_variables {
+            for (k, v) in &var_info.global_variables {
                 println!("GLOB {} = {}", k, v);
             }
 
             // move to input buffer
             match a {
-                Element::SubExpr(_, x) => input_streamer.mem_buffer_input = VecDeque::from(x),
-                x => {
-                    input_streamer.mem_buffer_input = {
-                        let mut v = VecDeque::new();
-                        v.push_back(x);
-                        v
-                    }
-                }
+                Element::SubExpr(_, x) => self.mem_buffer_input = x,
+                x => self.mem_buffer_input = vec![x],
             }
 
-            for x in &input_streamer.mem_buffer_input {
+            for x in self.mem_buffer_input.iter() {
                 println!(
                     "\t+{}",
                     ElementPrinter {
                         element: x,
-                        var_info: &var_info.global_info,
+                        var_info,
                     }
                 );
             }
 
-            input_streamer.termcounter_input = input_streamer.mem_buffer_input.len() as u64;
+            self.termcounter_input = self.mem_buffer_input.len() as u64;
 
             println!(
                 "sort -- \t terms in: {}\tgenerated: {}\tterms out: {}",
-                inpterm, genterm, input_streamer.termcounter_input
+                inpterm, genterm, self.termcounter_input
             );
 
             return;
@@ -263,7 +261,7 @@ impl OutputTermStreamer {
             self.sortfiles[x].seek(SeekFrom::Start(0)).unwrap();
             {
                 let mut bw = BufWriter::new(&self.sortfiles[x]);
-                for v in &self.mem_buffer {
+                for v in self.mem_buffer.iter() {
                     v.serialize(&mut bw);
                 }
             }
@@ -288,7 +286,7 @@ impl OutputTermStreamer {
             // the bufreader should read at most maxsortmem
             let mut streamer = self.sortfiles
                 .iter()
-                .map(BufReader::new)
+                .map(|x| BufReader::new(x))
                 .collect::<Vec<_>>();
 
             // create the output file, which will be the new input
@@ -297,7 +295,7 @@ impl OutputTermStreamer {
                 .write(true)
                 .create(true)
                 .truncate(true)
-                .open("input.srt")
+                .open(format!("input.srt"))
                 .unwrap();
 
             let mut ofb = BufWriter::new(of);
@@ -324,13 +322,13 @@ impl OutputTermStreamer {
                 }
 
                 if self.mem_buffer.len() == maxsortmem {
-                    input_streamer.termcounter_input += maxsortmem as u64 - 1;
+                    self.termcounter_input += maxsortmem as u64 - 1;
                     for x in &self.mem_buffer[..maxsortmem - 1] {
                         println!(
                             "\t+{}",
                             ElementPrinter {
                                 element: x,
-                                var_info: &var_info.global_info,
+                                var_info,
                             }
                         );
                         x.serialize(&mut ofb);
@@ -348,15 +346,17 @@ impl OutputTermStreamer {
 
             // execute the global statements
             for s in global_statements {
-                match *s {
-                    Statement::Collect(ref v) => {
+                match s {
+                    &Statement::Collect(ref v) => {
                         // does the output fit in memory?
-                        if input_streamer.termcounter_input == 0 {
+                        if self.termcounter_input == 0 {
                             self.mem_buffer = vec![
                                 Element::Fn(
                                     false,
-                                    v.clone(),
-                                    mem::replace(&mut self.mem_buffer, vec![]),
+                                    Func {
+                                        name: v.clone(),
+                                        args: mem::replace(&mut self.mem_buffer, vec![]),
+                                    },
                                 ),
                             ];
                         } else {
@@ -367,30 +367,28 @@ impl OutputTermStreamer {
                 }
             }
 
-            input_streamer.termcounter_input += self.mem_buffer.len() as u64;
+            self.termcounter_input += self.mem_buffer.len() as u64;
 
             for x in &self.mem_buffer {
                 println!(
                     "\t+{}",
                     ElementPrinter {
                         element: x,
-                        var_info: &var_info.global_info,
+                        var_info,
                     }
                 );
             }
 
             // move the mem_buffer to the input buffer
-            //mem::swap(&mut self.mem_buffer, &mut input_streamer.mem_buffer_input);
-            input_streamer.mem_buffer_input =
-                VecDeque::from(mem::replace(&mut self.mem_buffer, vec![]));
+            mem::swap(&mut self.mem_buffer, &mut self.mem_buffer_input);
 
             let mut of = ofb.into_inner().unwrap();
             of.seek(SeekFrom::Start(0)).unwrap();
-            input_streamer.input = Some(BufReader::new(of)); // set it as the new input
+            self.input = Some(BufReader::new(of)); // set it as the new input
 
             println!(
                 "sort -- \t terms in: {}\tgenerated: {}\tterms out: {}",
-                inpterm, genterm, input_streamer.termcounter_input
+                inpterm, genterm, self.termcounter_input
             );
         }
 

@@ -1,7 +1,7 @@
 use std::io::prelude::*;
 use std::fs::File;
-use structure::{IdentityStatementMode, NamedElement, NamedIdentityStatement, NamedModule,
-                NamedProcedure, NamedStatement, NumOrder, Program};
+use structure::{FunctionAttributes, IdentityStatementMode, NamedElement, NamedIdentityStatement,
+                NamedModule, NamedProcedure, NamedStatement, NumOrder, Program};
 
 use combine::char::*;
 use combine::*;
@@ -133,7 +133,15 @@ parser!{
     let collect = keyword("collect").with(varname()).skip(statementend())
                   .map(|x| NamedStatement::Collect(x));
 
-    choice!(assign, collect)
+    let attribs = choice!(keyword("symmetric").map(|_| FunctionAttributes::Symmetric),
+                         keyword("linear").map(|_| FunctionAttributes::Linear),
+                         keyword("noncommutative").map(|_| FunctionAttributes::NonCommutative));
+
+    let attrib = (keyword("attrib").with(factor()), lex_char('=').with(
+            sep_by(attribs, lex_char('+')).skip(statementend())))
+                 .map(|(d,e)| NamedStatement::Attrib(d, e));
+
+    choice!(assign, collect, attrib)
 }
 }
 
