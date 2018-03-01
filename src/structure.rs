@@ -5,11 +5,16 @@ use std::cmp::Ordering;
 use tools::num_cmp;
 
 pub const BUILTIN_FUNCTIONS: &'static [&'static str] = &["delta_", "nargs_", "sum_", "mul_"];
-pub const FUNCTION_DELTA: u32 = 0;
-pub const FUNCTION_NARGS: u32 = 1;
-pub const FUNCTION_SUM: u32 = 2;
-pub const FUNCTION_MUL: u32 = 3;
+pub const FUNCTION_DELTA: VarName = 0;
+pub const FUNCTION_NARGS: VarName = 1;
+pub const FUNCTION_SUM: VarName = 2;
+pub const FUNCTION_MUL: VarName = 3;
 
+/// Trait for variable ID. Normally `VarName` or `String`.
+pub trait Id: Ord + fmt::Debug {}
+impl<T: Ord + fmt::Debug> Id for T {}
+
+/// Internal ID numbers for variables.
 pub type VarName = u32;
 
 #[derive(Debug)]
@@ -24,7 +29,7 @@ pub struct Program {
 #[derive(Debug, Clone)]
 pub struct VarInfo {
     inv_name_map: Vec<String>,
-    name_map: HashMap<String, u32>,
+    name_map: HashMap<String, VarName>,
     pub variables: HashMap<VarName, Element>, // local map of (dollar) variables
     pub global_variables: HashMap<VarName, Element>, // global map of (dollar) variables
 }
@@ -44,7 +49,7 @@ impl VarInfo {
         let mut name_map = HashMap::new();
 
         // insert built-in functions
-        let mut i: u32 = 0;
+        let mut i: VarName = 0;
         for x in BUILTIN_FUNCTIONS {
             name_map.insert(x.to_string(), i);
             inv_name_map.push(x.to_string());
@@ -58,17 +63,17 @@ impl VarInfo {
         }
     }
 
-    pub fn get_name(&mut self, s: &String) -> u32 {
+    pub fn get_name(&mut self, s: &String) -> VarName {
         let nm = &mut self.name_map;
         let inv = &mut self.inv_name_map;
         *nm.entry(s.clone()).or_insert_with(|| {
             inv.push(s.clone());
-            (inv.len() - 1) as u32
+            (inv.len() - 1) as VarName
         })
     }
 
     pub fn add_local(&mut self, name: &VarName) -> VarName {
-        let newvarid = self.inv_name_map.len() as u32;
+        let newvarid = self.inv_name_map.len() as VarName;
         let newvarname = format!("{}_{}", name, newvarid);
         self.name_map.insert(newvarname.clone(), newvarid);
         self.inv_name_map.push(newvarname);
@@ -189,20 +194,6 @@ pub enum NumOrder {
 }
 
 #[derive(Debug, Clone)]
-pub enum NamedElement {
-    VariableArgument(String),                     // ?a
-    Wildcard(String, Vec<NamedElement>),          // x?{...}
-    Dollar(String, Option<Box<NamedElement>>),    // $x[y]
-    Var(String),                                  // x
-    Pow(bool, Box<(NamedElement, NamedElement)>), // (1+x)^3; dirty, base, exponent
-    NumberRange(bool, u64, u64, NumOrder),        // >0, <=-5/2
-    Fn(bool, String, Vec<NamedElement>),          // f(...)
-    Term(bool, Vec<NamedElement>),
-    SubExpr(bool, Vec<NamedElement>),
-    Num(bool, bool, u64, u64), // dirty, fraction (true=positive), make sure it is last for sorting
-}
-
-#[derive(Debug, Clone)]
 pub enum NamedStatement {
     IdentityStatement(NamedIdentityStatement),
     SplitArg(String),
@@ -222,21 +213,24 @@ pub enum NamedStatement {
 // argument is the dirty flag, which is set to true
 // if a normalization needs to happen
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Element {
-    VariableArgument(VarName),             // ?a
-    Wildcard(VarName, Vec<Element>),       // x?{...}
-    Dollar(VarName, Option<Box<Element>>), // $x[y]
-    Var(VarName),                          // x
-    Pow(bool, Box<(Element, Element)>),    // (1+x)^3; dirty, base, exponent
-    NumberRange(bool, u64, u64, NumOrder), // >0, <=-5/2
-    Fn(bool, VarName, Vec<Element>),       // f(...)
-    Term(bool, Vec<Element>),
-    SubExpr(bool, Vec<Element>),
+pub enum Element<ID: Id = VarName> {
+    VariableArgument(ID),                       // ?a
+    Wildcard(ID, Vec<Element<ID>>),             // x?{...}
+    Dollar(ID, Option<Box<Element<ID>>>),       // $x[y]
+    Var(ID),                                    // x
+    Pow(bool, Box<(Element<ID>, Element<ID>)>), // (1+x)^3; dirty, base, exponent
+    NumberRange(bool, u64, u64, NumOrder),      // >0, <=-5/2
+    Fn(bool, ID, Vec<Element<ID>>),             // f(...)
+    Term(bool, Vec<Element<ID>>),
+    SubExpr(bool, Vec<Element<ID>>),
     Num(bool, bool, u64, u64), // dirty, fraction (true=positive), make sure it is last for sorting
 }
 
-impl Default for Element {
-    fn default() -> Element {
+/// Element with variables named by String.
+pub type NamedElement = Element<String>;
+
+impl<ID: Id> Default for Element<ID> {
+    fn default() -> Element<ID> {
         Element::Num(false, true, 1, 1)
     }
 }
@@ -292,8 +286,8 @@ impl PartialEq for Element {
      }
 }*/
 
-impl Ord for Element {
-    fn cmp(&self, other: &Element) -> Ordering {
+impl<ID: Id> Ord for Element<ID> {
+    fn cmp(&self, other: &Element<ID>) -> Ordering {
         self.partial_cmp(other).unwrap()
     }
 }
@@ -302,8 +296,8 @@ impl Ord for Element {
 // x and x*2 next to each other for term sorting
 // and x and x^2 next to each other for
 // coefficients are partially ignored and sorted at the back
-impl PartialOrd for Element {
-    fn partial_cmp(&self, other: &Element) -> Option<Ordering> {
+impl<ID: Id> PartialOrd for Element<ID> {
+    fn partial_cmp(&self, other: &Element<ID>) -> Option<Ordering> {
         match (self, other) {
             (&Element::Fn(_, ref namea, ref argsa), &Element::Fn(_, ref nameb, ref argsb)) => {
                 let k = namea.partial_cmp(nameb);
@@ -738,12 +732,12 @@ impl fmt::Display for Element {
 }
 
 impl NamedElement {
-    // replace a string name for a numerical ID
+    /// Replaces string names by numerical IDs.
     pub fn to_element(&mut self, var_info: &mut VarInfo) -> Element {
         match *self {
-            NamedElement::NumberRange(s, n, d, ref c) => Element::NumberRange(s, n, d, c.clone()),
-            NamedElement::Num(_, s, n, d) => Element::Num(true, s, n, d),
-            NamedElement::Dollar(ref mut name, ref mut inds) => {
+            Element::NumberRange(s, n, d, ref c) => Element::NumberRange(s, n, d, c.clone()),
+            Element::Num(_, s, n, d) => Element::Num(true, s, n, d),
+            Element::Dollar(ref mut name, ref mut inds) => {
                 Element::Dollar(var_info.get_name(name), {
                     match *inds {
                         Some(ref mut x) => Some(Box::new(x.to_element(var_info))),
@@ -751,31 +745,31 @@ impl NamedElement {
                     }
                 })
             }
-            NamedElement::Var(ref mut name) => Element::Var(var_info.get_name(name)),
-            NamedElement::VariableArgument(ref mut name) => {
+            Element::Var(ref mut name) => Element::Var(var_info.get_name(name)),
+            Element::VariableArgument(ref mut name) => {
                 Element::VariableArgument(var_info.get_name(name))
             }
-            NamedElement::Wildcard(ref mut name, ref mut restrictions) => Element::Wildcard(
+            Element::Wildcard(ref mut name, ref mut restrictions) => Element::Wildcard(
                 var_info.get_name(name),
                 restrictions
                     .iter_mut()
                     .map(|x| x.to_element(var_info))
                     .collect(),
             ),
-            NamedElement::Pow(_, ref mut be) => {
+            Element::Pow(_, ref mut be) => {
                 let (ref mut b, ref mut e) = *&mut **be;
                 Element::Pow(
                     true,
                     Box::new((b.to_element(var_info), e.to_element(var_info))),
                 )
             }
-            NamedElement::Term(_, ref mut f) => {
+            Element::Term(_, ref mut f) => {
                 Element::Term(true, f.iter_mut().map(|x| x.to_element(var_info)).collect())
             }
-            NamedElement::SubExpr(_, ref mut f) => {
+            Element::SubExpr(_, ref mut f) => {
                 Element::SubExpr(true, f.iter_mut().map(|x| x.to_element(var_info)).collect())
             }
-            NamedElement::Fn(_, ref mut name, ref mut args) => Element::Fn(
+            Element::Fn(_, ref mut name, ref mut args) => Element::Fn(
                 true,
                 var_info.get_name(name),
                 args.iter_mut().map(|x| x.to_element(var_info)).collect(),

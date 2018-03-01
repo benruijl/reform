@@ -1,6 +1,6 @@
 use std::io::prelude::*;
 use std::fs::File;
-use structure::{IdentityStatementMode, NamedElement, NamedIdentityStatement, NamedModule,
+use structure::{Element, IdentityStatementMode, NamedElement, NamedIdentityStatement, NamedModule,
                 NamedProcedure, NamedStatement, NumOrder, Program};
 
 use combine::char::*;
@@ -119,7 +119,7 @@ parser!{
 {
    char('$').with(varname()).
    and(optional(between(lex_char('['), lex_char(']'), expr()))).
-   map(|(x,ind)| NamedElement::Dollar('$'.to_string() + &x,
+   map(|(x,ind)| Element::Dollar('$'.to_string() + &x,
                                  ind.map(Box::new)))
 }
 }
@@ -200,7 +200,8 @@ parser!{
         many1(digit()).map(|d : String| d.parse::<u64>().unwrap()),
         optional(char('/').with(many1(digit()))).map(
             |x| x.map(|y : String| y.parse::<u64>().unwrap()).unwrap_or(1)
-    )).map(|(sign, num, den): (bool, u64, u64)| NamedElement::Num(true, sign, num, den)).skip(skipnocode())
+    )).map(|(sign, num, den): (bool, u64, u64)|
+           Element::Num(true, sign, num, den)).skip(skipnocode())
 }
 }
 
@@ -214,25 +215,25 @@ parser!{
     string(">").map(|_| NumOrder::Greater), string("==").map(|_| NumOrder::Equal),
     try(string("<=")).map(|_| NumOrder::SmallerEqual), string("<").map(|_| NumOrder::Smaller)).skip(spaces());
     let numrange = (numorder, number()).map(|(r,b)| match b {
-        NamedElement::Num(_,pos,num,den) => NamedElement::NumberRange(pos,num,den,r),
+        Element::Num(_,pos,num,den) => Element::NumberRange(pos,num,den,r),
         _ => unreachable!()
     });
     let set = between(lex_char('{'),
                       lex_char('}'),
                       sep_by(choice!(expr(), numrange), lex_char(',')));
-    let variableargument = (char('?'), varname()).map(|(_, v)| NamedElement::VariableArgument("?".to_owned() + &v));
+    let variableargument = (char('?'), varname()).map(|(_, v)| Element::VariableArgument("?".to_owned() + &v));
 
     // read the variable name and then see if it is a wildcard, a NamedFunction or variable
     let namedfactor = varname()
                       .and(choice!(lex_char('?').and(optional(set).map(|x| x.unwrap_or(vec![]))).
-        map(|(_, s)| NamedElement::Wildcard(String::new(), s)),
-        funcarg.map(|fa| NamedElement::Fn(true, String::new(), fa)),
-        value(1).map(|_| NamedElement::Var(String::new())))).map(|(name, mut res)| {
+        map(|(_, s)| Element::Wildcard(String::new(), s)),
+        funcarg.map(|fa| Element::Fn(true, String::new(), fa)),
+        value(1).map(|_| Element::Var(String::new())))).map(|(name, mut res)| {
             match res {
-                NamedElement::Wildcard(ref mut n, ..)
+                Element::Wildcard(ref mut n, ..)
 
-                | NamedElement::Var(ref mut n) => *n = name,
-                NamedElement::Fn(_, ref mut n, ..) => *n = name,
+                | Element::Var(ref mut n) => *n = name,
+                Element::Fn(_, ref mut n, ..) => *n = name,
                 _ => unreachable!()
             }
             res
@@ -247,7 +248,7 @@ parser!{
     where [I: Stream<Item=char>]
 {
     between(lex_char('('), lex_char(')'), sep_by1(expr(), lex_char('+'))).
-        map(|x : Vec<NamedElement>| NamedElement::SubExpr(true, x))
+        map(|x : Vec<NamedElement>| Element::SubExpr(true, x))
 }
 }
 
@@ -257,7 +258,7 @@ parser!{
 {
     // TODO: support a^b^c? use chainl?
     factor().and(optional(lex_char('^').with(factor()))).map(|(b, e)| match e {
-        Some(ee) => NamedElement::Pow(true, Box::new((b, ee))),
+        Some(ee) => Element::Pow(true, Box::new((b, ee))),
         _ => b
     })
 }
@@ -267,7 +268,7 @@ parser!{
    fn terms[I]()(I) -> NamedElement
     where [I: Stream<Item=char>]
 {
-    sep_by1(powfactor(), lex_char('*')).map(|x : Vec<NamedElement>| NamedElement::Term(true, x))
+    sep_by1(powfactor(), lex_char('*')).map(|x : Vec<NamedElement>| Element::Term(true, x))
 }
 }
 
@@ -276,8 +277,8 @@ parser!{
     where [I: Stream<Item=char>]
 {
     lex_char('-').with(choice!(parenexpr(), terms())).map(|mut x| { match x {
-        NamedElement::Term(_, ref mut f) => f.push(NamedElement::Num(false,false,1,1)),
-        _ => { x = NamedElement::Term(true, vec![x,NamedElement::Num(false,false,1,1)])}
+        Element::Term(_, ref mut f) => f.push(Element::Num(false,false,1,1)),
+        _ => { x = Element::Term(true, vec![x, Element::Num(false,false,1,1)])}
     }; x})
 }
 }
@@ -289,6 +290,6 @@ parser!{
     (optional(lex_char('+')).with(choice!(minexpr(), terms())),
         many(choice!(minexpr(), lex_char('+').with(terms())))).
         map(|(x, mut y) : (NamedElement, Vec<NamedElement>)|
-            NamedElement::SubExpr(true, {y.push(x); y})).skip(spaces())
+            Element::SubExpr(true, {y.push(x); y})).skip(spaces())
 }
 }
