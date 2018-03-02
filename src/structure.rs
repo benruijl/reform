@@ -983,4 +983,28 @@ impl Statement {
         };
         changed
     }
+
+    pub fn normalize(&mut self) {
+        match *self {
+            Statement::IdentityStatement(IdentityStatement {
+                ref mut lhs,
+                ref mut rhs,
+                ..
+            }) => {
+                lhs.normalize_inplace();
+                rhs.normalize_inplace();
+            }
+            Statement::Multiply(ref mut e)
+            | Statement::Eval(ref mut e, _)
+            | Statement::Assign(_, ref mut e) => {
+                e.normalize_inplace();
+            },
+            Statement::Argument(_, ref mut ss) => {
+                for s in ss {
+                    s.normalize();
+                }
+            }
+            _ => {}
+        }
+    }
 }

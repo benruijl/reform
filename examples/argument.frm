@@ -1,4 +1,4 @@
-IN = f(x, y, 2*x);
+IN = x*f(x, y, 2*x);
 
 {
     argument f;

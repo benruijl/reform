@@ -386,34 +386,104 @@ fn do_module_rec(
                         if name == name1 {
                             // execute the statements
                             let mut newfuncarg = Vec::with_capacity(args.len());
-                            let mut tsr = TermStreamWrapper::Owned(newfuncarg);
+
                             for x in args {
+                                let mut tsr = TermStreamWrapper::Owned(vec![]);
                                 do_module_rec(
                                     x.clone(), // TODO: prevent clone
-                                    sts,       // TODO: normalize statements
+                                    sts,
                                     var_info,
                                     0,
                                     term_affected, // TODO: what to do here?
                                     &mut tsr,
                                 );
+
+                                if let TermStreamWrapper::Owned(mut nfa) = tsr {
+                                    match nfa.len() {
+                                        0 => newfuncarg.push(Element::Num(false, true, 0, 1)),
+                                        1 => newfuncarg.push(nfa.swap_remove(0)),
+                                        _ => {
+                                            let mut sub = Element::SubExpr(true, nfa);
+                                            sub.normalize_inplace();
+                                            newfuncarg.push(sub)
+                                        }
+                                    }
+                                } else {
+                                    unreachable!()
+                                }
                             }
 
-                            if let TermStreamWrapper::Owned(nfa) = tsr {
-                                let mut newfunc = Element::Fn(true, name1.clone(), nfa);
-                                newfunc.normalize_inplace();
+                            let mut newfunc = Element::Fn(true, name1.clone(), newfuncarg);
+                            newfunc.normalize_inplace();
 
-                                return do_module_rec(
-                                    newfunc,
-                                    statements,
-                                    var_info,
-                                    current_index + 1,
-                                    term_affected,
-                                    output,
-                                );
+                            return do_module_rec(
+                                newfunc,
+                                statements,
+                                var_info,
+                                current_index + 1,
+                                term_affected,
+                                output,
+                            );
+                        }
+                    }
+                    Element::Term(_, factors) => {
+                        let mut newfactors = vec![];
+                        for f in factors {
+                            if let Element::Fn(d, name1, args) = f {
+                                if name == name1 {
+                                    // execute the statements
+                                    let mut newfuncarg = Vec::with_capacity(args.len());
+
+                                    for x in args {
+                                        let mut tsr = TermStreamWrapper::Owned(vec![]);
+                                        do_module_rec(
+                                            x.clone(), // TODO: prevent clone
+                                            sts,
+                                            var_info,
+                                            0,
+                                            term_affected, // TODO: what to do here?
+                                            &mut tsr,
+                                        );
+
+                                        if let TermStreamWrapper::Owned(mut nfa) = tsr {
+                                            match nfa.len() {
+                                                0 => {
+                                                    newfuncarg.push(Element::Num(false, true, 0, 1))
+                                                }
+                                                1 => newfuncarg.push(nfa.swap_remove(0)),
+                                                _ => {
+                                                    let mut sub = Element::SubExpr(true, nfa);
+                                                    sub.normalize_inplace();
+                                                    newfuncarg.push(sub)
+                                                }
+                                            }
+                                        } else {
+                                            unreachable!()
+                                        }
+                                    }
+
+                                    let mut newfunc = Element::Fn(true, name1.clone(), newfuncarg);
+                                    newfunc.normalize_inplace();
+                                    newfactors.push(newfunc);
+                                } else {
+                                    newfactors.push(Element::Fn(d, name1, args));
+                                }
                             } else {
-                                unreachable!()
+                                newfactors.push(f);
                             }
                         }
+
+                        let mut newterm = Element::Term(true, newfactors);
+                        newterm.normalize_inplace();
+
+                        return do_module_rec(
+                            newterm,
+                            statements,
+                            var_info,
+                            current_index + 1,
+                            term_affected,
+                            output,
+                        );
                     }
                     _ => {
                         // TODO: add case for term
@@ -644,22 +714,7 @@ impl Module {
         );
 
         for x in &mut self.statements {
-            match *x {
-                Statement::IdentityStatement(IdentityStatement {
-                    ref mut lhs,
-                    ref mut rhs,
-                    ..
-                }) => {
-                    lhs.normalize_inplace();
-                    rhs.normalize_inplace();
-                }
-                Statement::Multiply(ref mut e)
-                | Statement::Eval(ref mut e, _)
-                | Statement::Assign(_, ref mut e) => {
-                    e.normalize_inplace();
-                }
-                _ => {}
-            }
+            x.normalize();
         }
     }
 }
