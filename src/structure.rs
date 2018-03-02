@@ -88,9 +88,9 @@ impl VarInfo {
 impl Program {
     /// Create a new Program from the parser output.
     pub fn new(
-        mut input: NamedElement,
-        mut modules: Vec<NamedModule>,
-        mut procedures: Vec<NamedProcedure>,
+        mut input: Element<String>,
+        mut modules: Vec<Module<String>>,
+        mut procedures: Vec<Procedure<String>>,
     ) -> Program {
         let mut prog = Program {
             input: InputTermStreamer::new(None),
@@ -161,8 +161,6 @@ pub struct Module<ID: Id = VarName> {
     pub global_statements: Vec<Statement<ID>>,
 }
 
-pub type NamedModule = Module<String>;
-
 #[derive(Debug)]
 pub struct Procedure<ID: Id = VarName> {
     pub name: String,
@@ -170,8 +168,6 @@ pub struct Procedure<ID: Id = VarName> {
     pub local_args: Vec<Element<ID>>,
     pub statements: Vec<Statement<ID>>,
 }
-
-pub type NamedProcedure = Procedure<String>;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum NumOrder {
@@ -198,9 +194,6 @@ pub enum Element<ID: Id = VarName> {
     SubExpr(bool, Vec<Element<ID>>),
     Num(bool, bool, u64, u64), // dirty, fraction (true=positive), make sure it is last for sorting
 }
-
-/// Element with variables named by String.
-pub type NamedElement = Element<String>;
 
 impl<ID: Id> Default for Element<ID> {
     fn default() -> Element<ID> {
@@ -231,8 +224,6 @@ pub enum Statement<ID: Id = VarName> {
     JumpIfChanged(usize),     // jump and pop change flag
     PushChange,               // push a new change flag
 }
-
-pub type NamedStatement = Statement<String>;
 
 /*
 impl PartialEq for Element {
@@ -412,8 +403,6 @@ pub struct IdentityStatement<ID: Id = VarName> {
     pub lhs: Element<ID>,
     pub rhs: Element<ID>,
 }
-
-pub type NamedIdentityStatement = IdentityStatement<String>;
 
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
 pub enum IdentityStatementMode {
@@ -702,7 +691,7 @@ impl fmt::Display for Element {
     }
 }
 
-impl NamedElement {
+impl Element<String> {
     /// Replaces string names by numerical IDs.
     pub fn to_element(&mut self, var_info: &mut VarInfo) -> Element {
         match *self {
@@ -846,7 +835,7 @@ impl Element {
     }
 }
 
-impl NamedStatement {
+impl Statement<String> {
     pub fn to_element(&mut self, var_info: &mut VarInfo) -> Statement {
         match *self {
             Statement::IdentityStatement(IdentityStatement {
