@@ -178,6 +178,9 @@ parser!{
             statement().map(|x| NamedStatement::Repeat(vec![x]))
         ));
 
+    let argument = (keyword("argument").with(factor()),
+        statementend().with(many(statement())).skip(keyword("endargument")).skip(statementend())).map(|(f, ss)| NamedStatement::Argument(f, ss));
+
     let ifclause = between(lex_char('('),lex_char(')'), keyword("match").with(
         between(lex_char('('),lex_char(')'), expr())));
     let ifelse = (keyword("if").with(ifclause)
@@ -188,7 +191,7 @@ parser!{
         map(|(q,x,e) : (NamedElement, Vec<NamedStatement>, Vec<NamedStatement>)| NamedStatement::IfElse(q, x, e));
 
     choice!(call_procedure, assign, maximum, print, ifelse, expand, multiply,
-        repeat, idstatement, splitarg, symmetrize)
+        repeat, argument, idstatement, splitarg, symmetrize)
 }
 }
 
