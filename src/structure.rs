@@ -119,11 +119,11 @@ impl Program {
                 name: m.name.clone(),
                 statements: m.statements
                     .iter_mut()
-                    .map(|s| s.to_element(&mut prog.var_info))
+                    .map(|s| s.to_statement(&mut prog.var_info))
                     .collect(),
                 global_statements: m.global_statements
                     .iter_mut()
-                    .map(|s| s.to_element(&mut prog.var_info))
+                    .map(|s| s.to_statement(&mut prog.var_info))
                     .collect(),
             });
         }
@@ -143,7 +143,7 @@ impl Program {
                     .collect(),
                 statements: m.statements
                     .iter_mut()
-                    .map(|s| s.to_element(&mut prog.var_info))
+                    .map(|s| s.to_statement(&mut prog.var_info))
                     .collect(),
             });
         }
@@ -236,6 +236,7 @@ pub enum Statement<ID: Id = VarName> {
     IdentityStatement(IdentityStatement<ID>),
     SplitArg(ID),
     Repeat(Vec<Statement<ID>>),
+    Argument(Element<ID>, Vec<Statement<ID>>),
     IfElse(Element<ID>, Vec<Statement<ID>>, Vec<Statement<ID>>),
     Expand,
     Print,
@@ -506,6 +507,15 @@ impl fmt::Display for Statement {
 
                 writeln!(f, "endrepeat;")
             },
+            Statement::Argument(ref ff, ref ss) => {
+                writeln!(f, "argument {};", ff)?;
+
+                for s in ss {
+                    write!(f, "\t{}", s)?;
+                }
+
+                writeln!(f, "endargument;")
+            }
             Statement::IfElse(ref cond, ref m, ref nm) => if nm.len() == 0 && m.len() == 1 {
                 write!(f, "if (match({})) {};", cond, m[0])
             } else {
@@ -863,7 +873,7 @@ impl Element {
 }
 
 impl Statement<String> {
-    pub fn to_element(&mut self, var_info: &mut VarInfo) -> Statement {
+    pub fn to_statement(&mut self, var_info: &mut VarInfo) -> Statement {
         match *self {
             Statement::IdentityStatement(IdentityStatement {
                 ref mode,
@@ -875,12 +885,16 @@ impl Statement<String> {
                 rhs: rhs.to_element(var_info),
             }),
             Statement::Repeat(ref mut ss) => {
-                Statement::Repeat(ss.iter_mut().map(|s| s.to_element(var_info)).collect())
+                Statement::Repeat(ss.iter_mut().map(|s| s.to_statement(var_info)).collect())
             }
+            Statement::Argument(ref mut f, ref mut ss) => Statement::Argument(
+                f.to_element(var_info),
+                ss.iter_mut().map(|s| s.to_statement(var_info)).collect(),
+            ),
             Statement::IfElse(ref mut e, ref mut ss, ref mut sse) => Statement::IfElse(
                 e.to_element(var_info),
-                ss.iter_mut().map(|s| s.to_element(var_info)).collect(),
-                sse.iter_mut().map(|s| s.to_element(var_info)).collect(),
+                ss.iter_mut().map(|s| s.to_statement(var_info)).collect(),
+                sse.iter_mut().map(|s| s.to_statement(var_info)).collect(),
             ),
             Statement::SplitArg(ref name) => Statement::SplitArg(var_info.get_name(name)),
             Statement::Symmetrize(ref name) => Statement::Symmetrize(var_info.get_name(name)),
@@ -951,5 +965,27 @@ impl Statement {
             _ => {}
         };
         changed
+    }
+
+    pub fn normalize(&mut self) {
+        match *self {
+            Statement::IdentityStatement(IdentityStatement {
+                ref mut lhs,
+                ref mut rhs,
+                ..
+            }) => {
+                lhs.normalize_inplace();
+                rhs.normalize_inplace();
+            }
+            Statement::Multiply(ref mut e)
+            | Statement::Eval(ref mut e, _)
+            | Statement::Assign(_, ref mut e) => {
+                e.normalize_inplace();
+            }
+            Statement::Argument(_, ref mut ss) => for s in ss {
+                s.normalize();
+            },
+            _ => {}
+        }
     }
 }

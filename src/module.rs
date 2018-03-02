@@ -21,6 +21,7 @@ and a single-core streamer.
 enum TermStreamWrapper {
     Threaded(Arc<Mutex<OutputTermStreamer>>),
     Single(OutputTermStreamer),
+    Owned(Vec<Element>), // used for arguments
 }
 
 impl TermStreamWrapper {
@@ -28,6 +29,7 @@ impl TermStreamWrapper {
         match self {
             TermStreamWrapper::Threaded(x) => Arc::try_unwrap(x).unwrap().into_inner().unwrap(),
             TermStreamWrapper::Single(x) => x,
+            TermStreamWrapper::Owned(_) => unreachable!(),
         }
     }
 
@@ -35,6 +37,7 @@ impl TermStreamWrapper {
         match *self {
             TermStreamWrapper::Threaded(ref mut x) => x.lock().unwrap().add_term(e),
             TermStreamWrapper::Single(ref mut x) => x.add_term(e),
+            TermStreamWrapper::Owned(ref mut x) => x.push(e),
         }
     }
 }
@@ -374,6 +377,130 @@ fn do_module_rec(
                 output,
             );
         }
+        // for every function, execute the statements
+        // this will create a subrecursion
+        Statement::Argument(ref func, ref sts) => {
+            if let Element::Var(name) = *func {
+                match input {
+                    Element::Fn(_, name1, ref args) => {
+                        if name == name1 {
+                            // execute the statements
+                            let mut newfuncarg = Vec::with_capacity(args.len());
+
+                            for x in args {
+                                let mut tsr = TermStreamWrapper::Owned(vec![]);
+                                do_module_rec(
+                                    x.clone(), // TODO: prevent clone
+                                    sts,
+                                    var_info,
+                                    0,
+                                    term_affected, // TODO: what to do here?
+                                    &mut tsr,
+                                );
+
+                                if let TermStreamWrapper::Owned(mut nfa) = tsr {
+                                    match nfa.len() {
+                                        0 => newfuncarg.push(Element::Num(false, true, 0, 1)),
+                                        1 => newfuncarg.push(nfa.swap_remove(0)),
+                                        _ => {
+                                            let mut sub = Element::SubExpr(true, nfa);
+                                            sub.normalize_inplace();
+                                            newfuncarg.push(sub)
+                                        }
+                                    }
+                                } else {
+                                    unreachable!()
+                                }
+                            }
+
+                            let mut newfunc = Element::Fn(true, name1.clone(), newfuncarg);
+                            newfunc.normalize_inplace();
+
+                            return do_module_rec(
+                                newfunc,
+                                statements,
+                                var_info,
+                                current_index + 1,
+                                term_affected,
+                                output,
+                            );
+                        }
+                    }
+                    Element::Term(_, factors) => {
+                        let mut newfactors = vec![];
+                        for f in factors {
+                            if let Element::Fn(d, name1, args) = f {
+                                if name == name1 {
+                                    // execute the statements
+                                    let mut newfuncarg = Vec::with_capacity(args.len());
+
+                                    for x in args {
+                                        let mut tsr = TermStreamWrapper::Owned(vec![]);
+                                        do_module_rec(
+                                            x.clone(), // TODO: prevent clone
+                                            sts,
+                                            var_info,
+                                            0,
+                                            term_affected, // TODO: what to do here?
+                                            &mut tsr,
+                                        );
+
+                                        if let TermStreamWrapper::Owned(mut nfa) = tsr {
+                                            match nfa.len() {
+                                                0 => {
+                                                    newfuncarg.push(Element::Num(false, true, 0, 1))
+                                                }
+                                                1 => newfuncarg.push(nfa.swap_remove(0)),
+                                                _ => {
+                                                    let mut sub = Element::SubExpr(true, nfa);
+                                                    sub.normalize_inplace();
+                                                    newfuncarg.push(sub)
+                                                }
+                                            }
+                                        } else {
+                                            unreachable!()
+                                        }
+                                    }
+
+                                    let mut newfunc = Element::Fn(true, name1.clone(), newfuncarg);
+                                    newfunc.normalize_inplace();
+                                    newfactors.push(newfunc);
+                                } else {
+                                    newfactors.push(Element::Fn(d, name1, args));
+                                }
+                            } else {
+                                newfactors.push(f);
+                            }
+                        }
+
+                        let mut newterm = Element::Term(true, newfactors);
+                        newterm.normalize_inplace();
+
+                        return do_module_rec(
+                            newterm,
+                            statements,
+                            var_info,
+                            current_index + 1,
+                            term_affected,
+                            output,
+                        );
+                    }
+                    _ => {
+                        // TODO: add case for term
+                        return do_module_rec(
+                            input,
+                            statements,
+                            var_info,
+                            current_index + 1,
+                            term_affected,
+                            output,
+                        );
+                    }
+                }
+            } else {
+                panic!("Specify the function name as argument to argument.")
+            }
+        }
         Statement::Maximum(ref dollar) => {
             if let Element::Dollar(ref d, ..) = *dollar {
                 if let Some(x) = var_info.variables.get(d) {
@@ -470,20 +597,26 @@ impl Module {
     // flatten the statement structure and use conditional jumps
     // also inline the procedures
     fn statements_to_control_flow_stat(
-        statements: &[Statement],
+        statements: &mut [Statement],
         var_info: &mut VarInfo,
         procedures: &[Procedure],
         output: &mut Vec<Statement>,
     ) {
-        for x in statements.iter() {
-            match x {
-                &Statement::Repeat(ref ss) => {
+        for x in statements.iter_mut() {
+            match *x {
+                Statement::Repeat(ref mut ss) => {
                     output.push(Statement::PushChange);
                     let pos = output.len();
                     Module::statements_to_control_flow_stat(ss, var_info, procedures, output);
                     output.push(Statement::JumpIfChanged(pos - 1));
                 }
-                &Statement::IfElse(ref prod, ref m, ref nm) => {
+                Statement::Argument(ref f, ref mut ss) => {
+                    // keep the substructure
+                    let mut linarg = vec![];
+                    Module::statements_to_control_flow_stat(ss, var_info, procedures, &mut linarg);
+                    output.push(Statement::Argument(f.clone(), linarg));
+                }
+                Statement::IfElse(ref prod, ref mut m, ref mut nm) => {
                     let pos = output.len();
                     output.push(Statement::Jump(0)); // note: placeholder 0
                     Module::statements_to_control_flow_stat(m, var_info, procedures, output);
@@ -499,7 +632,7 @@ impl Module {
                         output[pos] = Statement::Eval(prod.clone(), output.len());
                     }
                 }
-                &Statement::Call(ref name, ref args) => {
+                Statement::Call(ref name, ref args) => {
                     // copy the procedure and rename local variables
                     for p in procedures {
                         if p.name == *name {
@@ -532,7 +665,7 @@ impl Module {
                                 }
                             }
 
-                            let newmod = p.statements
+                            let mut newmod = p.statements
                                 .iter()
                                 .cloned()
                                 .map(|mut x| {
@@ -542,7 +675,7 @@ impl Module {
                                 .collect::<Vec<_>>();
 
                             Module::statements_to_control_flow_stat(
-                                &newmod,
+                                &mut newmod,
                                 var_info,
                                 procedures,
                                 output,
@@ -550,7 +683,7 @@ impl Module {
                         }
                     }
                 }
-                a => output.push(a.clone()),
+                ref a => output.push(a.clone()),
             }
         }
     }
@@ -572,31 +705,16 @@ impl Module {
             }
         }
 
-        let old_statements = mem::replace(&mut self.statements, vec![]);
+        let mut old_statements = mem::replace(&mut self.statements, vec![]);
         Module::statements_to_control_flow_stat(
-            &old_statements,
+            &mut old_statements,
             var_info,
             procedures,
             &mut self.statements,
         );
 
         for x in &mut self.statements {
-            match *x {
-                Statement::IdentityStatement(IdentityStatement {
-                    ref mut lhs,
-                    ref mut rhs,
-                    ..
-                }) => {
-                    lhs.normalize_inplace();
-                    rhs.normalize_inplace();
-                }
-                Statement::Multiply(ref mut e)
-                | Statement::Eval(ref mut e, _)
-                | Statement::Assign(_, ref mut e) => {
-                    e.normalize_inplace();
-                }
-                _ => {}
-            }
+            x.normalize();
         }
     }
 }

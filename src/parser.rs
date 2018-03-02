@@ -232,6 +232,13 @@ parser!{
         statement().map(|x| Statement::Repeat(vec![x]))
     ));
 
+    let argument = (keyword("argument").with(factor()),
+        statementend()
+            .with(many(statement()))
+            .skip(keyword("endargument"))
+            .skip(statementend()))
+            .map(|(f, ss)| Statement::Argument(f, ss));
+
     let ifclause = between(
         lex_char('('),
         lex_char(')'),
@@ -255,6 +262,7 @@ parser!{
         expand,
         multiply,
         repeat,
+        argument,
         idstatement,
         splitarg,
         symmetrize
