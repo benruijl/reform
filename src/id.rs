@@ -883,6 +883,8 @@ impl<'a> MatchIterator<'a> {
                 }
 
                 let (mut res, _changed) = r.into_single();
+                // FIXME: for non-commutative functions, we need to keep the order instead of adding
+                // the non-affected terms at the back
                 if !self.remaining.is_empty() {
                     add_terms(&mut res, &self.remaining);
                 }

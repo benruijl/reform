@@ -181,7 +181,9 @@ impl Element {
                                 }
 
                                 if attribs.contains(&FunctionAttributes::Symmetric) {
-                                    args.sort_unstable();
+                                    args.sort_unstable_by(|l, r| {
+                                        l.partial_cmp(r, var_info).unwrap()
+                                    });
                                 }
                             }
 
@@ -234,7 +236,7 @@ impl Element {
                     } else {
                         // TODO: this is faster than expr_sort. presumable because there are fewer
                         // merge_factor calls
-                        ts.sort_unstable();
+                        ts.sort_unstable_by(|l, r| l.partial_cmp(r, var_info).unwrap()); // FIXME: is this safe for non-commutative functions?
 
                         // now merge pows: x^a*x^b = x^(a*b)
                         // x*x^a and x*x, all should be side by side now
@@ -307,8 +309,8 @@ impl Element {
                         changed |= expr_sort(ts, merge_terms, var_info);
                     } else {
                         changed = true; // TODO: tell if changed?
-                        ts.sort_unstable(); // TODO: slow!
-                                            // merge coefficients of similar terms
+                        ts.sort_unstable_by(|l, r| l.partial_cmp(r, var_info).unwrap()); // TODO: slow!
+                                                                                         // merge coefficients of similar terms
                         let mut lastindex = 0;
 
                         for i in 1..ts.len() {
@@ -584,8 +586,10 @@ where
         return false;
     }
 
-    // count descending runs and merge adjacent terms if pisslbe
+    // count descending runs and merge adjacent terms if possible
     // also count ascending runs and reverse them
+    // this is safe for non-commutative functions, since they will
+    // always be treated as in-order
     let mut changed = false;
     let mut grouplen = vec![];
     let mut groupcount = 1;
@@ -603,7 +607,7 @@ where
         a.swap(writepos, x);
         writepos += 1;
 
-        match a[writepos - 2].partial_cmp(&a[writepos - 1]) {
+        match a[writepos - 2].partial_cmp(&a[writepos - 1], var_info) {
             Some(Ordering::Greater) => {
                 if ascenddescendmode == 1 {
                     grouplen.push(groupcount);
@@ -727,7 +731,7 @@ where
 
     while i < right || j < end {
         if i < right && j < end {
-            match (*leftp).partial_cmp(&*rightp) {
+            match (*leftp).partial_cmp(&*rightp, var_info) {
                 Some(Ordering::Greater) => {
                     if lastsource != 1 || !merger(&mut *writepos.offset(-1), &mut *rightp, var_info)
                     {

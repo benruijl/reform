@@ -14,22 +14,31 @@ use normalize::merge_terms;
 pub const MAXTERMMEM: usize = 10_000_000; // maximum number of terms allowed in memory
 pub const SMALL_BUFFER: u64 = 100_000; // number of terms before sorting
 
-#[derive(Clone, Eq, PartialEq)]
-struct ElementStreamTuple(Element, usize);
+#[derive(Clone)]
+struct ElementStreamTuple<'a>(Element, &'a GlobalVarInfo, usize);
 
-impl Ord for ElementStreamTuple {
+impl<'a> Ord for ElementStreamTuple<'a> {
     fn cmp(&self, other: &ElementStreamTuple) -> Ordering {
         // min order
-        other.0.cmp(&self.0)
+        other.0.partial_cmp(&self.0, self.1).unwrap()
     }
 }
 
 // `PartialOrd` needs to be implemented as well.
-impl PartialOrd for ElementStreamTuple {
+impl<'a> PartialOrd for ElementStreamTuple<'a> {
     fn partial_cmp(&self, other: &ElementStreamTuple) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
+
+// `PartialOrd` needs to be implemented as well.
+impl<'a> PartialEq for ElementStreamTuple<'a> {
+    fn eq(&self, other: &ElementStreamTuple) -> bool {
+        self.cmp(other) == Ordering::Equal
+    }
+}
+
+impl<'a> Eq for ElementStreamTuple<'a> {}
 
 #[derive(Debug)]
 pub struct InputTermStreamer {
@@ -256,7 +265,8 @@ impl OutputTermStreamer {
                 }
             }
 
-            self.mem_buffer.sort_unstable();
+            self.mem_buffer
+                .sort_unstable_by(|l, r| l.partial_cmp(r, &var_info.global_info).unwrap());
 
             // write back
             self.sortfiles[x].set_len(0).unwrap(); // delete the contents
@@ -309,14 +319,14 @@ impl OutputTermStreamer {
             // populate the heap with an element from each bucket
             for (i, mut s) in streamer.iter_mut().enumerate() {
                 if let Ok(e) = Element::deserialize(&mut s) {
-                    heap.push(ElementStreamTuple(e, i));
+                    heap.push(ElementStreamTuple(e, &var_info.global_info, i));
                 }
             }
 
-            while let Some(ElementStreamTuple(mut mv, i)) = heap.pop() {
+            while let Some(ElementStreamTuple(mut mv, vi, i)) = heap.pop() {
                 // add or merge
                 let shouldadd = match self.mem_buffer.last_mut() {
-                    Some(ref mut x) => !merge_terms(x, &mut mv, &var_info.global_info),
+                    Some(ref mut x) => !merge_terms(x, &mut mv, &vi),
                     _ => true,
                 };
                 if shouldadd {
@@ -330,7 +340,7 @@ impl OutputTermStreamer {
                             "\t+{}",
                             ElementPrinter {
                                 element: x,
-                                var_info: &var_info.global_info,
+                                var_info: &vi,
                             }
                         );
                         x.serialize(&mut ofb);
@@ -342,7 +352,7 @@ impl OutputTermStreamer {
 
                 // push new objects to the queue
                 if let Ok(e) = Element::deserialize(&mut streamer[i]) {
-                    heap.push(ElementStreamTuple(e, i))
+                    heap.push(ElementStreamTuple(e, vi, i))
                 }
             }
 

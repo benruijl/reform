@@ -1,4 +1,5 @@
 use std::mem;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::{Arc, Mutex};
@@ -241,11 +242,12 @@ impl Statement {
                         Element::Term(true, mem::replace(xx, vec![]))
                     }
                     (ref mut a, &Element::Term(_, ref xx)) => {
-                        let mut r = xx.clone();
-                        r.reverse(); // FIXME: for testing
-                        r.push(mem::replace(a, DUMMY_ELEM!()));
-                        r.reverse(); // FIXME: for testing
-                        Element::Term(false, r)
+                        let mut r = Vec::with_capacity(xx.len() + 1);
+                        r.push(mem::replace(*a, DUMMY_ELEM!()));
+                        for x in xx {
+                            r.push(x.clone());
+                        }
+                        Element::Term(true, r)
                     }
                     (ref mut a, aa) => {
                         Element::Term(true, vec![mem::replace(a, DUMMY_ELEM!()), aa.clone()])
@@ -262,7 +264,7 @@ impl Statement {
                 let subs = |n: &VarName, a: &Vec<Element>| {
                     Element::Fn(false, n.clone(), {
                         let mut b = a.clone();
-                        b.sort();
+                        b.sort_by(|a, b| a.partial_cmp(b, &var_info.global_info).unwrap());
                         b
                     })
                 };
@@ -546,7 +548,7 @@ fn do_module_rec(
                 if let Some(x) = local_var_info.variables.get(d) {
                     match local_var_info.global_variables.entry(d.clone()) {
                         Entry::Occupied(mut y) => {
-                            if *y.get() < *x {
+                            if let Some(Ordering::Less) = y.get().partial_cmp(x, global_var_info) {
                                 *y.get_mut() = x.clone();
                             }
                         }
