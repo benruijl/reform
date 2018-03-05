@@ -32,7 +32,7 @@ use clap::{App, Arg};
 use cpuprofiler::PROFILER;
 
 fn main() {
-    env_logger::init().unwrap();
+    env_logger::init();
 
     #[cfg(feature = "profile")]
     let do_profile = match std::env::var("CPUPROFILE") {
