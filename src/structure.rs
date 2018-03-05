@@ -279,7 +279,7 @@ impl<ID: Id> Default for Element<ID> {
 #[macro_export]
 macro_rules! DUMMY_ELEM { () => (Element::Num(false, true, 1, 1)) }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Statement<ID: Id = VarName> {
     IdentityStatement(IdentityStatement<ID>),
     SplitArg(ID),
@@ -330,18 +330,18 @@ impl PartialEq for Element {
      }
 }*/
 
-impl<ID: Id> Ord for Element<ID> {
-    fn cmp(&self, other: &Element<ID>) -> Ordering {
-        self.partial_cmp(other).unwrap()
-    }
-}
+//impl<ID: Id> Ord for Element<ID> {
+//    fn cmp(&self, other: &Element<ID>) -> Ordering {
+//        self.partial_cmp(other).unwrap()
+//    }
+//}
 
 // implement a custom partial order that puts
 // x and x*2 next to each other for term sorting
 // and x and x^2 next to each other for
 // coefficients are partially ignored and sorted at the back
-impl<ID: Id> PartialOrd for Element<ID> {
-    fn partial_cmp(&self, other: &Element<ID>) -> Option<Ordering> {
+impl Element {
+    pub fn partial_cmp(&self, other: &Element, var_info: &GlobalVarInfo) -> Option<Ordering> {
         match (self, other) {
             (&Element::Fn(_, ref namea, ref argsa), &Element::Fn(_, ref nameb, ref argsb)) => {
                 let k = namea.partial_cmp(nameb);
@@ -349,12 +349,20 @@ impl<ID: Id> PartialOrd for Element<ID> {
                     Some(Ordering::Equal) => {}
                     _ => return k,
                 }
+
+                // for non-commutative functions, we keep the order
+                if let Some(attribs) = var_info.func_attribs.get(namea) {
+                    if attribs.contains(&FunctionAttributes::NonCommutative) {
+                        return Some(Ordering::Greater);
+                    }
+                }
+
                 if argsa.len() != argsb.len() {
                     return argsa.len().partial_cmp(&argsb.len());
                 }
 
                 for (argsaa, argsbb) in argsa.iter().zip(argsb) {
-                    let k = argsaa.partial_cmp(argsbb);
+                    let k = argsaa.partial_cmp(argsbb, var_info);
                     match k {
                         Some(Ordering::Equal) => {}
                         _ => return k,
@@ -374,15 +382,15 @@ impl<ID: Id> PartialOrd for Element<ID> {
             (&Element::Pow(_, ref be1), &Element::Pow(_, ref be2)) => {
                 let (ref b1, ref e1) = **be1;
                 let (ref b2, ref e2) = **be2;
-                let c = b1.partial_cmp(b2);
+                let c = b1.partial_cmp(b2, var_info);
                 match c {
-                    Some(Ordering::Equal) => e1.partial_cmp(e2),
+                    Some(Ordering::Equal) => e1.partial_cmp(e2, var_info),
                     _ => c,
                 }
             }
             (&Element::Pow(_, ref be), _) => {
                 let (ref b, _) = **be;
-                let c = b.partial_cmp(other);
+                let c = b.partial_cmp(other, var_info);
                 match c {
                     Some(Ordering::Equal) => Some(Ordering::Less),
                     _ => c,
@@ -390,7 +398,7 @@ impl<ID: Id> PartialOrd for Element<ID> {
             }
             (_, &Element::Pow(_, ref be)) => {
                 let (ref b, _) = **be;
-                let c = self.partial_cmp(b);
+                let c = self.partial_cmp(b, var_info);
                 match c {
                     Some(Ordering::Equal) => Some(Ordering::Greater),
                     _ => c,
@@ -419,7 +427,7 @@ impl<ID: Id> PartialOrd for Element<ID> {
                         }
                     }
 
-                    let k = taa.partial_cmp(tbb);
+                    let k = taa.partial_cmp(tbb, var_info);
                     match k {
                         Some(Ordering::Equal) => {}
                         _ => return k,
@@ -430,7 +438,7 @@ impl<ID: Id> PartialOrd for Element<ID> {
             (_, &Element::Term(_, ref t)) => {
                 if t.len() == 2 {
                     if let Element::Num(..) = t[1] {
-                        return self.partial_cmp(&t[0]);
+                        return self.partial_cmp(&t[0], var_info);
                     }
                 }
                 Some(Ordering::Less)
@@ -438,7 +446,7 @@ impl<ID: Id> PartialOrd for Element<ID> {
             (&Element::Term(_, ref t), _) => {
                 if t.len() == 2 {
                     if let Element::Num(..) = t[1] {
-                        return t[0].partial_cmp(other);
+                        return t[0].partial_cmp(other, var_info);
                     }
                 }
                 Some(Ordering::Greater)
@@ -451,7 +459,7 @@ impl<ID: Id> PartialOrd for Element<ID> {
                 }
 
                 for (taa, tbb) in ta.iter().zip(tb) {
-                    let k = taa.partial_cmp(tbb);
+                    let k = taa.partial_cmp(tbb, var_info);
                     match k {
                         Some(Ordering::Equal) => {}
                         _ => return k,
@@ -474,7 +482,7 @@ pub enum StatementResult<T> {
     Done,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Debug, Clone)]
 pub struct IdentityStatement<ID: Id = VarName> {
     pub mode: IdentityStatementMode,
     pub lhs: Element<ID>,

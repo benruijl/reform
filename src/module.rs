@@ -1,4 +1,5 @@
 use std::mem;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::sync::{Arc, Mutex};
@@ -231,6 +232,7 @@ impl Statement {
                 }
             }
             Statement::Multiply(ref x) => {
+                // multiply to the right
                 let mut res = match (input, x) {
                     (&mut Element::Term(_, ref mut xx), &Element::Term(_, ref yy)) => {
                         xx.extend(yy.iter().cloned());
@@ -263,7 +265,7 @@ impl Statement {
                 let subs = |n: &VarName, a: &Vec<Element>| {
                     Element::Fn(false, n.clone(), {
                         let mut b = a.clone();
-                        b.sort();
+                        b.sort_by(|a, b| a.partial_cmp(b, &var_info.global_info).unwrap());
                         b
                     })
                 };
@@ -547,7 +549,7 @@ fn do_module_rec(
                 if let Some(x) = local_var_info.variables.get(d) {
                     match local_var_info.global_variables.entry(d.clone()) {
                         Entry::Occupied(mut y) => {
-                            if *y.get() < *x {
+                            if let Some(Ordering::Less) = y.get().partial_cmp(x, global_var_info) {
                                 *y.get_mut() = x.clone();
                             }
                         }
