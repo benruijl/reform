@@ -241,11 +241,12 @@ impl Statement {
                         Element::Term(true, mem::replace(xx, vec![]))
                     }
                     (ref mut a, &Element::Term(_, ref xx)) => {
-                        let mut r = xx.clone();
-                        r.reverse(); // FIXME: for testing
-                        r.push(mem::replace(a, DUMMY_ELEM!()));
-                        r.reverse(); // FIXME: for testing
-                        Element::Term(false, r)
+                        let mut r = Vec::with_capacity(xx.len() + 1);
+                        r.push(mem::replace(*a, DUMMY_ELEM!()));
+                        for x in xx {
+                            r.push(x.clone());
+                        }
+                        Element::Term(true, r)
                     }
                     (ref mut a, aa) => {
                         Element::Term(true, vec![mem::replace(a, DUMMY_ELEM!()), aa.clone()])
