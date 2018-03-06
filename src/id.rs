@@ -2,7 +2,7 @@ use structure::{BorrowedVarInfo, Element, FunctionAttributes, IdentityStatement,
                 IdentityStatementMode, StatementResult, VarName};
 use std::fmt;
 use std::mem;
-use tools::{add_terms, is_number_in_range, Heap, SliceRef};
+use tools::{is_number_in_range, Heap, SliceRef};
 
 pub const MAXMATCH: usize = 1_000_000; // maximum number of matches
 
@@ -795,33 +795,16 @@ impl<'a> MatchKind<'a> {
         }
     }
 
-    pub fn next(&mut self) -> Option<(Vec<&'a Element>, MatchObject<'a>)> {
+    pub fn next(&mut self) -> Option<(Vec<usize>, MatchObject<'a>)> {
         match *self {
             MatchKind::Single(ref mut m, ref mut x) => x.next(m).map(|_| (vec![], m.clone())),
             MatchKind::Many(ref mut m, ref mut x) => {
-                if let Some((indices, _)) = x.next(m) {
-                    // construct the factors that are not affected
-                    let mut rem = vec![];
-                    for (i, y) in x.target.iter().enumerate() {
-                        if !indices.contains(&i) {
-                            rem.push(y);
-                        }
-                    }
-
-                    Some((rem, m.clone()))
-                } else {
-                    None
-                }
+                x.next(m).map(|(indices, _)| (indices, m.clone()))
             }
             MatchKind::SinglePat(pat, ref mut m, ref mut it, target, ref mut index, var_info) => {
                 loop {
                     if it.next(m).is_some() {
-                        let rem = target
-                            .iter()
-                            .enumerate()
-                            .filter_map(|(i, x)| if i + 1 == *index { None } else { Some(x) })
-                            .collect();
-                        return Some((rem, m.clone()));
+                        return Some((vec![*index - 1], m.clone()));
                     }
 
                     if *index == target.len() {
@@ -840,8 +823,9 @@ impl<'a> MatchKind<'a> {
 pub struct MatchIterator<'a> {
     mode: IdentityStatementMode,
     rhs: &'a Element,
+    target: &'a Element,
     m: MatchObject<'a>,
-    remaining: Vec<Element>,
+    remaining: Vec<usize>,
     it: MatchKind<'a>,
     rhsp: usize, // current rhs index,
     hasmatch: bool,
@@ -850,16 +834,45 @@ pub struct MatchIterator<'a> {
 
 // iterate over the output terms of a match
 impl<'a> MatchIterator<'a> {
+    pub fn generate_rhs(&mut self, rhs: &Element) -> Element {
+        let mut res = if let Element::Term(_, ref factors) = *self.target {
+            // are there factors not used in the pattern?
+            if self.remaining.len() < factors.len() {
+                let mut output = vec![];
+                for (i, f) in factors.iter().enumerate() {
+                    if self.remaining.contains(&i) {
+                        let (mut res, _changed) = rhs.apply_map(&self.m).into_single();
+                        output.push(res);
+                    } else {
+                        output.push(f.clone());
+                    }
+                }
+
+                Element::Term(true, output)
+            } else {
+                let (mut res, _changed) = rhs.apply_map(&self.m).into_single();
+                res
+            }
+        } else {
+            let (mut res, _changed) = rhs.apply_map(&self.m).into_single();
+            res
+        };
+
+        res.replace_vars(&self.var_info.local_info.variables, true); // subsitute dollars in rhs
+        res.normalize_inplace(self.var_info.global_info);
+        res
+    }
+
     pub fn next(&mut self) -> StatementResult<Element> {
         if self.rhsp == 0 {
             match self.it.next() {
                 Some((rem, m)) => {
-                    if let IdentityStatementMode::Once = self.mode {
+                    if self.mode != IdentityStatementMode::All {
                         self.it = MatchKind::None;
                     }
 
                     self.m = m;
-                    self.remaining = rem.iter().map(|&x| x.clone()).collect();
+                    self.remaining = rem;
                     printmatch(&self.m);
                 }
                 None => {
@@ -876,30 +889,16 @@ impl<'a> MatchIterator<'a> {
 
         StatementResult::Executed(match self.rhs {
             &Element::SubExpr(_, ref x) => {
-                let r = x[self.rhsp].apply_map(&self.m);
+                let i = self.rhsp;
+                let res = self.generate_rhs(&x[i]);
+
                 self.rhsp += 1;
                 if self.rhsp == x.len() {
                     self.rhsp = 0;
                 }
-
-                let (mut res, _changed) = r.into_single();
-                if !self.remaining.is_empty() {
-                    add_terms(&mut res, &self.remaining);
-                }
-                res.replace_vars(&self.var_info.local_info.variables, true); // subsitute dollars in rhs
-                res.normalize_inplace(self.var_info.global_info);
                 res
             }
-            x => {
-                let r = x.apply_map(&self.m);
-                let (mut res, _changed) = r.into_single();
-                if !self.remaining.is_empty() {
-                    add_terms(&mut res, &self.remaining);
-                }
-                res.replace_vars(&self.var_info.local_info.variables, true); // subsitute dollars in rhs
-                res.normalize_inplace(self.var_info.global_info);
-                res
-            }
+            x => self.generate_rhs(x),
         })
     }
 }
@@ -912,6 +911,7 @@ impl IdentityStatement {
     ) -> MatchIterator<'a> {
         MatchIterator {
             hasmatch: false,
+            target: input,
             m: vec![],
             remaining: vec![],
             mode: self.mode.clone(),
