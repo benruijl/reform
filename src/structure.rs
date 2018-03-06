@@ -353,7 +353,7 @@ impl Element {
                 // for non-commutative functions, we keep the order
                 if let Some(attribs) = var_info.func_attribs.get(namea) {
                     if attribs.contains(&FunctionAttributes::NonCommutative) {
-                        return Some(Ordering::Less);
+                        return Some(Ordering::Greater);
                     }
                 }
 

@@ -232,6 +232,7 @@ impl Statement {
                 }
             }
             Statement::Multiply(ref x) => {
+                // multiply to the right
                 let mut res = match (input, x) {
                     (&mut Element::Term(_, ref mut xx), &Element::Term(_, ref yy)) => {
                         xx.extend(yy.iter().cloned());
