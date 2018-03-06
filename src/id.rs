@@ -839,10 +839,14 @@ impl<'a> MatchIterator<'a> {
             // are there factors not used in the pattern?
             if self.remaining.len() < factors.len() {
                 let mut output = vec![];
+                let mut hasapplied = false; // insert rhs only once
                 for (i, f) in factors.iter().enumerate() {
                     if self.remaining.contains(&i) {
-                        let (mut res, _changed) = rhs.apply_map(&self.m).into_single();
-                        output.push(res);
+                        if !hasapplied {
+                            hasapplied = true;
+                            let (mut res, _changed) = rhs.apply_map(&self.m).into_single();
+                            output.push(res);
+                        }
                     } else {
                         output.push(f.clone());
                     }

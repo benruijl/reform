@@ -308,9 +308,7 @@ impl Element {
 
                     // sort and merge the terms at the same time
                     if false {
-                        if ts.len() > 1 {
-                            changed |= expr_sort(ts, merge_terms, var_info);
-                        }
+                        changed |= expr_sort(ts, merge_terms, var_info);
                     } else {
                         changed = true; // TODO: tell if changed?
                         ts.sort_unstable_by(|l, r| l.partial_cmp(r, var_info).unwrap()); // TODO: slow!
@@ -663,19 +661,20 @@ where
 
     // Make successively longer sorted runs until whole array is sorted.
     while grouplen.len() > 1 {
-        let mut groupcount = 0;
+        let mut newlen = 0;
+        let mut groupindex = 0;
         let mut startpos = 0;
         let mut writepos = a.as_mut_ptr();
-        while groupcount * 2 < grouplen.len() {
+        while groupindex * 2 < grouplen.len() {
             let newsize;
             unsafe {
-                if groupcount * 2 + 1 == grouplen.len() {
-                    // odd number?
+                if groupindex * 2 + 1 == grouplen.len() {
+                    // only one group left, so just copy to writepos
                     newsize = sub_merge_sort(
                         a,
                         startpos,
-                        startpos + grouplen[groupcount * 2],
-                        startpos + grouplen[groupcount * 2],
+                        startpos + grouplen[groupindex * 2],
+                        startpos + grouplen[groupindex * 2],
                         &mut b,
                         writepos,
                         &merger,
@@ -685,26 +684,28 @@ where
                     newsize = sub_merge_sort(
                         a,
                         startpos,
-                        startpos + grouplen[groupcount * 2],
-                        startpos + grouplen[groupcount * 2] + grouplen[groupcount * 2 + 1],
+                        startpos + grouplen[groupindex * 2],
+                        startpos + grouplen[groupindex * 2] + grouplen[groupindex * 2 + 1],
                         &mut b,
                         writepos,
                         &merger,
                         var_info,
                     );
-                    startpos += grouplen[groupcount * 2] + grouplen[groupcount * 2 + 1];
+                    startpos += grouplen[groupindex * 2] + grouplen[groupindex * 2 + 1];
                 }
 
                 writepos = writepos.offset(newsize as isize);
             }
-            grouplen[groupcount] = newsize;
-            groupcount += 1;
+            grouplen[groupindex] = newsize;
+            newlen += newsize;
+            groupindex += 1;
         }
 
-        grouplen.truncate(groupcount);
+        grouplen.truncate(groupindex);
         unsafe {
-            a.set_len(*grouplen.last().unwrap());
-        } // don't drop, but resize
+            // resize without dropping
+            a.set_len(newlen);
+        }
     }
     true
 }
@@ -782,5 +783,5 @@ where
         }
     }
 
-    writepos as usize - origwritepos as usize
+    (writepos as usize - origwritepos as usize) / mem::size_of::<Element>()
 }
