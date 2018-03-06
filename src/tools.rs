@@ -1,5 +1,4 @@
 use structure::{Element, NumOrder};
-use std::mem;
 
 // a SliceRef has either a borrowed slice,
 // or a vector of borrowed arguments.
@@ -198,22 +197,6 @@ pub fn add_one(pos: &mut bool, num: &mut u64, den: &mut u64) {
             *num += *den;
         } else {
             *num -= *den;
-        }
-    }
-}
-
-pub fn add_terms(dest: &mut Element, to_add: &[Element]) {
-    match *dest {
-        Element::Term(ref mut dirty, ref mut t) => {
-            for x in to_add.iter() {
-                t.push(x.clone());
-            }
-            *dirty = true;
-        }
-        ref mut a => {
-            let mut res = to_add.to_owned();
-            res.push(mem::replace(a, DUMMY_ELEM!()));
-            *a = Element::Term(true, res);
         }
     }
 }
