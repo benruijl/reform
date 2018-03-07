@@ -736,6 +736,24 @@ impl<'a> SubSequenceIter<'a> {
                 // find a new empty position
                 if self.indices[i] == self.target.len() + 1 {
                     self.indices[i] = 0; // initialize
+
+                    // for non-commutative functions, we make sure the index in the
+                    // target is higher than that of its left neighbour
+                    if i > 0 {
+                        if let Element::Fn(_, ref name, _) = self.pattern[i] {
+                            if let Element::Fn(_, ref name1, _) = self.pattern[i - 1] {
+                                if name == name1 {
+                                    if let Some(attribs) =
+                                        self.var_info.global_info.func_attribs.get(name)
+                                    {
+                                        if attribs.contains(&FunctionAttributes::NonCommutative) {
+                                            self.indices[i] = self.indices[i - 1] + 1;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 } else {
                     self.indices[i] += 1;
                 }
