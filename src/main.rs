@@ -1,30 +1,9 @@
 extern crate clap;
-#[macro_use]
-extern crate combine;
-extern crate itertools; // command line argument options
-                        //extern crate rand;
-extern crate byteorder; // for serialization
-extern crate crossbeam;
-
 extern crate env_logger;
-#[macro_use]
-extern crate log;
+extern crate reform;
 
 #[cfg(feature = "profile")]
 extern crate cpuprofiler;
-
-#[macro_use]
-mod structure;
-mod parser;
-mod id;
-mod normalize;
-mod streaming;
-mod tools;
-mod module;
-mod serialize;
-
-#[cfg(test)]
-mod tests;
 
 use clap::{App, Arg};
 
@@ -88,8 +67,8 @@ fn main() {
         )
         .get_matches();
 
-    let mut program = parser::parse_file(matches.value_of("INPUT").unwrap());
-    module::do_program(
+    let mut program = reform::parser::parse_file(matches.value_of("INPUT").unwrap());
+    reform::module::do_program(
         &mut program,
         matches.is_present("log"),
         matches.value_of("workers").unwrap().parse().unwrap(),
