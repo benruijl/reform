@@ -224,7 +224,7 @@ impl Program {
             };
             let printer = ElementPrinter {
                 element: &terms,
-                var_info: &self.var_info,
+                var_info: &self.var_info.global_info,
             };
             printer.to_string()
         }
