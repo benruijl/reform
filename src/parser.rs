@@ -1,5 +1,6 @@
 use std::io::prelude::*;
 use std::fs::File;
+use std::str::FromStr;
 use structure::{Element, FunctionAttributes, IdentityStatement, IdentityStatementMode, Module,
                 NumOrder, Procedure, Program, Statement};
 
@@ -31,6 +32,32 @@ pub fn parse_string(source: &str) -> Program {
         Err(err) => {
             error!("{}", err);
             panic!();
+        }
+    }
+}
+
+impl FromStr for Program {
+    type Err = (); // TODO: better error
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match program().parse(State::new(&s[..])) {
+            Ok((v, _)) => Ok(v), // TODO: check the remaining input
+            Err(err) => {
+                error!("{}", err);
+                panic!();
+            }
+        }
+    }
+}
+
+impl FromStr for Element<String> {
+    type Err = (); // TODO: better error
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match expr().parse(State::new(&s[..])) {
+            Ok((v, _)) => Ok(v), // TODO: check the remaining input
+            Err(err) => {
+                error!("{}", err);
+                panic!();
+            }
         }
     }
 }
