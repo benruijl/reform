@@ -170,7 +170,8 @@ parser!{
 
     let attribs = choice!(keyword("symmetric").map(|_| FunctionAttributes::Symmetric),
                          keyword("linear").map(|_| FunctionAttributes::Linear),
-                         keyword("noncommutative").map(|_| FunctionAttributes::NonCommutative));
+                         keyword("noncommutative").map(|_| FunctionAttributes::NonCommutative),
+                         keyword("nonlocal").map(|_| FunctionAttributes::NonLocal));
 
     let attrib = (keyword("attrib").with(factor()), lex_char('=').with(
             sep_by(attribs, lex_char('+')).skip(statementend())))

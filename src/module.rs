@@ -597,11 +597,29 @@ fn do_module_rec(
             global_info: global_var_info,
             local_info: &oldvarinfo,
         };
+
         let mut it = statements[current_index].to_iter(&mut input, &var_info);
         loop {
             match it.next() {
-                // for every term
                 StatementResult::Executed(f) => {
+                    // make sure every new term has its own local variables
+                    for (var, e) in &oldvarinfo.variables {
+                        if let Some(attribs) = global_var_info.func_attribs.get(var) {
+                            if attribs.contains(&FunctionAttributes::NonLocal) {
+                                continue;
+                            }
+                        }
+
+                        // if the value of a local dollar is different, we change it back
+                        if let Some(v) = local_var_info.variables.get_mut(var) {
+                            if v != e {
+                                *v = e.clone();
+                            }
+                        } else {
+                            unreachable!("Dollar variable disappeared");
+                        }
+                    }
+
                     *term_affected.last_mut().unwrap() = true;
                     let d = term_affected.len(); // store the depth of the stack
                     do_module_rec(
@@ -755,14 +773,14 @@ impl Module {
                     }
                 }
                 Statement::Attrib(ref f, ref attribs) => match *f {
-                    Element::Var(ref name) => {
+                    Element::Var(ref name) | Element::Dollar(ref name, _) => {
                         var_info
                             .global_info
                             .func_attribs
                             .insert(name.clone(), attribs.clone());
                     }
                     _ => {
-                        panic!("Can only assign attributes to functions");
+                        panic!("Can only assign attributes to functions or dollar variables");
                     }
                 },
                 _ => unimplemented!(),

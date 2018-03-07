@@ -31,6 +31,7 @@ pub enum FunctionAttributes {
     NonCommutative,
     Symmetric,
     Linear,
+    NonLocal, // used for persistent dollar variables
 }
 
 impl fmt::Display for FunctionAttributes {
@@ -39,6 +40,7 @@ impl fmt::Display for FunctionAttributes {
             FunctionAttributes::NonCommutative => write!(f, "NonCommutative"),
             FunctionAttributes::Symmetric => write!(f, "Symmetric"),
             FunctionAttributes::Linear => write!(f, "Linear"),
+            FunctionAttributes::NonLocal => write!(f, "NonLocal"),
         }
     }
 }
