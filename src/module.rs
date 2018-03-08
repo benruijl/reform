@@ -838,6 +838,12 @@ pub fn do_program(program: &mut Program, write_log: bool, verbosity: u64, num_th
 
         // execute the module for every expression
         for &mut (ref name, ref mut input_stream) in &mut program.expressions {
+
+            // only process active expressions
+            if !module.active_exprs.is_empty() && !module.active_exprs.contains(name) {
+                continue;
+            }
+
             let global_info = program.var_info.global_info.clone();
 
             let mut output = OutputTermStreamer::new();

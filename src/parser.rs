@@ -141,13 +141,14 @@ parser!{
         }
     };
 
-    let module = struct_parser!{
-        Module {
-            name: value("mod".to_string()),
-            global_statements: many(global_statement()),
-            statements: between(lex_char('{'), lex_char('}'), many(statement())),
-        }
-    };
+    let module_options = optional((keyword("mod").with(varname()), optional(keyword("for")
+        .with(sep_by(varname(), lex_char(',')))).map(|x| x.unwrap_or(vec![]))))
+        .map(|x| x.unwrap_or(("mod".to_string(), vec![])));
+
+    let module = (many(global_statement()), module_options, between(lex_char('{'), lex_char('}'), many(statement())))
+        .map(|(global_statements, (name, active_exprs), statements)|
+                Module { global_statements, name, active_exprs, statements }
+        );
 
     skipnocode()
         .with((many(procedure), many(module)))

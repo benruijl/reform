@@ -171,6 +171,7 @@ impl Program {
         for m in &mut modules {
             parsed_modules.push(Module {
                 name: m.name.clone(),
+                active_exprs: m.active_exprs.iter().map(|n| prog.var_info.get_name(n)).collect(),
                 statements: m.statements
                     .iter_mut()
                     .map(|s| s.to_statement(&mut prog.var_info))
@@ -242,6 +243,7 @@ impl Program {
 #[derive(Debug)]
 pub struct Module<ID: Id = VarName> {
     pub name: String,
+    pub active_exprs: Vec<ID>,
     pub statements: Vec<Statement<ID>>,
     pub global_statements: Vec<Statement<ID>>,
 }
