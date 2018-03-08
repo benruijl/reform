@@ -143,23 +143,18 @@ parser!{
 
     let module = struct_parser!{
         Module {
-            name: value("test".to_string()),
+            name: value("mod".to_string()),
             global_statements: many(global_statement()),
             statements: between(lex_char('{'), lex_char('}'), many(statement())),
         }
     };
 
-    let input = keyword("IN")
-        .with(lex_char('='))
-        .with(expr())
-        .skip(lex_char(';'));
-
     skipnocode()
-        .with((input, many(procedure), many(module)))
+        .with((many(procedure), many(module)))
         .skip(eof())
         .map(
-            |(e, p, m): (Element<String>, Vec<Procedure<String>>, Vec<Module<String>>)| {
-                Program::new(e, m, p)
+            |(p, m): (Vec<Procedure<String>>, Vec<Module<String>>)| {
+                Program::new(m, p)
             },
         )
 }
@@ -188,6 +183,10 @@ parser!{
    fn global_statement[I]()(I) -> Statement<String>
     where [I: Stream<Item=char>]
 {
+    let newexpr = (keyword("expr").with(varname()), lex_char('=').with(expr()))
+        .skip(statementend())
+        .map(|(n, e)| Statement::NewExpression(n, e));
+
     let assign = (dollarvar(), lex_char('=').with(expr()).skip(statementend()))
         .map(|(d, e)| Statement::Assign(d, e));
     let collect = keyword("collect")
@@ -204,7 +203,7 @@ parser!{
             sep_by(attribs, lex_char('+')).skip(statementend())))
                  .map(|(d,e)| Statement::Attrib(d, e));
 
-    choice!(assign, collect, attrib)
+    choice!(newexpr,assign, collect, attrib)
 }
 }
 

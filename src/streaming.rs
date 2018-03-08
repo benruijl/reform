@@ -181,9 +181,12 @@ impl OutputTermStreamer {
     */
     pub fn sort(
         &mut self,
+        exprname: &str,
         input_streamer: &mut InputTermStreamer,
+        module_name: &str,
         var_info: &mut VarInfo,
         global_statements: &[Statement],
+        print_output: bool,
         _write_log: bool,
     ) {
         let inpterm = input_streamer.termcount();
@@ -231,21 +234,24 @@ impl OutputTermStreamer {
                 }
             }
 
-            for x in &input_streamer.mem_buffer_input {
-                println!(
-                    "\t+{}",
-                    ElementPrinter {
-                        element: x,
-                        var_info: &var_info.global_info,
-                    }
-                );
+            if print_output {
+                println!("{} =", exprname);
+                for x in &input_streamer.mem_buffer_input {
+                    println!(
+                        "\t+{}",
+                        ElementPrinter {
+                            element: x,
+                            var_info: &var_info.global_info,
+                        }
+                    );
+                }
             }
 
             input_streamer.termcounter_input = input_streamer.mem_buffer_input.len() as u64;
 
             println!(
-                "sort -- \t terms in: {}\tgenerated: {}\tterms out: {}",
-                inpterm, genterm, input_streamer.termcounter_input
+                "{} -- \t terms in: {}\tgenerated: {}\tterms out: {}",
+                module_name, inpterm, genterm, input_streamer.termcounter_input
             );
 
             return;
@@ -379,14 +385,17 @@ impl OutputTermStreamer {
 
             input_streamer.termcounter_input += self.mem_buffer.len() as u64;
 
-            for x in &self.mem_buffer {
-                println!(
-                    "\t+{}",
-                    ElementPrinter {
-                        element: x,
-                        var_info: &var_info.global_info,
-                    }
-                );
+            if print_output {
+                println!("{} =", exprname);
+                for x in &self.mem_buffer {
+                    println!(
+                        "\t+{}",
+                        ElementPrinter {
+                            element: x,
+                            var_info: &var_info.global_info,
+                        }
+                    );
+                }
             }
 
             // move the mem_buffer to the input buffer
@@ -399,8 +408,8 @@ impl OutputTermStreamer {
             input_streamer.input = Some(BufReader::new(of)); // set it as the new input
 
             println!(
-                "sort -- \t terms in: {}\tgenerated: {}\tterms out: {}",
-                inpterm, genterm, input_streamer.termcounter_input
+                "{} -- \t terms in: {}\tgenerated: {}\tterms out: {}",
+                module_name, inpterm, genterm, input_streamer.termcounter_input
             );
         }
 

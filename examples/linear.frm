@@ -1,4 +1,4 @@
-IN = f(x, y);
+expr F = f(x, y);
 
 attrib f = Linear;
 

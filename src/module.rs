@@ -761,9 +761,29 @@ impl Module {
 
     // normalize all expressions in statements and execute global
     // operations
-    fn normalize_module(&mut self, var_info: &mut VarInfo, procedures: &[Procedure]) {
-        for x in &self.global_statements {
+    fn normalize_module(
+        &mut self,
+        exprs: &mut Vec<Expression>,
+        var_info: &mut VarInfo,
+        procedures: &[Procedure],
+    ) {
+        for x in &mut self.global_statements {
             match *x {
+                Statement::NewExpression(ref name, ref mut e) => {
+                    let mut expr = InputTermStreamer::new(None);
+                    let mut ee = mem::replace(e, DUMMY_ELEM!());
+                    ee.normalize_inplace(&var_info.global_info);
+
+                    match ee {
+                        Element::SubExpr(_, t) => for x in t {
+                            expr.add_term_input(x);
+                        },
+                        x => {
+                            expr.add_term_input(x);
+                        }
+                    }
+                    exprs.push((name.clone(), expr));
+                }
                 Statement::Assign(ref dollar, ref e) => {
                     let mut ee = e.clone();
                     ee.replace_vars(&var_info.local_info.variables, true);
@@ -802,119 +822,120 @@ impl Module {
 }
 
 // execute the module
-pub fn do_program(program: &mut Program, write_log: bool, num_threads: usize) {
-    // extract the initial input stream from the program
-    let mut input_stream = mem::replace(&mut program.input, InputTermStreamer::new(None));
-
+pub fn do_program(program: &mut Program, write_log: bool, verbosity: u64, num_threads: usize) {
     for module in &mut program.modules {
         // move global statements from the previous module into the new one
         // TODO: do swap instead of clone?
         program.var_info.local_info.variables =
             program.var_info.local_info.global_variables.clone();
 
-        module.normalize_module(&mut program.var_info, &program.procedures);
+        module.normalize_module(
+            &mut program.expressions,
+            &mut program.var_info,
+            &program.procedures,
+        );
         debug!("{}", module); // print module code
 
-        let global_info = program.var_info.global_info.clone();
+        // execute the module for every expression
+        for &mut (ref name, ref mut input_stream) in &mut program.expressions {
+            let global_info = program.var_info.global_info.clone();
 
-        let mut output = OutputTermStreamer::new();
+            let mut output = OutputTermStreamer::new();
 
-        output = if num_threads > 1 {
-            let mut output_mutarc = Arc::new(Mutex::new(output));
+            output = if num_threads > 1 {
+                let mut output_mutarc = Arc::new(Mutex::new(output));
 
-            let queue: MsQueue<Option<Element>> = MsQueue::new();
-            let thread_local_varinfo = program.var_info.local_info.clone();
+                let queue: MsQueue<Option<Element>> = MsQueue::new();
+                let thread_local_varinfo = program.var_info.local_info.clone();
 
-            // create threads that process terms
-            crossbeam::scope(|scope| {
-                for _ in 0..num_threads {
-                    scope.spawn(|| {
-                        let mut thread_varinfo = thread_local_varinfo.clone();
-                        let mut executed = vec![false];
-                        let mut output = TermStreamWrapper::Threaded(output_mutarc.clone());
-                        while let Some(x) = queue.pop() {
-                            do_module_rec(
-                                x,
-                                &module.statements,
-                                &mut thread_varinfo,
-                                &global_info,
-                                0,
-                                &mut executed,
-                                &mut output,
-                            );
-                        }
-                    });
-                }
+                // create threads that process terms
+                crossbeam::scope(|scope| {
+                    for _ in 0..num_threads {
+                        scope.spawn(|| {
+                            let mut thread_varinfo = thread_local_varinfo.clone();
+                            let mut executed = vec![false];
+                            let mut output = TermStreamWrapper::Threaded(output_mutarc.clone());
+                            while let Some(x) = queue.pop() {
+                                do_module_rec(
+                                    x,
+                                    &module.statements,
+                                    &mut thread_varinfo,
+                                    &global_info,
+                                    0,
+                                    &mut executed,
+                                    &mut output,
+                                );
+                            }
+                        });
+                    }
 
-                // TODO: use semaphore or condvar for refills
-                let mut done = false;
-                while !done {
-                    if queue.is_empty() {
-                        debug!("Loading new batch");
-                        for _ in 0..MAXTERMMEM {
-                            if let Some(x) = input_stream.read_term() {
-                                queue.push(Some(x));
-                            } else {
-                                // post exist signal to all threads
-                                for _ in 0..num_threads {
-                                    queue.push(None); // post exit signal
+                    // TODO: use semaphore or condvar for refills
+                    let mut done = false;
+                    while !done {
+                        if queue.is_empty() {
+                            debug!("Loading new batch");
+                            for _ in 0..MAXTERMMEM {
+                                if let Some(x) = input_stream.read_term() {
+                                    queue.push(Some(x));
+                                } else {
+                                    // post exist signal to all threads
+                                    for _ in 0..num_threads {
+                                        queue.push(None); // post exit signal
+                                    }
+
+                                    done = true;
+                                    break;
                                 }
-
-                                done = true;
-                                break;
                             }
                         }
+                        thread::sleep(time::Duration::from_millis(50));
                     }
-                    thread::sleep(time::Duration::from_millis(50));
-                }
-            });
+                });
 
-            Arc::try_unwrap(output_mutarc)
-                .unwrap()
-                .into_inner()
-                .unwrap()
-        } else {
-            let mut executed = vec![false];
-            let mut output_wrapped = TermStreamWrapper::Single(output);
+                Arc::try_unwrap(output_mutarc)
+                    .unwrap()
+                    .into_inner()
+                    .unwrap()
+            } else {
+                let mut executed = vec![false];
+                let mut output_wrapped = TermStreamWrapper::Single(output);
 
-            while let Some(x) = input_stream.read_term() {
-                do_module_rec(
-                    x,
-                    &module.statements,
-                    &mut program.var_info.local_info,
-                    &program.var_info.global_info,
-                    0,
-                    &mut executed,
-                    &mut output_wrapped,
-                );
+                while let Some(x) = input_stream.read_term() {
+                    do_module_rec(
+                        x,
+                        &module.statements,
+                        &mut program.var_info.local_info,
+                        &program.var_info.global_info,
+                        0,
+                        &mut executed,
+                        &mut output_wrapped,
+                    );
 
-                if let TermStreamWrapper::Single(ref output) = output_wrapped {
-                    if output.termcount() > 100_000 && output.termcount() % 100_000 == 0 {
-                        println!(
-                            "{} -- generated: {}\tterms left: {}",
-                            module.name,
-                            output.termcount(),
-                            input_stream.termcount()
-                        );
+                    if let TermStreamWrapper::Single(ref output) = output_wrapped {
+                        if output.termcount() > 100_000 && output.termcount() % 100_000 == 0 {
+                            println!(
+                                "{} -- generated: {}\tterms left: {}",
+                                module.name,
+                                output.termcount(),
+                                input_stream.termcount()
+                            );
+                        }
                     }
                 }
-            }
 
-            output_wrapped.extract()
-        };
+                output_wrapped.extract()
+            };
 
-        output.sort(
-            &mut input_stream,
-            &mut program.var_info, // TODO: this is not correct in the parallel case
-            &module.global_statements,
-            write_log,
-        );
-    }
-
-    #[cfg(test)]
-    {
-        // Return back the input streamer such that Program::get_result() works.
-        use std::mem::swap;
-        swap(&mut program.input, &mut input_stream);
+            let exprname = program.var_info.get_str_name(name);
+            output.sort(
+                &exprname,
+                input_stream,
+                &module.name,
+                &mut program.var_info, // TODO: this is not correct in the parallel case
+                &module.global_statements,
+                verbosity > 0,
+                write_log,
+            );
+        }
     }
 }

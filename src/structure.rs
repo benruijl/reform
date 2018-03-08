@@ -17,10 +17,11 @@ impl<T: Ord + fmt::Debug> Id for T {}
 
 /// Internal ID numbers for variables.
 pub type VarName = u32;
+pub type Expression = (VarName, InputTermStreamer);
 
 #[derive(Debug)]
 pub struct Program {
-    pub input: InputTermStreamer,
+    pub expressions: Vec<Expression>,
     pub modules: Vec<Module>,
     pub procedures: Vec<Procedure>,
     pub var_info: VarInfo,
@@ -115,11 +116,15 @@ impl VarInfo {
         }
     }
 
-    pub fn get_name(&mut self, s: &String) -> u32 {
+    pub fn get_str_name(&mut self, s: &VarName) -> String {
+        self.global_info.inv_name_map[s.clone() as usize].clone()
+    }
+
+    pub fn get_name(&mut self, s: &str) -> u32 {
         let nm = &mut self.global_info.name_map;
         let inv = &mut self.global_info.inv_name_map;
-        *nm.entry(s.clone()).or_insert_with(|| {
-            inv.push(s.clone());
+        *nm.entry(s.to_string()).or_insert_with(|| {
+            inv.push(s.to_string());
             (inv.len() - 1) as VarName
         })
     }
@@ -138,19 +143,18 @@ impl VarInfo {
 impl Program {
     /// Create a new Program from the parser output.
     pub fn new(
-        mut input: Element<String>,
         mut modules: Vec<Module<String>>,
         mut procedures: Vec<Procedure<String>>,
     ) -> Program {
         let mut prog = Program {
-            input: InputTermStreamer::new(None),
+            expressions: vec![],
             modules: vec![],
             procedures: vec![],
             var_info: VarInfo::new(),
         };
 
         // convert all the names to IDs
-
+/*
         let mut parsed_input = input.to_element(&mut prog.var_info);
         parsed_input.normalize_inplace(&prog.var_info.global_info);
 
@@ -162,7 +166,7 @@ impl Program {
                 prog.input.add_term_input(x);
             }
         }
-
+*/
         let mut parsed_modules = vec![];
         for m in &mut modules {
             parsed_modules.push(Module {
@@ -206,28 +210,32 @@ impl Program {
     /// Returns the string representation for the specified expression.
     #[cfg(test)]
     pub fn get_result(&mut self, name: &str) -> String {
-        if name != "IN" {
-            panic!("only one expression IN is supported for now");
+        let exprname = self.var_info.get_name(name);
+        for &mut (name1, ref mut input) in &mut self.expressions {
+            if name1 == exprname {
+                // NOTE: This code consumes the contents in the input stream.
+                let mut terms = Vec::new();
+                while let Some(x) = input.read_term() {
+                    terms.push(x);
+                }
+                if terms.is_empty() {
+                    return "0".to_string();
+                } else {
+                    let terms = if terms.len() == 1 {
+                        terms.pop().unwrap()
+                    } else {
+                        Element::SubExpr(true, terms)
+                    };
+                    let printer = ElementPrinter {
+                        element: &terms,
+                        var_info: &self.var_info.global_info,
+                    };
+                    return printer.to_string();
+                }
+            }
+            break;
         }
-        // NOTE: This code breaks the contents in the input stream.
-        let mut terms = Vec::new();
-        while let Some(x) = self.input.read_term() {
-            terms.push(x);
-        }
-        if terms.is_empty() {
-            "0".to_string()
-        } else {
-            let terms = if terms.len() == 1 {
-                terms.pop().unwrap()
-            } else {
-                Element::SubExpr(true, terms)
-            };
-            let printer = ElementPrinter {
-                element: &terms,
-                var_info: &self.var_info.global_info,
-            };
-            printer.to_string()
-        }
+        unreachable!("Could not find expression {}", name);
     }
 }
 
@@ -283,6 +291,7 @@ macro_rules! DUMMY_ELEM { () => (Element::Num(false, true, 1, 1)) }
 
 #[derive(Debug, Clone)]
 pub enum Statement<ID: Id = VarName> {
+    NewExpression(ID, Element<ID>),
     IdentityStatement(IdentityStatement<ID>),
     SplitArg(ID),
     Repeat(Vec<Statement<ID>>),
@@ -548,6 +557,7 @@ impl fmt::Display for Procedure {
 impl fmt::Display for Statement {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
+            Statement::NewExpression(ref id, ref e) => write!(f, "expr {} = {};", id, e),
             Statement::IdentityStatement(ref id) => write!(f, "{}", id),
             Statement::SplitArg(ref name) => writeln!(f, "SplitArg {};", name),
             Statement::Expand => writeln!(f, "Expand;"),
@@ -946,6 +956,9 @@ impl Element {
 impl Statement<String> {
     pub fn to_statement(&mut self, var_info: &mut VarInfo) -> Statement {
         match *self {
+            Statement::NewExpression(ref name, ref mut e) => {
+                Statement::NewExpression(var_info.get_name(name), e.to_element(var_info))
+            }
             Statement::IdentityStatement(IdentityStatement {
                 ref mode,
                 ref mut lhs,

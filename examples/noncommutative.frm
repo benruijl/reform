@@ -1,4 +1,4 @@
-IN = 1;
+expr F = 1;
 
 attrib f = NonCommutative;
 

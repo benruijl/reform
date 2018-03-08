@@ -1,4 +1,4 @@
-IN = x;
+expr F = x;
 
 attrib $a = nonlocal;
 

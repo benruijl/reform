@@ -71,6 +71,7 @@ fn main() {
     reform::module::do_program(
         &mut program,
         matches.is_present("log"),
+        matches.occurrences_of("v"),
         matches.value_of("workers").unwrap().parse().unwrap(),
     );
 

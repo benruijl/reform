@@ -1,4 +1,4 @@
-IN = f(1)+f(2)+f(3);
+expr F = f(1)+f(2)+f(3);
 
 $a = 3; // initialize $a
 {

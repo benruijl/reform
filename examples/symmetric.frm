@@ -1,4 +1,4 @@
-IN = f(1,2);
+expr F = f(1,2);
 
 attrib f = Symmetric;
 
