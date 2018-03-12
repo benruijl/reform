@@ -275,6 +275,14 @@ parser!{
             .skip(statementend()))
             .map(|(f, ss)| Statement::Argument(f, ss));
 
+    let forin = (keyword("for").with(factor()),
+        keyword("in").with(sep_by(expr(), lex_char(','))),
+        statementend()
+            .with(many(statement()))
+            .skip(keyword("endfor"))
+            .skip(statementend()))
+            .map(|(d, l, ss)| Statement::ForIn(d, l, ss));
+
     let ifclause = between(
         lex_char('('),
         lex_char(')'),
@@ -295,6 +303,7 @@ parser!{
         maximum,
         print,
         ifelse,
+        forin,
         expand,
         multiply,
         repeat,

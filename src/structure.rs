@@ -171,7 +171,10 @@ impl Program {
         for m in &mut modules {
             parsed_modules.push(Module {
                 name: m.name.clone(),
-                active_exprs: m.active_exprs.iter().map(|n| prog.var_info.get_name(n)).collect(),
+                active_exprs: m.active_exprs
+                    .iter()
+                    .map(|n| prog.var_info.get_name(n))
+                    .collect(),
                 statements: m.statements
                     .iter_mut()
                     .map(|s| s.to_statement(&mut prog.var_info))
@@ -299,6 +302,7 @@ pub enum Statement<ID: Id = VarName> {
     Repeat(Vec<Statement<ID>>),
     Argument(Element<ID>, Vec<Statement<ID>>),
     IfElse(Element<ID>, Vec<Statement<ID>>, Vec<Statement<ID>>),
+    ForIn(Element<ID>, Vec<Element<ID>>, Vec<Statement<ID>>),
     Expand,
     Print,
     Multiply(Element<ID>),
@@ -605,6 +609,25 @@ impl fmt::Display for Statement {
 
                 writeln!(f, "endif;")
             },
+            Statement::ForIn(ref d, ref l, ref m) => {
+                write!(f, "for {} in {{", d)?;
+
+                for li in l {
+                    writeln!(f, ",{}", li)?;
+                }
+
+                writeln!(f, "}}")?;
+
+                for s in m {
+                    writeln!(f, "\t{}", s)?;
+                }
+
+                writeln!(f, "endfor;")
+            }
+            Statement::Range(ref d, ref i, ref u, ref jmp_done, ref v) => {
+                // TODO!
+                writeln!(f, "range")
+            }
             Statement::Call(ref name, ref args) => {
                 write!(f, "call {}(", name)?;
 
@@ -981,6 +1004,11 @@ impl Statement<String> {
                 e.to_element(var_info),
                 ss.iter_mut().map(|s| s.to_statement(var_info)).collect(),
                 sse.iter_mut().map(|s| s.to_statement(var_info)).collect(),
+            ),
+            Statement::ForIn(ref mut d, ref mut l, ref mut ss) => Statement::ForIn(
+                d.to_element(var_info),
+                l.iter_mut().map(|s| s.to_element(var_info)).collect(),
+                ss.iter_mut().map(|s| s.to_statement(var_info)).collect(),
             ),
             Statement::SplitArg(ref name) => Statement::SplitArg(var_info.get_name(name)),
             Statement::Symmetrize(ref name) => Statement::Symmetrize(var_info.get_name(name)),

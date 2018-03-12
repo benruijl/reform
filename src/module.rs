@@ -703,6 +703,23 @@ impl Module {
                         output[pos] = Statement::Eval(prod.clone(), output.len());
                     }
                 }
+                Statement::ForIn(ref d, ref mut l, ref mut s) => {
+                    if let Element::Dollar(dd, _) = *d {
+                        let mut replace_map = HashMap::new();
+
+                        // unroll the loop
+                        for ll in l {
+                            replace_map.insert(dd, ll.clone());
+                            for ss in s.iter() {
+                                let mut news = ss.clone();
+                                news.replace_vars(&replace_map, true);
+                                output.push(news);
+                            }
+                        }
+                    } else {
+                        panic!("Loop counter should be a dollar variable");
+                    }
+                }
                 Statement::Call(ref name, ref args) => {
                     // copy the procedure and rename local variables
                     for p in procedures {
@@ -838,7 +855,6 @@ pub fn do_program(program: &mut Program, write_log: bool, verbosity: u64, num_th
 
         // execute the module for every expression
         for &mut (ref name, ref mut input_stream) in &mut program.expressions {
-
             // only process active expressions
             if !module.active_exprs.is_empty() && !module.active_exprs.contains(name) {
                 continue;
