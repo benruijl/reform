@@ -624,10 +624,6 @@ impl fmt::Display for Statement {
 
                 writeln!(f, "endfor;")
             }
-            Statement::Range(ref d, ref i, ref u, ref jmp_done, ref v) => {
-                // TODO!
-                writeln!(f, "range")
-            }
             Statement::Call(ref name, ref args) => {
                 write!(f, "call {}(", name)?;
 
