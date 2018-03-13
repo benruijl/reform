@@ -703,6 +703,48 @@ impl Module {
                         output[pos] = Statement::Eval(prod.clone(), output.len());
                     }
                 }
+                Statement::ForInRange(ref d, ref mut l, ref mut u, ref mut s) => {
+                    if let Element::Dollar(dd, _) = *d {
+                        let mut replace_map = HashMap::new();
+
+                        l.normalize_inplace(&var_info.global_info);
+                        u.normalize_inplace(&var_info.global_info);
+
+                        if let Element::Num(_, pos, num, 1) = *l {
+                            if let Element::Num(_, pos2, num2, 1) = *u {
+                                let li: isize = if pos { num as isize } else { -(num as isize) };
+                                let ui: isize = if pos2 {
+                                    num2 as isize
+                                } else {
+                                    -(num2 as isize)
+                                };
+
+                                // unroll the loop
+                                for ll in li..ui {
+                                    let lle = if ll < 0 {
+                                        Element::Num(false, false, -ll as u64, 1)
+                                    } else {
+                                        Element::Num(false, true, ll as u64, 1)
+                                    };
+                                    replace_map.insert(dd, lle);
+                                    for ss in s.iter() {
+                                        let mut news = ss.clone();
+                                        if news.replace_vars(&replace_map, true) {
+                                            news.normalize(&var_info.global_info);
+                                        }
+                                        output.push(news);
+                                    }
+                                }
+                            } else {
+                                panic!("Upper range index is not an integer");
+                            }
+                        } else {
+                            panic!("Lower range index is not an integer");
+                        }
+                    } else {
+                        panic!("Loop counter should be a dollar variable");
+                    }
+                }
                 Statement::ForIn(ref d, ref mut l, ref mut s) => {
                     if let Element::Dollar(dd, _) = *d {
                         let mut replace_map = HashMap::new();
@@ -712,7 +754,9 @@ impl Module {
                             replace_map.insert(dd, ll.clone());
                             for ss in s.iter() {
                                 let mut news = ss.clone();
-                                news.replace_vars(&replace_map, true);
+                                if news.replace_vars(&replace_map, true) {
+                                    news.normalize(&var_info.global_info);
+                                }
                                 output.push(news);
                             }
                         }
@@ -720,7 +764,11 @@ impl Module {
                         panic!("Loop counter should be a dollar variable");
                     }
                 }
-                Statement::Call(ref name, ref args) => {
+                Statement::Call(ref name, ref mut args) => {
+                    for a in args.iter_mut() {
+                        a.normalize_inplace(&var_info.global_info);
+                    }
+
                     // copy the procedure and rename local variables
                     for p in procedures {
                         if p.name == *name {
@@ -757,7 +805,10 @@ impl Module {
                                 .iter()
                                 .cloned()
                                 .map(|mut x| {
-                                    x.replace_vars(&map, false);
+                                    x.normalize(&var_info.global_info);
+                                    if x.replace_vars(&map, false) {
+                                        x.normalize(&var_info.global_info);
+                                    }
                                     x
                                 })
                                 .collect::<Vec<_>>();

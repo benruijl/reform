@@ -193,11 +193,19 @@ impl Program {
                 name: m.name.clone(),
                 args: m.args
                     .iter_mut()
-                    .map(|s| s.to_element(&mut prog.var_info))
+                    .map(|s| {
+                        let mut ns = s.to_element(&mut prog.var_info);
+                        ns.normalize_inplace(&prog.var_info.global_info);
+                        ns
+                    })
                     .collect(),
                 local_args: m.local_args
                     .iter_mut()
-                    .map(|s| s.to_element(&mut prog.var_info))
+                    .map(|s| {
+                        let mut ns = s.to_element(&mut prog.var_info);
+                        ns.normalize_inplace(&prog.var_info.global_info);
+                        ns
+                    })
                     .collect(),
                 statements: m.statements
                     .iter_mut()
@@ -303,6 +311,7 @@ pub enum Statement<ID: Id = VarName> {
     Argument(Element<ID>, Vec<Statement<ID>>),
     IfElse(Element<ID>, Vec<Statement<ID>>, Vec<Statement<ID>>),
     ForIn(Element<ID>, Vec<Element<ID>>, Vec<Statement<ID>>),
+    ForInRange(Element<ID>, Element<ID>, Element<ID>, Vec<Statement<ID>>),
     Expand,
     Print,
     Multiply(Element<ID>),
@@ -617,6 +626,15 @@ impl fmt::Display for Statement {
                 }
 
                 writeln!(f, "}}")?;
+
+                for s in m {
+                    writeln!(f, "\t{}", s)?;
+                }
+
+                writeln!(f, "endfor;")
+            }
+            Statement::ForInRange(ref d, ref l, ref u, ref m) => {
+                write!(f, "for {} in {}..{}", d, l, u)?;
 
                 for s in m {
                     writeln!(f, "\t{}", s)?;
@@ -1006,6 +1024,14 @@ impl Statement<String> {
                 l.iter_mut().map(|s| s.to_element(var_info)).collect(),
                 ss.iter_mut().map(|s| s.to_statement(var_info)).collect(),
             ),
+            Statement::ForInRange(ref mut d, ref mut l, ref mut u, ref mut ss) => {
+                Statement::ForInRange(
+                    d.to_element(var_info),
+                    l.to_element(var_info),
+                    u.to_element(var_info),
+                    ss.iter_mut().map(|s| s.to_statement(var_info)).collect(),
+                )
+            }
             Statement::SplitArg(ref name) => Statement::SplitArg(var_info.get_name(name)),
             Statement::Symmetrize(ref name) => Statement::Symmetrize(var_info.get_name(name)),
             Statement::Collect(ref name) => Statement::Collect(var_info.get_name(name)),
@@ -1075,6 +1101,21 @@ impl Statement {
             Statement::Assign(ref _d, ref mut e) => {
                 // TODO: also change dollar variable?
                 changed |= e.replace_vars(map, dollar_only);
+            },
+            Statement::ForIn(_, ref mut l, ref mut ss) => {
+                for e in l {
+                    changed |= e.replace_vars(map, dollar_only);
+                }
+                for s in ss {
+                    changed |= s.replace_vars(map, dollar_only);
+                }
+            }
+            Statement::ForInRange(_, ref mut l, ref mut u, ref mut ss) => {
+                changed |= l.replace_vars(map, dollar_only);
+                changed |= u.replace_vars(map, dollar_only);
+                for s in ss {
+                    changed |= s.replace_vars(map, dollar_only);
+                }
             }
             _ => {}
         };
@@ -1099,6 +1140,26 @@ impl Statement {
             Statement::Argument(_, ref mut ss) => for s in ss {
                 s.normalize(var_info);
             },
+            Statement::Call(_, ref mut ss) => for s in ss {
+                s.normalize_inplace(var_info);
+            },
+            Statement::ForIn(ref mut d, ref mut l, ref mut ss) => {
+                d.normalize_inplace(var_info);
+                for e in l {
+                    e.normalize_inplace(var_info);
+                }
+                for s in ss {
+                    s.normalize(var_info);
+                }
+            }
+            Statement::ForInRange(ref mut d, ref mut l, ref mut u, ref mut ss) => {
+                d.normalize_inplace(var_info);
+                u.normalize_inplace(var_info);
+                l.normalize_inplace(var_info);
+                for s in ss {
+                    s.normalize(var_info);
+                }
+            }
             _ => {}
         }
     }

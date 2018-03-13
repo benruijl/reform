@@ -275,25 +275,24 @@ parser!{
             .skip(statementend()))
             .map(|(f, ss)| Statement::Argument(f, ss));
 
-    let simplenum = || (optional(lex_char('-')).map(|x| if x.is_none() {1} else {-1} ),
-        many1(digit()).map(|d: String| d.parse::<isize>().unwrap()));
-    let numberrange = (simplenum(), lex_char('.').with(lex_char('.')).with(simplenum()))
-        .map(|((s1,n1), (s2,n2))| (s1*n1..s2*n2)
-            .map(|n: isize| if n < 0 {
-                    Element::Num(false, false, -n as u64, 1)
-                } else {
-                    Element::Num(false, true, n as u64, 1)
-                })
-            .collect()
-        );
+    let forinrange = (keyword("for").with(factor()),
+        keyword("in").with(expr()),
+        string("..").with(expr()),
+        statementend()
+            .with(many(statement()))
+            .skip(keyword("endfor"))
+            .skip(statementend()))
+            .map(|(d, l, u, ss)| Statement::ForInRange(d, l, u, ss));
 
-    let forin = (keyword("for").with(factor()),
-        keyword("in").with(try(numberrange).or(sep_by(expr(), lex_char(',')))),
+    let forinlist = (keyword("for").with(factor()),
+        keyword("in").with(sep_by(expr(), lex_char(','))),
         statementend()
             .with(many(statement()))
             .skip(keyword("endfor"))
             .skip(statementend()))
             .map(|(d, l, ss)| Statement::ForIn(d, l, ss));
+
+    let forin = try(forinlist).or(forinrange);
 
     let ifclause = between(
         lex_char('('),
