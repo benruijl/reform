@@ -275,8 +275,20 @@ parser!{
             .skip(statementend()))
             .map(|(f, ss)| Statement::Argument(f, ss));
 
+    let simplenum = || (optional(lex_char('-')).map(|x| if x.is_none() {1} else {-1} ),
+        many1(digit()).map(|d: String| d.parse::<isize>().unwrap()));
+    let numberrange = (simplenum(), lex_char('.').with(lex_char('.')).with(simplenum()))
+        .map(|((s1,n1), (s2,n2))| (s1*n1..s2*n2)
+            .map(|n: isize| if n < 0 {
+                    Element::Num(false, false, -n as u64, 1)
+                } else {
+                    Element::Num(false, true, n as u64, 1)
+                })
+            .collect()
+        );
+
     let forin = (keyword("for").with(factor()),
-        keyword("in").with(sep_by(expr(), lex_char(','))),
+        keyword("in").with(try(numberrange).or(sep_by(expr(), lex_char(',')))),
         statementend()
             .with(many(statement()))
             .skip(keyword("endfor"))
