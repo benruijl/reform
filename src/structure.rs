@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::mem;
 use streaming::InputTermStreamer;
+use poly::raw::MultivariatePolynomial;
 
 pub const BUILTIN_FUNCTIONS: &'static [&'static str] = &["delta_", "nargs_", "sum_", "mul_"];
 pub const FUNCTION_DELTA: VarName = 0;
@@ -292,6 +293,7 @@ pub enum Element<ID: Id = VarName> {
     Term(bool, Vec<Element<ID>>),
     SubExpr(bool, Vec<Element<ID>>),
     Num(bool, Number),
+    RationalPolynomialCoefficient(MultivariatePolynomial<i64, VarName>, Option<MultivariatePolynomial<i64, VarName>>),
 }
 
 impl<ID: Id> Default for Element<ID> {
@@ -406,6 +408,8 @@ impl Element {
                 Some(Ordering::Equal)
             }
             (&Element::Num(_, ref n1), &Element::Num(_, ref n2)) => n1.partial_cmp(n2),
+            (_, &Element::RationalPolynomialCoefficient(..)) => Some(Ordering::Less),
+            (&Element::RationalPolynomialCoefficient(..), _) => Some(Ordering::Greater),
             (_, &Element::Num(..)) => Some(Ordering::Less),
             (&Element::Num(..), _) => Some(Ordering::Greater),
             (&Element::Pow(_, ref be1), &Element::Pow(_, ref be2)) => {
@@ -841,6 +845,9 @@ impl Element {
                 }
                 write!(f, "")
             }
+            &Element::RationalPolynomialCoefficient(ref num, ref _den) => {
+                write!(f, "rat_{}", num)
+            }
         }
     }
 }
@@ -894,6 +901,9 @@ impl Element<String> {
                 var_info.get_name(name),
                 args.iter_mut().map(|x| x.to_element(var_info)).collect(),
             ),
+            Element::RationalPolynomialCoefficient(ref num, ref den) => {
+                Element::RationalPolynomialCoefficient(num.clone(), den.clone())
+            }
         }
     }
 }

@@ -5,6 +5,7 @@ use std::mem;
 use std::ptr;
 use structure::{Element, FunctionAttributes, GlobalVarInfo, FUNCTION_DELTA, FUNCTION_MUL,
                 FUNCTION_NARGS, FUNCTION_SUM};
+use std::ops::{Mul,Add};
 
 impl Element {
     // TODO: return iterator over Elements for ground level?
@@ -369,6 +370,18 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
         return false;
     }
 
+    // multiply two polyratfuns
+    if let Element::RationalPolynomialCoefficient(ref mut num, ref mut den) = *first {
+        if let Element::RationalPolynomialCoefficient(ref mut num1, ref mut den1) = *sec {
+            *num = num.clone().mul(num1.clone()); // FIXME: do inplace!
+
+            if *den != None || *den1 != None {
+                unimplemented!();
+            }
+            return true;
+        }
+    }
+
     // x*x => x^2
     if first == sec {
         *first = Element::Pow(
@@ -458,6 +471,26 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
             // treat the case where the term doesn't have a coefficient
             assert!(!t1.is_empty() && !t2.is_empty());
 
+            // TODO: implement case where only one term has a polyratfun
+            if let Some(&mut Element::RationalPolynomialCoefficient(ref mut num, ref mut den)) =
+                t1.last_mut()
+            {
+                if let Some(&mut Element::RationalPolynomialCoefficient(
+                    ref mut num1,
+                    ref mut den1,
+                )) = t2.last_mut()
+                {
+                    *num = num.clone().add(num1.clone()); // FIXME: do inplace
+
+                    if *den1 != None || *den != None {
+                        unimplemented!()
+                    }
+
+                    // TODO: add 0 check
+                    return true;
+                }
+            }
+
             let mut num1 = Number::one();
             {
                 let (mut l1, l11) = t1.split_at(t1.len() - 1);
@@ -541,6 +574,20 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
         }
         (&mut Element::Num(_, ref mut num1), &mut &mut Element::Num(_, ref mut num)) => {
             *num += mem::replace(num1, DUMMY_NUM!());
+            if num.is_zero() {
+                is_zero = true;
+            }
+        }
+        (
+            &mut Element::RationalPolynomialCoefficient(ref mut num1, ref mut den1),
+            &mut &mut Element::RationalPolynomialCoefficient(ref mut num, ref mut den),
+        ) => {
+            *num = num.clone().add(num1.clone()); // FIXME: do inplace
+
+            if *den1 != None || *den != None {
+                unimplemented!()
+            }
+
             if num.is_zero() {
                 is_zero = true;
             }
