@@ -4,6 +4,7 @@ extern crate itertools; // command line argument options
                         //extern crate rand;
 extern crate byteorder; // for serialization
 extern crate crossbeam;
+extern crate num_traits;
 
 #[macro_use]
 extern crate log;
@@ -17,6 +18,7 @@ pub mod streaming;
 pub mod tools;
 pub mod module;
 pub mod serialize;
+pub mod poly;
 
 #[cfg(test)]
 mod tests;

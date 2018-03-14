@@ -19,4 +19,5 @@ rand = "0.4.2"
 combine = "2.5.2"
 byteorder = "1.1.0"
 crossbeam = "0.3.2"
+num-traits = "0.2"
 cpuprofiler = { version = "0.0.3", optional = true }
