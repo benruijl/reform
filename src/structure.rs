@@ -4,6 +4,7 @@ use streaming::InputTermStreamer;
 use std::collections::HashMap;
 use std::cmp::Ordering;
 use tools::num_cmp;
+use poly::raw::MultivariatePolynomial;
 
 pub const BUILTIN_FUNCTIONS: &'static [&'static str] = &["delta_", "nargs_", "sum_", "mul_"];
 pub const FUNCTION_DELTA: VarName = 0;
@@ -276,30 +277,6 @@ pub enum NumOrder {
     SmallerEqual,
 }
 
-// TODO: dummy implementation
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RationalPolynomial {
-    monomial: u64,
-}
-
-impl RationalPolynomial {
-    pub fn new(num: u64) -> RationalPolynomial {
-        RationalPolynomial { monomial: num }
-    }
-
-    pub fn mul(&mut self, other: &mut RationalPolynomial) {
-        self.monomial *= other.monomial;
-    }
-
-    pub fn add(&mut self, other: &mut RationalPolynomial) {
-        self.monomial += other.monomial;
-    }
-
-    pub fn is_zero(&self) -> bool {
-        return self.monomial == 0;
-    }
-}
-
 // all the algebraic elements. A bool as the first
 // argument is the dirty flag, which is set to true
 // if a normalization needs to happen
@@ -315,7 +292,7 @@ pub enum Element<ID: Id = VarName> {
     Term(bool, Vec<Element<ID>>),
     SubExpr(bool, Vec<Element<ID>>),
     Num(bool, bool, u64, u64), // dirty, fraction (true=positive), make sure it is last for sorting
-    RationalPolynomialCoefficient(RationalPolynomial, Option<RationalPolynomial>),
+    RationalPolynomialCoefficient(MultivariatePolynomial<i64, VarName>, Option<MultivariatePolynomial<i64, VarName>>),
 }
 
 impl<ID: Id> Default for Element<ID> {
@@ -866,7 +843,7 @@ impl Element {
                 write!(f, "")
             }
             &Element::RationalPolynomialCoefficient(ref num, ref _den) => {
-                write!(f, "rat_({})", num.monomial)
+                write!(f, "rat_{}", num)
             }
         }
     }

@@ -4,6 +4,8 @@ use structure::{Element, FunctionAttributes, GlobalVarInfo, FUNCTION_DELTA, FUNC
 use tools::{add_fractions, add_one, exp_fraction, mul_fractions, normalize_fraction};
 use std::cmp::Ordering;
 use std::ptr;
+use std::ops::{Mul,Add};
+use num_traits::Zero;
 
 impl Element {
     // TODO: return iterator over Elements for ground level?
@@ -361,7 +363,7 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
     // multiply two polyratfuns
     if let Element::RationalPolynomialCoefficient(ref mut num, ref mut den) = *first {
         if let Element::RationalPolynomialCoefficient(ref mut num1, ref mut den1) = *sec {
-            num.mul(num1);
+            *num = num.clone().mul(num1.clone()); // FIXME: do inplace!
 
             if *den != None || *den1 != None {
                 unimplemented!();
@@ -468,7 +470,7 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
                     ref mut den1,
                 )) = t2.last_mut()
                 {
-                    num.add(num1);
+                    *num = num.clone().add(num1.clone()); // FIXME: do inplace
 
                     if *den1 != None || *den != None {
                         unimplemented!()
@@ -594,7 +596,7 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
             &mut Element::RationalPolynomialCoefficient(ref mut num1, ref mut den1),
             &mut &mut Element::RationalPolynomialCoefficient(ref mut num, ref mut den),
         ) => {
-            num.add(num1);
+            *num = num.clone().add(num1.clone()); // FIXME: do inplace
 
             if *den1 != None || *den != None {
                 unimplemented!()

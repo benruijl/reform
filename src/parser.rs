@@ -2,7 +2,8 @@ use std::io::prelude::*;
 use std::fs::File;
 use std::str::FromStr;
 use structure::{Element, FunctionAttributes, IdentityStatement, IdentityStatementMode, Module,
-                NumOrder, Procedure, Program, RationalPolynomial, Statement};
+                NumOrder, Procedure, Program, Statement};
+use poly::raw::MultivariatePolynomial;
 
 use combine::char::*;
 use combine::*;
@@ -384,8 +385,8 @@ parser!{
         });
 
     let polyratfun = string("rat_").with(between(lex_char('('), lex_char(')'), many1(digit())
-            .map(|d: String| d.parse::<u64>().unwrap())))
-        .map(|n| Element::RationalPolynomialCoefficient(RationalPolynomial::new(n), None));
+            .map(|d: String| d.parse::<i64>().unwrap())))
+        .map(|n| Element::RationalPolynomialCoefficient(MultivariatePolynomial::from_monomial(n, vec![]), None));
 
     choice!(
         number(),
