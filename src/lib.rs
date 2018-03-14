@@ -22,6 +22,7 @@ pub mod parser;
 pub mod serialize;
 pub mod streaming;
 pub mod tools;
+pub mod poly;
 
 #[cfg(test)]
 mod tests;
