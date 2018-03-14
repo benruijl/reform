@@ -276,6 +276,30 @@ pub enum NumOrder {
     SmallerEqual,
 }
 
+// TODO: dummy implementation
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RationalPolynomial {
+    monomial: u64,
+}
+
+impl RationalPolynomial {
+    pub fn new(num: u64) -> RationalPolynomial {
+        RationalPolynomial { monomial: num }
+    }
+
+    pub fn mul(&mut self, other: &mut RationalPolynomial) {
+        self.monomial *= other.monomial;
+    }
+
+    pub fn add(&mut self, other: &mut RationalPolynomial) {
+        self.monomial += other.monomial;
+    }
+
+    pub fn is_zero(&self) -> bool {
+        return self.monomial == 0;
+    }
+}
+
 // all the algebraic elements. A bool as the first
 // argument is the dirty flag, which is set to true
 // if a normalization needs to happen
@@ -291,6 +315,7 @@ pub enum Element<ID: Id = VarName> {
     Term(bool, Vec<Element<ID>>),
     SubExpr(bool, Vec<Element<ID>>),
     Num(bool, bool, u64, u64), // dirty, fraction (true=positive), make sure it is last for sorting
+    RationalPolynomialCoefficient(RationalPolynomial, Option<RationalPolynomial>),
 }
 
 impl<ID: Id> Default for Element<ID> {
@@ -403,6 +428,8 @@ impl Element {
                     NumOrder::Equal => Ordering::Equal,
                 })
             }
+            (_, &Element::RationalPolynomialCoefficient(..)) => Some(Ordering::Less),
+            (&Element::RationalPolynomialCoefficient(..), _) => Some(Ordering::Greater),
             (_, &Element::Num(..)) => Some(Ordering::Less),
             (&Element::Num(..), _) => Some(Ordering::Greater),
             (&Element::Pow(_, ref be1), &Element::Pow(_, ref be2)) => {
@@ -838,6 +865,9 @@ impl Element {
                 }
                 write!(f, "")
             }
+            &Element::RationalPolynomialCoefficient(ref num, ref _den) => {
+                write!(f, "rat_({})", num.monomial)
+            }
         }
     }
 }
@@ -891,6 +921,9 @@ impl Element<String> {
                 var_info.get_name(name),
                 args.iter_mut().map(|x| x.to_element(var_info)).collect(),
             ),
+            Element::RationalPolynomialCoefficient(ref num, ref den) => {
+                Element::RationalPolynomialCoefficient(num.clone(), den.clone())
+            }
         }
     }
 }
@@ -1101,7 +1134,7 @@ impl Statement {
             Statement::Assign(ref _d, ref mut e) => {
                 // TODO: also change dollar variable?
                 changed |= e.replace_vars(map, dollar_only);
-            },
+            }
             Statement::ForIn(_, ref mut l, ref mut ss) => {
                 for e in l {
                     changed |= e.replace_vars(map, dollar_only);

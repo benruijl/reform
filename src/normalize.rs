@@ -358,6 +358,18 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
         return false;
     }
 
+    // multiply two polyratfuns
+    if let Element::RationalPolynomialCoefficient(ref mut num, ref mut den) = *first {
+        if let Element::RationalPolynomialCoefficient(ref mut num1, ref mut den1) = *sec {
+            num.mul(num1);
+
+            if *den != None || *den1 != None {
+                unimplemented!();
+            }
+            return true;
+        }
+    }
+
     // x*x => x^2
     if first == sec {
         *first = Element::Pow(
@@ -446,6 +458,26 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
         (&mut Element::Term(_, ref mut t1), &mut &mut Element::Term(ref mut d2, ref mut t2)) => {
             // treat the case where the term doesn't have a coefficient
             assert!(!t1.is_empty() && !t2.is_empty());
+
+            // TODO: implement case where only one term has a polyratfun
+            if let Some(&mut Element::RationalPolynomialCoefficient(ref mut num, ref mut den)) =
+                t1.last_mut()
+            {
+                if let Some(&mut Element::RationalPolynomialCoefficient(
+                    ref mut num1,
+                    ref mut den1,
+                )) = t2.last_mut()
+                {
+                    num.add(num1);
+
+                    if *den1 != None || *den != None {
+                        unimplemented!()
+                    }
+
+                    // TODO: add 0 check
+                    return true;
+                }
+            }
 
             let mut pos1;
             let mut num1;
@@ -555,6 +587,20 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
         ) => {
             add_fractions(pos, num, den, pos1, num1, den1);
             if *num == 0 {
+                is_zero = true;
+            }
+        }
+        (
+            &mut Element::RationalPolynomialCoefficient(ref mut num1, ref mut den1),
+            &mut &mut Element::RationalPolynomialCoefficient(ref mut num, ref mut den),
+        ) => {
+            num.add(num1);
+
+            if *den1 != None || *den != None {
+                unimplemented!()
+            }
+
+            if num.is_zero() {
                 is_zero = true;
             }
         }
