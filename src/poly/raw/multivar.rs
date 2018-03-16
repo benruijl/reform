@@ -103,6 +103,10 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         &self.exponents[index * self.nvars..(index + 1) * self.nvars]
     }
 
+    fn last_exponents(&self) -> &[E] {
+        &self.exponents[(self.nterms - 1) * self.nvars..self.nterms * self.nvars]
+    }
+
     /// Returns the mutable slice for the exponents of the specified monomial.
     #[inline]
     fn exponents_mut(&mut self, index: usize) -> &mut [E] {
@@ -499,9 +503,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         }
         self
     }
-}
 
-impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     #[inline]
     fn divexact_monomial(
         dividend_coefficient: &R,
@@ -534,5 +536,35 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                 .sub(divisor_exponents[i].clone());
         }
         return true;
+    }
+
+    /// Get the highest degree of the leading monomial.
+    pub fn ldegree(&self) -> E {
+        self.last_exponents().iter().max().unwrap().clone()
+    }
+
+    /// Long division for univariate polynomial.
+    pub fn long_division(
+        &self,
+        div: &MultivariatePolynomial<R, E>,
+    ) -> (MultivariatePolynomial<R, E>, MultivariatePolynomial<R, E>) {
+        if div.is_zero() {
+            panic!("Cannot divide by 0 polynomial");
+        }
+
+        // TODO: check for univariateness
+
+        let mut q = MultivariatePolynomial::with_nvars(1);
+        let mut r = self.clone();
+
+        while !r.is_zero() && r.ldegree() >= div.ldegree() {
+            let tc = r.coefficients.last().unwrap().clone() / div.coefficients.last().unwrap().clone();
+            let tp : Vec<E> = r.last_exponents().iter().zip(div.last_exponents()).map(|(e1,e2)| e1.clone() - e2.clone() ).collect(); // FIXME:
+
+            q.append_monomial(tc.clone(), tp.clone());
+            r = r - MultivariatePolynomial::from_monomial(tc, tp) * div.clone(); // TODO: we shouldn't clone div
+        }
+
+        (q, r)
     }
 }
