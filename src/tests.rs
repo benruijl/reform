@@ -4,6 +4,7 @@ mod tests {
     use parser;
     use poly::raw::MultivariatePolynomial;
     use poly::raw::fraction::Fraction;
+    use poly::raw::finitefield::FiniteField;
     use num_traits::One;
 
     #[test]
@@ -68,6 +69,24 @@ mod tests {
             MultivariatePolynomial::univariate_gcd(&a, &b),
             MultivariatePolynomial::from_monomial(Fraction::one(), vec![0])
         );
+    }
+
+    #[test]
+    fn univariate_gcd2() {
+        // gcd(1 + 3 x + 3 x^2 + x^3, x^3 + x) mod 2 = 1 + 2x + x^2
+        let mut a = MultivariatePolynomial::from_monomial(FiniteField::new(1, 2), vec![3]);
+        a.append_monomial(FiniteField::new(3, 2), vec![2]);
+        a.append_monomial(FiniteField::new(3, 2), vec![1]);
+        a.append_monomial(FiniteField::new(1, 2), vec![0]);
+
+        let mut b = MultivariatePolynomial::from_monomial(FiniteField::new(1, 2), vec![3]);
+        b.append_monomial(FiniteField::new(1, 2), vec![1]);
+
+        let mut res = MultivariatePolynomial::from_monomial(FiniteField::new(1, 2), vec![2]);
+        res.append_monomial(FiniteField::new(2, 2), vec![1]);
+        res.append_monomial(FiniteField::new(1, 2), vec![0]);
+
+        assert_eq!(MultivariatePolynomial::univariate_gcd(&a, &b), res);
     }
 
 }

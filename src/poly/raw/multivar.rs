@@ -569,7 +569,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                 .iter()
                 .zip(div.last_exponents())
                 .map(|(e1, e2)| e1.clone() - e2.clone())
-                .collect(); // FIXME:
+                .collect();
 
             q.append_monomial(tc.clone(), tp.clone());
             r = r - MultivariatePolynomial::from_monomial(tc, tp) * div.clone(); // TODO: we shouldn't clone div
@@ -585,7 +585,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     ) -> MultivariatePolynomial<R, E> {
         let mut c = a.clone();
         let mut d = b.clone();
-        if a.ldegree() <= b.ldegree() {
+        if a.ldegree() < b.ldegree() {
             mem::swap(&mut c, &mut d);
         }
 
