@@ -558,13 +558,50 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         let mut r = self.clone();
 
         while !r.is_zero() && r.ldegree() >= div.ldegree() {
-            let tc = r.coefficients.last().unwrap().clone() / div.coefficients.last().unwrap().clone();
-            let tp : Vec<E> = r.last_exponents().iter().zip(div.last_exponents()).map(|(e1,e2)| e1.clone() - e2.clone() ).collect(); // FIXME:
+            let tc =
+                r.coefficients.last().unwrap().clone() / div.coefficients.last().unwrap().clone();
+
+            if tc.is_zero() {
+                panic!("Cannot do long division in a ring. Use a field.");
+            }
+
+            let tp: Vec<E> = r.last_exponents()
+                .iter()
+                .zip(div.last_exponents())
+                .map(|(e1, e2)| e1.clone() - e2.clone())
+                .collect(); // FIXME:
 
             q.append_monomial(tc.clone(), tp.clone());
             r = r - MultivariatePolynomial::from_monomial(tc, tp) * div.clone(); // TODO: we shouldn't clone div
         }
 
         (q, r)
+    }
+
+    /// Compute the univariate GCD using Euclid's algorithm. The result is normalized to 1.
+    pub fn univariate_gcd(
+        a: &MultivariatePolynomial<R, E>,
+        b: &MultivariatePolynomial<R, E>,
+    ) -> MultivariatePolynomial<R, E> {
+        let mut c = a.clone();
+        let mut d = b.clone();
+        if a.ldegree() <= b.ldegree() {
+            mem::swap(&mut c, &mut d);
+        }
+
+        let mut r = c.long_division(&d).1;
+        while !r.is_zero() {
+            c = d;
+            d = r;
+            r = c.long_division(&d).1;
+        }
+
+        // normalize the gcd
+        let l = d.coefficients.last().unwrap().clone();
+        for x in &mut d.coefficients {
+            *x = x.clone() / l.clone();
+        }
+
+        d
     }
 }

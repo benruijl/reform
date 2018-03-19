@@ -1,4 +1,6 @@
 use structure::{Element, NumOrder};
+use std::ops::Rem;
+use num_traits::Zero;
 
 // a SliceRef has either a borrowed slice,
 // or a vector of borrowed arguments.
@@ -84,9 +86,9 @@ impl<T> Heap<T> {
 }
 
 // TODO: use num package?
-pub fn gcd(mut a: u64, mut b: u64) -> u64 {
+pub fn gcd<T: Copy + Zero + Rem<Output = T> + PartialEq>(mut a: T, mut b: T) -> T {
     let mut c;
-    while a != 0 {
+    while !a.is_zero() {
         c = a;
         a = b % a;
         b = c;

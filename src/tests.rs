@@ -3,6 +3,8 @@ mod tests {
     use module;
     use parser;
     use poly::raw::MultivariatePolynomial;
+    use poly::raw::fraction::Fraction;
+    use num_traits::One;
 
     #[test]
     fn simple_match() {
@@ -50,6 +52,22 @@ mod tests {
         let r = MultivariatePolynomial::from_monomial(5, vec![0]);
 
         assert_eq!(a.long_division(&b), (q, r));
+    }
+
+    #[test]
+    fn univariate_gcd() {
+        // gcd(x^3-2x^2-4,x-3) = 1
+        let mut a = MultivariatePolynomial::from_monomial(Fraction::one(), vec![3]);
+        a.append_monomial(Fraction::new(-2, 1), vec![2]);
+        a.append_monomial(Fraction::new(-4, 1), vec![0]);
+
+        let mut b = MultivariatePolynomial::from_monomial(Fraction::one(), vec![1]);
+        b.append_monomial(Fraction::new(-3, 1), vec![0]);
+
+        assert_eq!(
+            MultivariatePolynomial::univariate_gcd(&a, &b),
+            MultivariatePolynomial::from_monomial(Fraction::one(), vec![0])
+        );
     }
 
 }
