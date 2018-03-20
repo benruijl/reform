@@ -3,6 +3,7 @@ use std::fmt;
 use std::mem;
 use std::ops::{Add, Mul, Neg, Sub};
 use tools::gcd;
+use std::collections::HashMap;
 
 use num_traits::{pow, One, Zero};
 
@@ -128,7 +129,11 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             return;
         }
         if self.nvars != exponents.len() {
-            panic!("nvars mismatched");
+            panic!(
+                "nvars mismatched: got {}, expected {}",
+                exponents.len(),
+                self.nvars
+            );
         }
         // Linear search to find the insert-point.
         // TODO: Binary search.
@@ -547,7 +552,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     /// Replace a variable `x' in the polynomial by an element from
     /// the ring `v'.
     pub fn replace(&self, n: usize, v: R) -> MultivariatePolynomial<R, E> {
-        let mut res = MultivariatePolynomial::new();
+        let mut res = MultivariatePolynomial::with_nvars(self.nvars);
         for t in 0..self.nterms {
             let mut c = self.coefficients[t] * pow(v, self.exponents(t)[n].as_());
             let mut e = self.exponents(t).to_vec();
@@ -615,8 +620,27 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             return MultivariatePolynomial::new();
         }
 
-        // TODO: store the exponents in a hashmap?
-        unimplemented!()
+        let mut tm: HashMap<Vec<E>, MultivariatePolynomial<R, E>> = HashMap::new();
+        for t in 0..self.nterms {
+            let mut e = self.exponents(t).to_vec();
+            let mut me = vec![E::zero(); self.nvars];
+            me[x] = e[x].clone();
+            e[x] = E::zero();
+
+            tm.entry(e)
+                .or_insert_with(|| MultivariatePolynomial::with_nvars(self.nvars))
+                .append_monomial(self.coefficients[t].clone(), me);
+        }
+
+        let mut gcd = MultivariatePolynomial::from_monomial(
+            self.coefficients[0].clone(),
+            self.exponents(0).to_vec(),
+        );
+        for (_, tt) in tm {
+            gcd = MultivariatePolynomial::gcd(&gcd, &tt);
+        }
+
+        gcd
     }
 
     /// Long division for univariate polynomial.

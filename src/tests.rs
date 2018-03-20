@@ -98,4 +98,20 @@ mod tests {
         assert_eq!(MultivariatePolynomial::content(&a), 3);
     }
 
+    #[test]
+    fn replace() {
+        // x^3+2x*y+4*x mod 5 ; x = 3
+        let mut a = MultivariatePolynomial::from_monomial(FiniteField::new(1, 5), vec![3, 0]);
+        a.append_monomial(FiniteField::new(2, 5), vec![1, 1]);
+        a.append_monomial(FiniteField::new(4, 5), vec![1, 0]);
+
+        let mut res = MultivariatePolynomial::from_monomial(FiniteField::new(1, 5), vec![0, 1]);
+        res.append_monomial(FiniteField::new(4, 5), vec![0, 0]);
+
+        assert_eq!(
+            MultivariatePolynomial::replace(&a, 0, FiniteField::new(3, 5)),
+            res
+        );
+    }
+
 }
