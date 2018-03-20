@@ -41,7 +41,7 @@ impl FiniteField {
         if t < 0 {
             t += n as isize;
         }
-        println!("inverse of {} is {}", n, t);
+
         t as usize
     }
 }

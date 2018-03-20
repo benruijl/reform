@@ -73,7 +73,7 @@ mod tests {
 
     #[test]
     fn univariate_gcd2() {
-        // gcd(1 + 3 x + 3 x^2 + x^3, x^3 + x) mod 2 = 1 + 2x + x^2
+        // gcd(1 + 3 x + 3 x^2 + x^3, x^3 + x) mod 2 = 1 + 2x + x^2 mod 2 = 1 + x^2
         let mut a = MultivariatePolynomial::from_monomial(FiniteField::new(1, 2), vec![3]);
         a.append_monomial(FiniteField::new(3, 2), vec![2]);
         a.append_monomial(FiniteField::new(3, 2), vec![1]);
@@ -83,10 +83,19 @@ mod tests {
         b.append_monomial(FiniteField::new(1, 2), vec![1]);
 
         let mut res = MultivariatePolynomial::from_monomial(FiniteField::new(1, 2), vec![2]);
-        res.append_monomial(FiniteField::new(2, 2), vec![1]);
         res.append_monomial(FiniteField::new(1, 2), vec![0]);
 
         assert_eq!(MultivariatePolynomial::univariate_gcd(&a, &b), res);
+    }
+
+    #[test]
+    fn content() {
+        // content(6+12x+9x^2) = 3
+        let mut a = MultivariatePolynomial::from_monomial(9, vec![2]);
+        a.append_monomial(12, vec![1]);
+        a.append_monomial(6, vec![0]);
+
+        assert_eq!(MultivariatePolynomial::content(&a, 0), 3);
     }
 
 }

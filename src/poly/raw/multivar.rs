@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::mem;
 use std::ops::{Add, Mul, Neg, Sub};
+use tools::gcd;
 
 use num_traits::{One, Zero};
 
@@ -541,6 +542,18 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     /// Get the highest degree of the leading monomial.
     pub fn ldegree(&self) -> E {
         self.last_exponents().iter().max().unwrap().clone()
+    }
+
+    /// Get the content from the coefficients.
+    pub fn content(&self) -> R {
+        if self.coefficients.is_empty() {
+            return R::zero();
+        }
+        let mut c = self.coefficients.first().unwrap().clone();
+        for cc in self.coefficients.iter().skip(1) {
+            c = gcd(c, cc.clone());
+        }
+        c
     }
 
     /// Long division for univariate polynomial.
