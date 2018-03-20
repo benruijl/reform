@@ -1,4 +1,4 @@
-use num_traits::{One, Zero};
+use num_traits::{One, Pow, Zero};
 use std::ops::{Add, Div, Mul, Neg, Rem};
 use std::fmt;
 
@@ -119,5 +119,17 @@ impl Rem for FiniteField {
 
     fn rem(self, _other: Self) -> Self::Output {
         return FiniteField::zero();
+    }
+}
+
+impl Pow<usize> for FiniteField {
+    type Output = Self;
+
+    fn pow(self, e: usize) -> Self::Output {
+        let mut r = self.clone();
+        for _ in 0..e {
+            r = r * r;
+        }
+        r
     }
 }

@@ -4,7 +4,7 @@ use std::mem;
 use std::ops::{Add, Mul, Neg, Sub};
 use tools::gcd;
 
-use num_traits::{One, Zero};
+use num_traits::{pow, One, Zero};
 
 use poly::exponent::Exponent;
 use poly::ring::Ring;
@@ -544,6 +544,21 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         self.last_exponents().iter().max().unwrap().clone()
     }
 
+    /// Replace a variable `x' in the polynomial by an element from
+    /// the ring `v'.
+    pub fn replace(&self, n: usize, v: R) -> MultivariatePolynomial<R, E> {
+        let mut res = MultivariatePolynomial::new();
+        for t in 0..self.nterms {
+            let mut c = self.coefficients[t] * pow(v, self.exponents(t)[n].as_());
+            let mut e = self.exponents(t).to_vec();
+            e[n] = E::zero();
+
+            res.append_monomial(c, e);
+        }
+
+        res
+    }
+
     /// Get the content from the coefficients.
     pub fn content(&self) -> R {
         if self.coefficients.is_empty() {
@@ -591,6 +606,17 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         }
 
         result.unwrap()
+    }
+
+    /// Get the content of a multivariate polynomial viewed as a
+    /// mutlivariate polynomial in all variables except `x`.
+    pub fn multivariate_content(&self, x: usize) -> MultivariatePolynomial<R, E> {
+        if self.coefficients.is_empty() {
+            return MultivariatePolynomial::new();
+        }
+
+        // TODO: store the exponents in a hashmap?
+        unimplemented!()
     }
 
     /// Long division for univariate polynomial.

@@ -1,4 +1,4 @@
-use num_traits::{One, Zero};
+use num_traits::{One, Pow, Zero};
 use std::ops::{Add, Div, Mul, Neg, Rem};
 use std::fmt;
 use tools::gcd;
@@ -124,5 +124,17 @@ impl Rem for Fraction {
 
     fn rem(self, _other: Self) -> Self::Output {
         return Fraction::zero();
+    }
+}
+
+impl Pow<usize> for Fraction {
+    type Output = Self;
+
+    fn pow(self, e: usize) -> Self::Output {
+        let mut r = self.clone();
+        for _ in 0..e {
+            r = r * r;
+        }
+        r
     }
 }

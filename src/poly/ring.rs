@@ -1,15 +1,30 @@
 use std::ops::{Div, Neg, Rem};
 
-use num_traits::{One, Zero};
+use num_traits::{One, Pow, Zero};
 
 /// Trait for rings.
 pub trait Ring
-    : Copy + Zero + One + Neg<Output = Self> + Div<Output = Self> + Rem<Output = Self> + Eq + Clone
-    {
+    : Copy
+    + Zero
+    + One
+    + Pow<usize>
+    + Neg<Output = Self>
+    + Div<Output = Self>
+    + Rem<Output = Self>
+    + Eq
+    + Clone {
 }
 
 impl<
-    T: Copy + Zero + One + Neg<Output = Self> + Div<Output = Self> + Rem<Output = Self> + Eq + Clone,
+    T: Copy
+        + Zero
+        + One
+        + Pow<usize>
+        + Neg<Output = Self>
+        + Div<Output = Self>
+        + Rem<Output = Self>
+        + Eq
+        + Clone,
 > Ring for T
 {
 }
