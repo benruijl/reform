@@ -556,6 +556,43 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         c
     }
 
+    /// Get the content of a multivariate polynomial viewed as a
+    /// univariate polynomial in `x`.
+    pub fn univariate_content(&self, x: usize) -> MultivariatePolynomial<R, E> {
+        if self.coefficients.is_empty() {
+            return MultivariatePolynomial::new();
+        }
+
+        // get maximum degree for variable x
+        let mut maxdeg = 0;
+        for t in 0..self.nterms {
+            let d = self.exponents(t)[x].as_();
+            if d > maxdeg {
+                maxdeg = d.clone();
+            }
+        }
+
+        // construct the coefficient per power of x
+        let mut result = None;
+        for d in 0..maxdeg + 1 {
+            let mut a = MultivariatePolynomial::new();
+            for t in 0..self.nterms {
+                if self.exponents(t)[x].as_() == d {
+                    let mut e = self.exponents(t).to_vec();
+                    e[x] = E::zero();
+                    a.append_monomial(self.coefficients[t].clone(), e);
+                }
+            }
+
+            result = match result {
+                Some(x) => Some(MultivariatePolynomial::gcd(&a, &x)),
+                None => Some(a),
+            };
+        }
+
+        result.unwrap()
+    }
+
     /// Long division for univariate polynomial.
     pub fn long_division(
         &self,
@@ -616,5 +653,13 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         }
 
         d
+    }
+
+    /// Compute the gcd of two multivariate polynomials using Zippel's algorithm.
+    pub fn gcd(
+        a: &MultivariatePolynomial<R, E>,
+        b: &MultivariatePolynomial<R, E>,
+    ) -> MultivariatePolynomial<R, E> {
+        MultivariatePolynomial::new()
     }
 }

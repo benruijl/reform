@@ -95,7 +95,7 @@ mod tests {
         a.append_monomial(12, vec![1]);
         a.append_monomial(6, vec![0]);
 
-        assert_eq!(MultivariatePolynomial::content(&a, 0), 3);
+        assert_eq!(MultivariatePolynomial::content(&a), 3);
     }
 
 }
