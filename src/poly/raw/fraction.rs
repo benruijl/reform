@@ -1,7 +1,12 @@
 use num_traits::{One, Pow, Zero};
-use std::ops::{Add, Div, Mul, Neg, Rem};
 use std::fmt;
+use std::ops::{Add, Div, Mul, Neg, Rem};
 use tools::gcd;
+
+use num_traits::cast::AsPrimitive;
+
+use poly::raw::finitefield::FiniteField;
+use poly::ring::{MulNum, ToFiniteField};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Fraction {
@@ -119,6 +124,38 @@ impl Div for Fraction {
     }
 }
 
+impl Div<usize> for Fraction {
+    type Output = Self;
+
+    fn div(self, other: usize) -> Self::Output {
+        let gcd = gcd(self.num, other as isize) as usize;
+
+        Fraction {
+            num: self.num / gcd as isize,
+            den: self.den * (other / gcd),
+        }
+    }
+}
+
+impl Mul<usize> for Fraction {
+    type Output = Self;
+
+    fn mul(self, other: usize) -> Self::Output {
+        let gcd = gcd(self.den, other);
+
+        Fraction {
+            num: self.num * ((other / gcd) as isize),
+            den: self.den / gcd,
+        }
+    }
+}
+
+impl MulNum for Fraction {
+    fn mul_num(&self, n: usize) -> Fraction {
+        self.clone() * n
+    }
+}
+
 impl Rem for Fraction {
     type Output = Self;
 
@@ -131,10 +168,34 @@ impl Pow<usize> for Fraction {
     type Output = Self;
 
     fn pow(self, e: usize) -> Self::Output {
-        let mut r = self.clone();
+        let mut r = Fraction::one();
         for _ in 0..e {
-            r = r * r;
+            r = r * self;
         }
         r
+    }
+}
+
+impl ToFiniteField for Fraction {
+    fn to_finite_field(&self, p: usize) -> FiniteField {
+        if self.num < 0 {
+            FiniteField::new((-self.num / p as isize + self.num + 1) as usize, p)
+                / FiniteField::new(self.den, p)
+        } else {
+            FiniteField::new(self.num as usize, p) / FiniteField::new(self.den, p)
+        }
+    }
+
+    fn from_finite_field(ff: &FiniteField) -> Fraction {
+        Fraction {
+            num: ff.n as isize,
+            den: 1,
+        }
+    }
+}
+
+impl AsPrimitive<usize> for Fraction {
+    fn as_(self) -> usize {
+        unreachable!("Cannot convert fraction to integer");
     }
 }

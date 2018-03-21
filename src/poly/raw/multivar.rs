@@ -1,14 +1,19 @@
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::fmt;
 use std::mem;
 use std::ops::{Add, Mul, Neg, Sub};
 use tools::gcd;
-use std::collections::HashMap;
 
-use num_traits::{pow, One, Zero};
+use num_traits::{Pow, One, Zero};
 
 use poly::exponent::Exponent;
 use poly::ring::Ring;
+
+use poly::raw::finitefield::FiniteField;
+use poly::raw::fraction::Fraction;
+use poly::raw::gcd;
+use rand;
 
 /// Multivariate polynomial with a degree sparse and variable dense representation.
 #[derive(Clone)]
@@ -17,10 +22,10 @@ pub struct MultivariatePolynomial<R: Ring, E: Exponent> {
     // exponents[i * nvars .. (i + 1) * nvars]. Keep coefficients.len() == nterms and
     // exponents.len() == nterms * nvars. Terms are always expanded and sorted by the exponents via
     // cmp_exponents().
-    coefficients: Vec<R>,
-    exponents: Vec<E>,
-    nterms: usize,
-    nvars: usize,
+    pub coefficients: Vec<R>,
+    pub exponents: Vec<E>,
+    pub nterms: usize,
+    pub nvars: usize,
 }
 
 impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
@@ -74,6 +79,19 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         }
     }
 
+    pub fn to_finite_field(&self, p: usize) -> MultivariatePolynomial<FiniteField, E> {
+        let newc = self.coefficients
+            .iter()
+            .map(|x| x.to_finite_field(p))
+            .collect();
+
+        let mut a = MultivariatePolynomial::with_nvars(self.nvars);
+        a.exponents = self.exponents.clone();
+        a.coefficients = newc;
+        a.nterms = self.nterms;
+        a
+    }
+
     /// Returns the number of terms in the polynomial.
     #[inline]
     pub fn nterms(&self) -> usize {
@@ -101,11 +119,12 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
     /// Returns the slice for the exponents of the specified monomial.
     #[inline]
-    fn exponents(&self, index: usize) -> &[E] {
+    pub fn exponents(&self, index: usize) -> &[E] {
         &self.exponents[index * self.nvars..(index + 1) * self.nvars]
     }
 
-    fn last_exponents(&self) -> &[E] {
+    pub fn last_exponents(&self) -> &[E] {
+        assert!(self.nterms > 0);
         &self.exponents[(self.nterms - 1) * self.nvars..self.nterms * self.nvars]
     }
 
@@ -334,6 +353,19 @@ impl<R: Ring, E: Exponent> Zero for MultivariatePolynomial<R, E> {
     }
 }
 
+impl<R: Ring, E: Exponent> One for MultivariatePolynomial<R, E> {
+    #[inline]
+    fn one() -> Self {
+        MultivariatePolynomial::from_constant_with_nvars(R::one(), 0)
+    }
+
+    #[inline]
+    fn is_one(&self) -> bool {
+        self.nterms == 1 && self.coefficients[0].is_one()
+            && self.exponents.iter().all(|x| x.is_zero())
+    }
+}
+
 impl<R: Ring, E: Exponent> Add for MultivariatePolynomial<R, E> {
     type Output = Self;
 
@@ -491,6 +523,18 @@ impl<R: Ring, E: Exponent> Mul for MultivariatePolynomial<R, E> {
     }
 }
 
+impl<R: Ring, E: Exponent> Mul<R> for MultivariatePolynomial<R, E> {
+    type Output = Self;
+
+    fn mul(self, other: R) -> Self::Output {
+        let mut res = self.clone();
+        for c in &mut res.coefficients {
+            *c = c.clone() * other.clone();
+        }
+        res
+    }
+}
+
 impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     #[inline]
     fn mul_monomial(mut self, coefficient: &R, exponents: &[E]) -> Self {
@@ -544,9 +588,51 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         return true;
     }
 
-    /// Get the highest degree of the leading monomial.
+    // Get the degree of the variable `x`.
+    pub fn degree(&self, x: usize) -> E {
+        let mut max = E::zero();
+        for t in 0..self.nterms {
+            if max < self.exponents(t)[x] {
+                max = self.exponents(t)[x];
+            }
+        }
+        max
+    }
+
+    // Get the highest degree of the first variable in the leading monomial.
     pub fn ldegree(&self) -> E {
+        self.last_exponents()[0].clone()
+    }
+
+    /// Get the highest degree of the leading monomial.
+    pub fn ldegree_max(&self) -> E {
         self.last_exponents().iter().max().unwrap().clone()
+    }
+
+    /// Get the leading coefficient.
+    pub fn lcoeff(&self) -> R {
+        self.coefficients.last().unwrap().clone()
+    }
+
+    /// Get the leading coefficient viewed as a polynomial
+    /// in all variables except the last.
+    pub fn lcoeff_last(&self) -> MultivariatePolynomial<R, E> {
+        // the last variable should have the least sorting priority,
+        // so the last term should still be the lcoeff
+        let last = self.last_exponents();
+
+        let mut res = MultivariatePolynomial::with_nvars(self.nvars);
+        for t in (0..self.nterms()).rev() {
+            if (0..self.nvars - 1).all(|i| self.exponents(t)[i] == last[i]) {
+                let mut e = vec![E::zero(); self.nvars];
+                e[self.nvars - 1] = self.exponents(t)[self.nvars - 1];
+                res.append_monomial(self.coefficients[t], e);
+            } else {
+                break;
+            }
+        }
+
+        res
     }
 
     /// Replace a variable `x' in the polynomial by an element from
@@ -554,9 +640,28 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     pub fn replace(&self, n: usize, v: R) -> MultivariatePolynomial<R, E> {
         let mut res = MultivariatePolynomial::with_nvars(self.nvars);
         for t in 0..self.nterms {
-            let mut c = self.coefficients[t] * pow(v, self.exponents(t)[n].as_());
+            let mut c = self.coefficients[t] * v.pow(self.exponents(t)[n].as_());
             let mut e = self.exponents(t).to_vec();
             e[n] = E::zero();
+
+            res.append_monomial(c, e);
+        }
+
+        res
+    }
+
+    /// Replace a list of variables in the polynomial by elements from
+    /// the ring `v'.
+    pub fn replace_multiple(&self, r: &[(usize, R)]) -> MultivariatePolynomial<R, E> {
+        let mut res = MultivariatePolynomial::with_nvars(self.nvars);
+        for t in 0..self.nterms {
+            let mut e = self.exponents(t).to_vec();
+
+            let mut c = self.coefficients[t];
+            for &(n, v) in r {
+                c = c * v.clone().pow(self.exponents(t)[n].as_());
+                e[n] = E::zero();
+            }
 
             res.append_monomial(c, e);
         }
@@ -579,8 +684,21 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     /// Get the content of a multivariate polynomial viewed as a
     /// univariate polynomial in `x`.
     pub fn univariate_content(&self, x: usize) -> MultivariatePolynomial<R, E> {
+        let a = self.to_univariate_polynomial(x);
+
+        let mut f = vec![];
+        for &(ref c, _) in a.iter() {
+            f.push(c.clone());
+        }
+
+        MultivariatePolynomial::gcd_multiple(f)
+    }
+
+    /// Create a univariate polynomial out of a multivariate one.
+    /// TODO: allow a MultivariatePolynomial as a coefficient
+    pub fn to_univariate_polynomial(&self, x: usize) -> Vec<(MultivariatePolynomial<R, E>, usize)> {
         if self.coefficients.is_empty() {
-            return MultivariatePolynomial::new();
+            return vec![];
         }
 
         // get maximum degree for variable x
@@ -593,9 +711,9 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         }
 
         // construct the coefficient per power of x
-        let mut result = None;
+        let mut result = vec![];
         for d in 0..maxdeg + 1 {
-            let mut a = MultivariatePolynomial::new();
+            let mut a = MultivariatePolynomial::with_nvars(self.nvars);
             for t in 0..self.nterms {
                 if self.exponents(t)[x].as_() == d {
                     let mut e = self.exponents(t).to_vec();
@@ -604,43 +722,47 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                 }
             }
 
-            result = match result {
-                Some(x) => Some(MultivariatePolynomial::gcd(&a, &x)),
-                None => Some(a),
-            };
+            if !a.is_zero() {
+                result.push((a, d));
+            }
         }
 
-        result.unwrap()
+        result
     }
 
-    /// Get the content of a multivariate polynomial viewed as a
-    /// mutlivariate polynomial in all variables except `x`.
-    pub fn multivariate_content(&self, x: usize) -> MultivariatePolynomial<R, E> {
+    /// Split the polynomial as a polynomial in `xs` if include is true,
+    /// else excluding `xs`.
+    pub fn to_multivariate_polynomial(
+        &self,
+        xs: &[usize],
+        include: bool,
+    ) -> HashMap<Vec<E>, MultivariatePolynomial<R, E>> {
         if self.coefficients.is_empty() {
-            return MultivariatePolynomial::new();
+            return HashMap::new();
         }
 
         let mut tm: HashMap<Vec<E>, MultivariatePolynomial<R, E>> = HashMap::new();
         for t in 0..self.nterms {
             let mut e = self.exponents(t).to_vec();
             let mut me = vec![E::zero(); self.nvars];
-            me[x] = e[x].clone();
-            e[x] = E::zero();
 
-            tm.entry(e)
-                .or_insert_with(|| MultivariatePolynomial::with_nvars(self.nvars))
-                .append_monomial(self.coefficients[t].clone(), me);
+            for x in xs {
+                me[*x] = e[*x].clone();
+                e[*x] = E::zero();
+            }
+
+            if include {
+                tm.entry(me)
+                    .or_insert_with(|| MultivariatePolynomial::with_nvars(self.nvars))
+                    .append_monomial(self.coefficients[t].clone(), e);
+            } else {
+                tm.entry(e)
+                    .or_insert_with(|| MultivariatePolynomial::with_nvars(self.nvars))
+                    .append_monomial(self.coefficients[t].clone(), me);
+            }
         }
 
-        let mut gcd = MultivariatePolynomial::from_monomial(
-            self.coefficients[0].clone(),
-            self.exponents(0).to_vec(),
-        );
-        for (_, tt) in tm {
-            gcd = MultivariatePolynomial::gcd(&gcd, &tt);
-        }
-
-        gcd
+        tm
     }
 
     /// Long division for univariate polynomial.
@@ -654,16 +776,26 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
         // TODO: check for univariateness
 
-        let mut q = MultivariatePolynomial::with_nvars(1);
+        let mut q = MultivariatePolynomial::with_nvars(self.nvars);
         let mut r = self.clone();
 
-        while !r.is_zero() && r.ldegree() >= div.ldegree() {
+        while !r.is_zero() && r.ldegree_max() >= div.ldegree_max() {
+            if !(r.coefficients.last().unwrap().clone() % div.coefficients.last().unwrap().clone())
+                .is_zero()
+            {
+                // long division failed!
+                // return the term as the rest
+                println!(
+                    "Long divison failed: {} {}",
+                    r.coefficients.last().unwrap().clone(),
+                    div.coefficients.last().unwrap().clone()
+                );
+
+                return (q, r);
+            }
+
             let tc =
                 r.coefficients.last().unwrap().clone() / div.coefficients.last().unwrap().clone();
-
-            if tc.is_zero() {
-                panic!("Cannot do long division in a ring. Use a field.");
-            }
 
             let tp: Vec<E> = r.last_exponents()
                 .iter()
@@ -676,40 +808,5 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         }
 
         (q, r)
-    }
-
-    /// Compute the univariate GCD using Euclid's algorithm. The result is normalized to 1.
-    pub fn univariate_gcd(
-        a: &MultivariatePolynomial<R, E>,
-        b: &MultivariatePolynomial<R, E>,
-    ) -> MultivariatePolynomial<R, E> {
-        let mut c = a.clone();
-        let mut d = b.clone();
-        if a.ldegree() < b.ldegree() {
-            mem::swap(&mut c, &mut d);
-        }
-
-        let mut r = c.long_division(&d).1;
-        while !r.is_zero() {
-            c = d;
-            d = r;
-            r = c.long_division(&d).1;
-        }
-
-        // normalize the gcd
-        let l = d.coefficients.last().unwrap().clone();
-        for x in &mut d.coefficients {
-            *x = x.clone() / l.clone();
-        }
-
-        d
-    }
-
-    /// Compute the gcd of two multivariate polynomials using Zippel's algorithm.
-    pub fn gcd(
-        a: &MultivariatePolynomial<R, E>,
-        b: &MultivariatePolynomial<R, E>,
-    ) -> MultivariatePolynomial<R, E> {
-        MultivariatePolynomial::new()
     }
 }
