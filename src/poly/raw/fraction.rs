@@ -3,6 +3,9 @@ use std::ops::{Add, Div, Mul, Neg, Rem};
 use std::fmt;
 use tools::gcd;
 
+use poly::raw::finitefield::FiniteField;
+use poly::ring::ToFiniteField;
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Fraction {
     num: isize,
@@ -136,5 +139,16 @@ impl Pow<usize> for Fraction {
             r = r * r;
         }
         r
+    }
+}
+
+impl ToFiniteField for Fraction {
+    fn to_finite_field(&self, p: usize) -> FiniteField {
+        if self.num < 0 {
+            FiniteField::new((-self.num / p as isize + self.num + 1) as usize, p)
+                / FiniteField::new(self.den, p)
+        } else {
+            FiniteField::new(self.num as usize, p) / FiniteField::new(self.den, p)
+        }
     }
 }

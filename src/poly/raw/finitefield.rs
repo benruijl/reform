@@ -1,6 +1,7 @@
 use num_traits::{One, Pow, Zero};
 use std::ops::{Add, Div, Mul, Neg, Rem};
 use std::fmt;
+use poly::ring::ToFiniteField;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct FiniteField {
@@ -10,7 +11,7 @@ pub struct FiniteField {
 
 impl FiniteField {
     pub fn new(n: usize, p: usize) -> FiniteField {
-        FiniteField { n, p }
+        FiniteField { n: n % p, p: p }
     }
 
     /// Change the prime (size) of the finite field.
@@ -131,5 +132,11 @@ impl Pow<usize> for FiniteField {
             r = r * r;
         }
         r
+    }
+}
+
+impl ToFiniteField for FiniteField {
+    fn to_finite_field(&self, p: usize) -> FiniteField {
+        FiniteField::new(self.n, p)
     }
 }

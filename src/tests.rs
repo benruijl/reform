@@ -114,4 +114,17 @@ mod tests {
         );
     }
 
+    #[test]
+    fn gcd() {
+        // gcd(1+2*x+x^2,1+x)
+        let mut a = MultivariatePolynomial::from_monomial(1, vec![2]);
+        a.append_monomial(2, vec![1]);
+        a.append_monomial(1, vec![0]);
+
+        let mut b = MultivariatePolynomial::from_monomial(1, vec![1]);
+        b.append_monomial(1, vec![0]);
+
+        MultivariatePolynomial::<i64, usize>::gcd(&a, &b);
+    }
+
 }

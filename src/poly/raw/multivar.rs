@@ -10,6 +10,8 @@ use num_traits::{pow, One, Zero};
 use poly::exponent::Exponent;
 use poly::ring::Ring;
 
+use poly::raw::finitefield::FiniteField;
+
 /// Multivariate polynomial with a degree sparse and variable dense representation.
 #[derive(Clone)]
 pub struct MultivariatePolynomial<R: Ring, E: Exponent> {
@@ -72,6 +74,20 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             exponents: exponents,
             nterms: 1,
         }
+    }
+
+    pub fn to_finite_field(&self, p: usize) -> MultivariatePolynomial<FiniteField, E> {
+        let newc = self.coefficients
+            .iter()
+            .map(|x| x.to_finite_field(p))
+            .collect();
+
+        let mut a = MultivariatePolynomial::new();
+        a.exponents = self.exponents.clone();
+        a.coefficients = newc;
+        a.nterms = self.nterms;
+        a.nvars = self.nvars;
+        a
     }
 
     /// Returns the number of terms in the polynomial.
@@ -491,6 +507,18 @@ impl<R: Ring, E: Exponent> Mul for MultivariatePolynomial<R, E> {
     }
 }
 
+impl<R: Ring, E: Exponent> Mul<R> for MultivariatePolynomial<R, E> {
+    type Output = Self;
+
+    fn mul(self, other: R) -> Self::Output {
+        let mut res = self.clone();
+        for c in &mut res.coefficients {
+            *c = c.clone() * other.clone();
+        }
+        res
+    }
+}
+
 impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     #[inline]
     fn mul_monomial(mut self, coefficient: &R, exponents: &[E]) -> Self {
@@ -705,11 +733,134 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         d
     }
 
+    /// Compute the gcd shape of two polynomials in a finite field by filling in random
+    /// numbers.
+    fn gcd_shape_modular(
+        a: &MultivariatePolynomial<R, E>,
+        b: &MultivariatePolynomial<R, E>,
+    ) -> Option<MultivariatePolynomial<R, E>> {
+        None
+    }
+
     /// Compute the gcd of two multivariate polynomials using Zippel's algorithm.
     pub fn gcd(
         a: &MultivariatePolynomial<R, E>,
         b: &MultivariatePolynomial<R, E>,
     ) -> MultivariatePolynomial<R, E> {
+        // TODO: check if a and b are monic
+        // TODO: get degree bounds on gcd. how? lowest of highest in a and b
+        assert_eq!(a.nvars, b.nvars);
+
+        let mut bounds = vec![0; a.nvars]; // FIXME
+
+        // compute scaling factor
+        let gamma = gcd(a.ldegree().as_(), b.ldegree().as_());
+
+        let primes = [
+            4254797, 4255213, 4255609, 4256009, 4254799, 4255249, 4255619, 4256029, 4254821,
+            4255301, 4255637, 4256051, 4254853, 4255313, 4255673, 4256089, 4254869, 4255351,
+            4255679, 4256101, 4254883, 4255369, 4255697, 4256117, 4254911, 4255387, 4255739,
+            4256141, 4254949, 4255399, 4255747, 4256159, 4254961, 4255403, 4255751, 4256167,
+            4254983, 4255429, 4255781, 4256191, 4255039, 4255439, 4255789, 4256227, 4255057,
+            4255451, 4255807, 4256233,
+        ];
+
+        let mut pi = 0;
+
+        'newfirstprime: loop {
+            for _ in pi..primes.len() {
+                if gamma % primes[pi] != 0 {
+                    break;
+                }
+                pi += 1;
+            }
+
+            let p = primes[pi];
+
+            let gammap = FiniteField::new(gamma, p);
+            let ap = a.to_finite_field(p);
+            let bp = b.to_finite_field(p);
+
+            println!("{:?} {:?} {}", ap, bp, p);
+
+            // calculate modular gcd image
+            let mut gp = loop {
+                if let Some(x) = MultivariatePolynomial::gcd_shape_modular(&ap, &bp) {
+                    break x;
+                }
+            };
+
+            bounds[0] = gp.last_exponents()[0].as_();
+
+            // construct a new assumed form
+            // we have to find the proper normalization
+            let mut gf = gp.clone();
+
+            // find a coefficient of x1 in gf that is a monomial
+            // we normalize that coefficient to 1
+            // if multiple scaling:  we skip for now
+            // TODO: store single scaling coefficient
+            let mut nx = 1; // TODO: number of samples needed
+
+            let gpc = gp.content();
+            let mut gm = gp * (gammap / gpc);
+            let mut m = p; // used for CRT
+
+            let mut old_gm = MultivariatePolynomial::new();
+
+            // add new primes until we can reconstruct the full gcd
+            'newprime: while gm != old_gm {
+                old_gm = gm.clone();
+
+                for _ in pi..primes.len() {
+                    if gamma % primes[pi] != 0 {
+                        break;
+                    }
+                    pi += 1;
+                }
+
+                let p = primes[pi];
+
+                let gammap = gamma % p;
+                let ap = a.to_finite_field(p);
+                let bp = b.to_finite_field(p);
+
+                //let mut S = vec![]; // empty set
+                let mut ni = 0;
+                let mut failure_count = 0;
+                while ni < nx {
+                    // generate random numbers for all non-leading variables
+
+                    let mut a1 = ap.clone(); // TODO: replace vars
+                    let mut b1 = bp.clone(); // TODO: replace vars
+
+                    let g1 = MultivariatePolynomial::univariate_gcd(&a1, &b1);
+
+                    if g1.ldegree().as_() < bounds[0] {
+                        // original image and form and degree bounds are unlucky
+                        // change the bound and try a new prime
+                        bounds[0] = g1.ldegree().as_();
+                        continue 'newfirstprime;
+                    }
+
+                    if g1.ldegree().as_() > bounds[0] {
+                        failure_count += 1;
+
+                        if failure_count > 2 || failure_count > ni {
+                            // p is likely unlucky
+                            continue 'newprime;
+                        }
+                        continue;
+                    }
+
+                    // check if the single scaling is there, if we had a single scale
+                    // otherwise the assumed form is wrong: continue 'newfirstprime
+
+                    ni += 1;
+                }
+            }
+        }
+
         MultivariatePolynomial::new()
     }
 }
