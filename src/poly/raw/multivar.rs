@@ -809,7 +809,28 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             let mut old_gm = MultivariatePolynomial::new();
 
             // add new primes until we can reconstruct the full gcd
-            'newprime: while gm != old_gm {
+            'newprime: loop {
+                if gm == old_gm {
+                    // divide by content and convert from finite field
+                    let gmc = gm.content();
+                    let mut gc = MultivariatePolynomial::new();
+                    gc.nterms = gm.nterms;
+                    gc.nvars = gm.nvars;
+                    gc.exponents = gm.exponents.clone();
+                    gc.coefficients = gm.coefficients
+                        .iter()
+                        .map(|x| R::from_finite_field(&(x.clone() / gmc.clone())))
+                        .collect();
+
+                    if a.long_division(&gc).1 == MultivariatePolynomial::new()
+                        && b.long_division(&gc).1 == MultivariatePolynomial::new()
+                    {
+                        return gc;
+                    }
+
+                    // if it does not divide, we need more primes
+                }
+
                 old_gm = gm.clone();
 
                 for _ in pi..primes.len() {

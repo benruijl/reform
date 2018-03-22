@@ -6,6 +6,7 @@ use std::fmt::{Debug, Display};
 
 pub trait ToFiniteField {
     fn to_finite_field(&self, p: usize) -> FiniteField;
+    fn from_finite_field(&FiniteField) -> Self;
 }
 
 /// Trait for rings.
@@ -48,5 +49,9 @@ impl ToFiniteField for i64 {
         } else {
             FiniteField::new(*self as usize, p)
         }
+    }
+
+    fn from_finite_field(ff: &FiniteField) -> i64 {
+        ff.n as i64
     }
 }

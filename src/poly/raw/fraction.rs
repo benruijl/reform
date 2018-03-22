@@ -151,4 +151,11 @@ impl ToFiniteField for Fraction {
             FiniteField::new(self.num as usize, p) / FiniteField::new(self.den, p)
         }
     }
+
+    fn from_finite_field(ff: &FiniteField) -> Fraction {
+        Fraction {
+            num: ff.n as isize,
+            den: 1,
+        }
+    }
 }

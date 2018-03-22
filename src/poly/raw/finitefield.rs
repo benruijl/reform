@@ -152,4 +152,8 @@ impl ToFiniteField for FiniteField {
     fn to_finite_field(&self, p: usize) -> FiniteField {
         FiniteField::new(self.n, p)
     }
+
+    fn from_finite_field(ff: &FiniteField) -> FiniteField {
+        ff.clone()
+    }
 }
