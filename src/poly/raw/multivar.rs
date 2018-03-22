@@ -11,6 +11,8 @@ use poly::exponent::Exponent;
 use poly::ring::Ring;
 
 use poly::raw::finitefield::FiniteField;
+use rand;
+use rand::distributions::{Range, Sample};
 
 /// Multivariate polynomial with a degree sparse and variable dense representation.
 #[derive(Clone)]
@@ -572,9 +574,40 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         return true;
     }
 
-    /// Get the highest degree of the leading monomial.
+    // Get the highest degree of the first variable in the leading monomial.
     pub fn ldegree(&self) -> E {
+        self.last_exponents()[0].clone()
+    }
+
+    /// Get the highest degree of the leading monomial.
+    pub fn ldegree_max(&self) -> E {
         self.last_exponents().iter().max().unwrap().clone()
+    }
+
+    /// Get the leading coefficient.
+    pub fn lcoeff(&self) -> R {
+        self.coefficients.last().unwrap().clone()
+    }
+
+    /// Get the leading coefficient viewed as a polynomial
+    /// in all variables except the last.
+    pub fn lcoeff_last(&self) -> MultivariatePolynomial<R, E> {
+        // the last variable should have the least sorting priority,
+        // so the last term should still be the lcoeff
+        let last = self.last_exponents();
+
+        let mut res = MultivariatePolynomial::with_nvars(self.nvars);
+        for t in (0..self.nterms() - 1).rev() {
+            if (0..self.nvars - 1).all(|i| self.exponents(t)[i] == last[i]) {
+                let mut e = vec![E::zero(); self.nvars];
+                e[self.nvars - 1] = self.exponents(t)[self.nvars - 1];
+                res.append_monomial(self.coefficients[t], e);
+            } else {
+                break;
+            }
+        }
+
+        res
     }
 
     /// Replace a variable `x' in the polynomial by an element from
@@ -585,6 +618,25 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             let mut c = self.coefficients[t] * pow(v, self.exponents(t)[n].as_());
             let mut e = self.exponents(t).to_vec();
             e[n] = E::zero();
+
+            res.append_monomial(c, e);
+        }
+
+        res
+    }
+
+    /// Replace a list of variables in the polynomial by elements from
+    /// the ring `v'.
+    pub fn replace_multiple(&self, r: &[(usize, R)]) -> MultivariatePolynomial<R, E> {
+        let mut res = MultivariatePolynomial::with_nvars(self.nvars);
+        for t in 0..self.nterms {
+            let mut e = self.exponents(t).to_vec();
+
+            let mut c = self.coefficients[t];
+            for &(n, v) in r {
+                c = c * pow(v.clone(), self.exponents(t)[n].as_());
+                e[n] = E::zero();
+            }
 
             res.append_monomial(c, e);
         }
@@ -682,7 +734,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
         // TODO: check for univariateness
 
-        let mut q = MultivariatePolynomial::with_nvars(1);
+        let mut q = MultivariatePolynomial::with_nvars(self.nvars);
         let mut r = self.clone();
 
         while !r.is_zero() && r.ldegree() >= div.ldegree() {
@@ -736,9 +788,44 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     /// Compute the gcd shape of two polynomials in a finite field by filling in random
     /// numbers.
     fn gcd_shape_modular(
-        a: &MultivariatePolynomial<R, E>,
-        b: &MultivariatePolynomial<R, E>,
+        a: &MultivariatePolynomial<FiniteField, E>,
+        b: &MultivariatePolynomial<FiniteField, E>,
+        n: usize,         // number of active vars
+        dx: &mut [usize], // degree bounds
     ) -> Option<MultivariatePolynomial<R, E>> {
+        // TODO: "If the gcd of the inputs has content in x n return Fail.""
+        // what do they mean? we don't know this gcd yet...
+
+        let gamma = MultivariatePolynomial::univariate_gcd(&a.lcoeff_last(), &b.lcoeff_last());
+
+        let mut rng = rand::thread_rng();
+        let mut range = Range::new(1, a.coefficients[0].p);
+        let v = loop {
+            let a = FiniteField::new(range.sample(&mut rng), a.coefficients[0].p);
+            if gamma.replace(n - 1, a).nterms() != 0 {
+                break a;
+            }
+        };
+
+        let av = a.replace(n - 1, v);
+        let bv = b.replace(n - 1, v);
+
+        let gv = if n > 2 {
+            match MultivariatePolynomial::gcd_shape_modular(&av, &bv, n - 1, dx) {
+                Some(x) => x,
+                None => return None,
+            }
+        } else {
+            let gg = MultivariatePolynomial::univariate_gcd(&av, &bv);
+            if gg.ldegree().as_() > dx[0] {
+                return None;
+            }
+            dx[0] = gg.ldegree().as_(); // update degree bound
+            gg
+        };
+
+        // TODO
+
         None
     }
 
@@ -751,6 +838,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         // TODO: get degree bounds on gcd. how? lowest of highest in a and b
         assert_eq!(a.nvars, b.nvars);
 
+        let mut rng = rand::thread_rng();
         let mut bounds = vec![0; a.nvars]; // FIXME
 
         // compute scaling factor
@@ -785,7 +873,9 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
             // calculate modular gcd image
             let mut gp = loop {
-                if let Some(x) = MultivariatePolynomial::gcd_shape_modular(&ap, &bp) {
+                if let Some(x) =
+                    MultivariatePolynomial::gcd_shape_modular(&ap, &bp, ap.nvars, &mut bounds)
+                {
                     break x;
                 }
             };
@@ -802,7 +892,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             // TODO: store single scaling coefficient
             let mut nx = 1; // TODO: number of samples needed
 
-            let gpc = gp.content();
+            let gpc = gp.lcoeff();
             let mut gm = gp * (gammap / gpc);
             let mut m = p; // used for CRT
 
@@ -811,8 +901,8 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             // add new primes until we can reconstruct the full gcd
             'newprime: loop {
                 if gm == old_gm {
-                    // divide by content and convert from finite field
-                    let gmc = gm.content();
+                    // divide by lcoeff and convert from finite field
+                    let gmc = gm.lcoeff();
                     let mut gc = MultivariatePolynomial::new();
                     gc.nterms = gm.nterms;
                     gc.nvars = gm.nvars;
@@ -845,15 +935,25 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                 let gammap = FiniteField::new(gamma, p);
                 let ap = a.to_finite_field(p);
                 let bp = b.to_finite_field(p);
+                let mut range = Range::new(1, p);
 
                 //let mut S = vec![]; // empty set
                 let mut ni = 0;
                 let mut failure_count = 0;
-                'newimage: while ni < nx {
+                'newimage: loop {
                     // generate random numbers for all non-leading variables
+                    let (a1, b1) = loop {
+                        let r: Vec<(usize, FiniteField)> = (1..a.nvars)
+                            .map(|i| (i, FiniteField::new(range.sample(&mut rng), p)))
+                            .collect();
 
-                    let mut a1 = ap.clone(); // TODO: replace vars
-                    let mut b1 = bp.clone(); // TODO: replace vars
+                        let a1 = ap.replace_multiple(&r);
+                        let b1 = bp.replace_multiple(&r);
+
+                        if a1.ldegree() == a.ldegree() && b1.ldegree() == b.ldegree() {
+                            break (a1, b1);
+                        }
+                    };
 
                     let g1 = MultivariatePolynomial::univariate_gcd(&a1, &b1);
 
@@ -878,14 +978,22 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                     // otherwise the assumed form is wrong: continue 'newfirstprime
 
                     ni += 1;
+
+                    // make sure we have at least nx images
+                    if ni < nx {
+                        continue 'newimage;
+                    }
+
+                    // solve for S and call the result gp
+                    gp = MultivariatePolynomial::new();
+
+                    // if inconsistent: continue `newfirstprime
+                    // underdetermined and same degree 3 times? bad prime: continue 'newprime
+                    // else: more images: continue 'newimage
+
+                    // correct?
+                    break;
                 }
-
-                // solve for S and call the result gp
-                gp = MultivariatePolynomial::new();
-
-                // if inconsistent: continue `newfirstprime
-                // underdetermined and same degree 3 times? bad prime: continue 'newprime
-                // else: more images: continue 'newimage, FIXME: not possible like this
 
                 // scale the new image
                 let gpc = gp.content();
@@ -902,7 +1010,5 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                 m = m * p;
             }
         }
-
-        MultivariatePolynomial::new()
     }
 }
