@@ -115,6 +115,11 @@ mod tests {
     }
 
     #[test]
+    fn chinese_remainder() {
+        assert_eq!(FiniteField::chinese_remainder(5, 30, 11, 31), 247);
+    }
+
+    #[test]
     fn gcd() {
         // gcd(1+2*x+x^2,1+x)
         let mut a = MultivariatePolynomial::from_monomial(1, vec![2]);

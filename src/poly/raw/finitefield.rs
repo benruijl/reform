@@ -5,8 +5,8 @@ use poly::ring::ToFiniteField;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct FiniteField {
-    n: usize,
-    p: usize,
+    pub n: usize,
+    pub p: usize,
 }
 
 impl FiniteField {
@@ -21,10 +21,10 @@ impl FiniteField {
     }
 
     // Compute the multiplicative inverse of an element in the field.
-    pub fn inverse(&self, n: usize) -> usize {
+    pub fn inverse(n: usize, p: usize) -> usize {
         let mut t = 0isize;
         let mut newt = 1isize;
-        let mut r = self.p as isize;
+        let mut r = p as isize;
         let mut newr = n as isize;
 
         while newr != 0 {
@@ -37,13 +37,26 @@ impl FiniteField {
             newr = tmp - q * newr;
         }
         if r > 1 {
-            panic!("{} is not invertible in ring of size {}", n, self.p);
+            panic!("{} is not invertible in ring of size {}", n, p);
         }
-        if t < 0 {
-            t += n as isize;
+
+        while t < 0 {
+            t += p as isize;
         }
 
         t as usize
+    }
+
+    /// Use Garner's algorithm for the Chinese remainder theorem
+    /// to reconstruct an x that satisfies n1 = x % p1 and n2 = x % p2
+    pub fn chinese_remainder(n1: usize, n2: usize, p1: usize, p2: usize) -> usize {
+        let gamma1 = FiniteField::inverse(p1 % p2, p2);
+
+        // convert to mixed-radix notation
+        let v1 = ((n2 - n1) * gamma1) % p2;
+
+        // convert to standard representation
+        v1 * p1 + n1
     }
 }
 
@@ -109,7 +122,7 @@ impl Div for FiniteField {
 
     fn div(self, other: FiniteField) -> Self::Output {
         FiniteField {
-            n: self.n * other.inverse(other.n) % self.p,
+            n: self.n * FiniteField::inverse(other.n, other.p) % self.p,
             p: self.p,
         }
     }

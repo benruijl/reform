@@ -821,14 +821,14 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
                 let p = primes[pi];
 
-                let gammap = gamma % p;
+                let gammap = FiniteField::new(gamma, p);
                 let ap = a.to_finite_field(p);
                 let bp = b.to_finite_field(p);
 
                 //let mut S = vec![]; // empty set
                 let mut ni = 0;
                 let mut failure_count = 0;
-                while ni < nx {
+                'newimage: while ni < nx {
                     // generate random numbers for all non-leading variables
 
                     let mut a1 = ap.clone(); // TODO: replace vars
@@ -858,6 +858,27 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
                     ni += 1;
                 }
+
+                // solve for S and call the result gp
+                gp = MultivariatePolynomial::new();
+
+                // if inconsistent: continue `newfirstprime
+                // underdetermined and same degree 3 times? bad prime: continue 'newprime
+                // else: more images: continue 'newimage, FIXME: not possible like this
+
+                // scale the new image
+                let gpc = gp.content();
+                gp = gp * (gammap / gpc);
+
+                // use chinese remainder theorem to merge coefficients
+                for (gmc, gpc) in gm.coefficients.iter_mut().zip(gp.coefficients) {
+                    *gmc = FiniteField::new(
+                        FiniteField::chinese_remainder(gmc.n, gpc.n, gmc.p, gpc.p),
+                        m * p,
+                    );
+                }
+
+                m = m * p;
             }
         }
 
