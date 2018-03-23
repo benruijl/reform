@@ -693,6 +693,42 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         result.unwrap()
     }
 
+    /// Create a univariate polynomial out of a multivariate one.
+    /// TODO: allow a MultivariatePolynomial as a coefficient
+    pub fn to_univariate_polynomial(&self, x: usize) -> Vec<(MultivariatePolynomial<R, E>, usize)> {
+        if self.coefficients.is_empty() {
+            return vec![];
+        }
+
+        // get maximum degree for variable x
+        let mut maxdeg = 0;
+        for t in 0..self.nterms {
+            let d = self.exponents(t)[x].as_();
+            if d > maxdeg {
+                maxdeg = d.clone();
+            }
+        }
+
+        // construct the coefficient per power of x
+        let mut result = vec![];
+        for d in 0..maxdeg + 1 {
+            let mut a = MultivariatePolynomial::new();
+            for t in 0..self.nterms {
+                if self.exponents(t)[x].as_() == d {
+                    let mut e = self.exponents(t).to_vec();
+                    e[x] = E::zero();
+                    a.append_monomial(self.coefficients[t].clone(), e);
+                }
+            }
+
+            if !a.is_zero() {
+                result.push((a, d));
+            }
+        }
+
+        result
+    }
+
     /// Get the content of a multivariate polynomial viewed as a
     /// mutlivariate polynomial in all variables except `x`.
     pub fn multivariate_content(&self, x: usize) -> MultivariatePolynomial<R, E> {
@@ -886,11 +922,26 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             // we have to find the proper normalization
             let mut gf = gp.clone();
 
-            // find a coefficient of x1 in gf that is a monomial
-            // we normalize that coefficient to 1
-            // if multiple scaling:  we skip for now
-            // TODO: store single scaling coefficient
-            let mut nx = 1; // TODO: number of samples needed
+            // construct the univariate polynomial
+            let gfu = gf.to_univariate_polynomial(0);
+
+            // find a coefficient of x1 in gf that is a monomial (single scaling)
+            let mut single_scale = None;
+            let mut nx = 0; // count the minimal number of samples needed
+            for &(ref c, ref e) in &gfu {
+                if c.nterms > nx {
+                    nx = c.nterms;
+                }
+                if c.nterms == 1 {
+                    single_scale = Some(e);
+                }
+            }
+
+            // In the case of multiple scaling, we need an additional sample
+            // TODO: is this correct?
+            if single_scale == None {
+                nx += 1;
+            }
 
             let gpc = gp.lcoeff();
             let mut gm = gp * (gammap / gpc);
@@ -937,12 +988,12 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                 let bp = b.to_finite_field(p);
                 let mut range = Range::new(1, p);
 
-                //let mut S = vec![]; // empty set
+                let mut S = vec![]; // coefficients for the linear system
                 let mut ni = 0;
                 let mut failure_count = 0;
                 'newimage: loop {
                     // generate random numbers for all non-leading variables
-                    let (a1, b1) = loop {
+                    let (r, a1, b1) = loop {
                         let r: Vec<(usize, FiniteField)> = (1..a.nvars)
                             .map(|i| (i, FiniteField::new(range.sample(&mut rng), p)))
                             .collect();
@@ -951,7 +1002,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                         let b1 = bp.replace_multiple(&r);
 
                         if a1.ldegree() == a.ldegree() && b1.ldegree() == b.ldegree() {
-                            break (a1, b1);
+                            break (r, a1, b1);
                         }
                     };
 
@@ -975,13 +1026,59 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                     }
 
                     // check if the single scaling is there, if we had a single scale
-                    // otherwise the assumed form is wrong: continue 'newfirstprime
+                    if let Some(d) = single_scale {
+                        if !(0..g1.nterms).any(|i| g1.exponents(i)[0].as_() == *d) {
+                            // the scaling term is missing, so the assumed form is wrong
+                            continue 'newfirstprime;
+                        }
+                    }
 
+                    S.push((r, g1));
                     ni += 1;
 
                     // make sure we have at least nx images
                     if ni < nx {
                         continue 'newimage;
+                    }
+
+                    // construct the linear system
+                    let mut gfm = vec![];
+
+                    for (i, &(ref c, ref e)) in gfu.iter().enumerate() {
+                        for (j, &(ref r, ref g)) in S.iter().enumerate() {
+                            let mut row = vec![];
+
+                            assert_eq!(g.nterms, gfu.len());
+
+                            // the first elements in the row come from the shape
+                            for ii in 0..gfu.len() {
+                                if i == ii {
+                                    // note that we ignore the coefficient of the shape
+                                    for t in 0..c.nterms {
+                                        let mut coeff = FiniteField::new(1, p);
+                                        for &(n, v) in r.iter() {
+                                            coeff = coeff * pow(v.clone(), c.exponents(t)[n].as_());
+                                        }
+                                        row.push(coeff.n);
+                                    }
+                                } else {
+                                    for t in 0..c.nterms {
+                                        row.push(0);
+                                    }
+                                }
+                            }
+
+                            // add the coefficient from the image
+                            for ii in 0..g.nterms {
+                                if ii == i {
+                                    row.push(g.coefficients[i].n);
+                                } else {
+                                    row.push(0);
+                                }
+                            }
+
+                            gfm.push(row);
+                        }
                     }
 
                     // solve for S and call the result gp
