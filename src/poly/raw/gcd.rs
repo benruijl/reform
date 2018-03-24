@@ -1,8 +1,3 @@
-use std::cmp::Ordering;
-use std::fmt;
-use std::mem;
-use std::ops::{Add, Mul, Neg, Sub};
-
 use num_traits::{pow, One, Zero};
 
 use poly::exponent::Exponent;
@@ -17,6 +12,44 @@ use tools;
 enum GCDError {
     BadOriginalImage,
     BadCurrentImage,
+}
+
+fn newton_interpolation<E: Exponent>(
+    a: &[FiniteField],
+    u: &[MultivariatePolynomial<FiniteField, E>],
+    p: usize,
+    x: usize, // the variable indexs to extend the polynomial by
+) -> MultivariatePolynomial<FiniteField, E> {
+    // compute inverses
+    let mut gammas = vec![];
+    for k in 1..a.len() {
+        let mut pr = a[k] - a[0];
+        for i in 1..k {
+            pr = pr * (a[k] - a[i]);
+        }
+        gammas.push(FiniteField::new(FiniteField::inverse(pr.n, p), p));
+    }
+
+    // compute Newton coefficients
+    let mut v = vec![u[0].clone()];
+    for k in 1..a.len() {
+        let mut tmp = v[k - 1].clone();
+        for j in (0..k - 1).rev() {
+            tmp = tmp * (a[k] - a[j]) + v[j].clone();
+        }
+        v.push((u[k].clone() - tmp) * gammas[k - 1]);
+    }
+
+    // convert to standard form
+    let mut e = vec![E::zero(); u[0].nvars];
+    e[x] = E::one();
+    let xp = MultivariatePolynomial::from_monomial(FiniteField::new(1, p), e);
+    let mut u = v[v.len() - 1].clone();
+    for k in (0..v.len()).rev() {
+        u = u * (xp.clone() - MultivariatePolynomial::from_constant_with_nvars(a[k], xp.nvars))
+            + v[k].clone();
+    }
+    u
 }
 
 fn construct_new_image<R: Ring, E: Exponent>(
@@ -249,9 +282,14 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                 }
             }
 
-            // TODO: Newton interpolation on gseq and vseq
-            // TODO: remmove content in xn
-            let gc = MultivariatePolynomial::new();
+            // use interpolation to construct x_n dependence
+            let mut gc = newton_interpolation(&vseq, &gseq, p, n - 1);
+
+            // remove content in x_n
+            let cont = gc.univariate_content(n - 1);
+            let cc = gc.long_division(&cont);
+            assert_eq!(cc.1, MultivariatePolynomial::zero());
+            gc = cc.0;
 
             // do a probabilistic division test
             let (g1, a1, b1) = loop {

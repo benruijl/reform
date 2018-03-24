@@ -1,5 +1,5 @@
 use num_traits::{One, Pow, Zero};
-use std::ops::{Add, Div, Mul, Neg, Rem};
+use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 use std::fmt;
 use poly::ring::ToFiniteField;
 
@@ -85,6 +85,23 @@ impl Add for FiniteField {
         assert_eq!(self.p, other.p);
         FiniteField {
             n: (self.n + other.n) % self.p,
+            p: self.p,
+        }
+    }
+}
+
+impl Sub for FiniteField {
+    type Output = Self;
+
+    fn sub(self, other: Self) -> Self::Output {
+        assert_eq!(self.p, other.p);
+
+        FiniteField {
+            n: if self.n >= other.n {
+                (self.n + other.n) % self.p
+            } else {
+                (self.n + self.p - other.n) % self.p
+            },
             p: self.p,
         }
     }
