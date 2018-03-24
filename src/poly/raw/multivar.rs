@@ -575,6 +575,17 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         return true;
     }
 
+    // Get the degree of the variable `x`.
+    pub fn degree(&self, x: usize) -> E {
+        let mut max = E::zero();
+        for t in 0..self.nterms {
+            if max < self.exponents(t)[x] {
+                max = self.exponents(t)[x];
+            }
+        }
+        max
+    }
+
     // Get the highest degree of the first variable in the leading monomial.
     pub fn ldegree(&self) -> E {
         self.last_exponents()[0].clone()

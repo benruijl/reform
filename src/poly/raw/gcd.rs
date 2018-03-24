@@ -324,11 +324,24 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         b: &MultivariatePolynomial<R, E>,
     ) -> MultivariatePolynomial<R, E> {
         // TODO: check if a and b are monic
-        // TODO: get degree bounds on gcd. how? lowest of highest in a and b
+
         assert_eq!(a.nvars, b.nvars);
 
         let mut rng = rand::thread_rng();
-        let mut bounds = vec![0; a.nvars]; // FIXME
+
+        // TODO: get proper degree bounds on gcd. how?
+        // for now: take the lowest degree for each variable
+        let mut bounds: Vec<usize> = (0..a.nvars)
+            .map(|i| {
+                let da = a.degree(i).as_();
+                let db = b.degree(i).as_();
+                if da < db {
+                    da
+                } else {
+                    db
+                }
+            })
+            .collect();
 
         // compute scaling factor
         let gamma = tools::gcd(a.ldegree().as_(), b.ldegree().as_());
