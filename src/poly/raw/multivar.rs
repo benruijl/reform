@@ -11,6 +11,7 @@ use poly::exponent::Exponent;
 use poly::ring::Ring;
 
 use poly::raw::finitefield::FiniteField;
+use poly::raw::gcd;
 use rand;
 use rand::distributions::{Range, Sample};
 
@@ -21,10 +22,10 @@ pub struct MultivariatePolynomial<R: Ring, E: Exponent> {
     // exponents[i * nvars .. (i + 1) * nvars]. Keep coefficients.len() == nterms and
     // exponents.len() == nterms * nvars. Terms are always expanded and sorted by the exponents via
     // cmp_exponents().
-    coefficients: Vec<R>,
-    exponents: Vec<E>,
-    nterms: usize,
-    nvars: usize,
+    pub coefficients: Vec<R>,
+    pub exponents: Vec<E>,
+    pub nterms: usize,
+    pub nvars: usize,
 }
 
 impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
@@ -119,11 +120,11 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
     /// Returns the slice for the exponents of the specified monomial.
     #[inline]
-    fn exponents(&self, index: usize) -> &[E] {
+    pub fn exponents(&self, index: usize) -> &[E] {
         &self.exponents[index * self.nvars..(index + 1) * self.nvars]
     }
 
-    fn last_exponents(&self) -> &[E] {
+    pub fn last_exponents(&self) -> &[E] {
         &self.exponents[(self.nterms - 1) * self.nvars..self.nterms * self.nvars]
     }
 
@@ -819,293 +820,5 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         }
 
         d
-    }
-
-    /// Compute the gcd shape of two polynomials in a finite field by filling in random
-    /// numbers.
-    fn gcd_shape_modular(
-        a: &MultivariatePolynomial<FiniteField, E>,
-        b: &MultivariatePolynomial<FiniteField, E>,
-        n: usize,         // number of active vars
-        dx: &mut [usize], // degree bounds
-    ) -> Option<MultivariatePolynomial<R, E>> {
-        // TODO: "If the gcd of the inputs has content in x n return Fail.""
-        // what do they mean? we don't know this gcd yet...
-
-        let gamma = MultivariatePolynomial::univariate_gcd(&a.lcoeff_last(), &b.lcoeff_last());
-
-        let mut rng = rand::thread_rng();
-        let mut range = Range::new(1, a.coefficients[0].p);
-        let v = loop {
-            let a = FiniteField::new(range.sample(&mut rng), a.coefficients[0].p);
-            if gamma.replace(n - 1, a).nterms() != 0 {
-                break a;
-            }
-        };
-
-        let av = a.replace(n - 1, v);
-        let bv = b.replace(n - 1, v);
-
-        let gv = if n > 2 {
-            match MultivariatePolynomial::gcd_shape_modular(&av, &bv, n - 1, dx) {
-                Some(x) => x,
-                None => return None,
-            }
-        } else {
-            let gg = MultivariatePolynomial::univariate_gcd(&av, &bv);
-            if gg.ldegree().as_() > dx[0] {
-                return None;
-            }
-            dx[0] = gg.ldegree().as_(); // update degree bound
-            gg
-        };
-
-        // TODO
-
-        None
-    }
-
-    /// Compute the gcd of two multivariate polynomials using Zippel's algorithm.
-    pub fn gcd(
-        a: &MultivariatePolynomial<R, E>,
-        b: &MultivariatePolynomial<R, E>,
-    ) -> MultivariatePolynomial<R, E> {
-        // TODO: check if a and b are monic
-        // TODO: get degree bounds on gcd. how? lowest of highest in a and b
-        assert_eq!(a.nvars, b.nvars);
-
-        let mut rng = rand::thread_rng();
-        let mut bounds = vec![0; a.nvars]; // FIXME
-
-        // compute scaling factor
-        let gamma = gcd(a.ldegree().as_(), b.ldegree().as_());
-
-        let primes = [
-            4254797, 4255213, 4255609, 4256009, 4254799, 4255249, 4255619, 4256029, 4254821,
-            4255301, 4255637, 4256051, 4254853, 4255313, 4255673, 4256089, 4254869, 4255351,
-            4255679, 4256101, 4254883, 4255369, 4255697, 4256117, 4254911, 4255387, 4255739,
-            4256141, 4254949, 4255399, 4255747, 4256159, 4254961, 4255403, 4255751, 4256167,
-            4254983, 4255429, 4255781, 4256191, 4255039, 4255439, 4255789, 4256227, 4255057,
-            4255451, 4255807, 4256233,
-        ];
-
-        let mut pi = 0;
-
-        'newfirstprime: loop {
-            for _ in pi..primes.len() {
-                if gamma % primes[pi] != 0 {
-                    break;
-                }
-                pi += 1;
-            }
-
-            let p = primes[pi];
-
-            let gammap = FiniteField::new(gamma, p);
-            let ap = a.to_finite_field(p);
-            let bp = b.to_finite_field(p);
-
-            println!("{:?} {:?} {}", ap, bp, p);
-
-            // calculate modular gcd image
-            let mut gp = loop {
-                if let Some(x) =
-                    MultivariatePolynomial::gcd_shape_modular(&ap, &bp, ap.nvars, &mut bounds)
-                {
-                    break x;
-                }
-            };
-
-            bounds[0] = gp.last_exponents()[0].as_();
-
-            // construct a new assumed form
-            // we have to find the proper normalization
-            let mut gf = gp.clone();
-
-            // construct the univariate polynomial
-            let gfu = gf.to_univariate_polynomial(0);
-
-            // find a coefficient of x1 in gf that is a monomial (single scaling)
-            let mut single_scale = None;
-            let mut nx = 0; // count the minimal number of samples needed
-            for &(ref c, ref e) in &gfu {
-                if c.nterms > nx {
-                    nx = c.nterms;
-                }
-                if c.nterms == 1 {
-                    single_scale = Some(e);
-                }
-            }
-
-            // In the case of multiple scaling, we need an additional sample
-            // TODO: is this correct?
-            if single_scale == None {
-                nx += 1;
-            }
-
-            let gpc = gp.lcoeff();
-            let mut gm = gp * (gammap / gpc);
-            let mut m = p; // used for CRT
-
-            let mut old_gm = MultivariatePolynomial::new();
-
-            // add new primes until we can reconstruct the full gcd
-            'newprime: loop {
-                if gm == old_gm {
-                    // divide by lcoeff and convert from finite field
-                    let gmc = gm.lcoeff();
-                    let mut gc = MultivariatePolynomial::new();
-                    gc.nterms = gm.nterms;
-                    gc.nvars = gm.nvars;
-                    gc.exponents = gm.exponents.clone();
-                    gc.coefficients = gm.coefficients
-                        .iter()
-                        .map(|x| R::from_finite_field(&(x.clone() / gmc.clone())))
-                        .collect();
-
-                    if a.long_division(&gc).1 == MultivariatePolynomial::new()
-                        && b.long_division(&gc).1 == MultivariatePolynomial::new()
-                    {
-                        return gc;
-                    }
-
-                    // if it does not divide, we need more primes
-                }
-
-                old_gm = gm.clone();
-
-                for _ in pi..primes.len() {
-                    if gamma % primes[pi] != 0 {
-                        break;
-                    }
-                    pi += 1;
-                }
-
-                let p = primes[pi];
-
-                let gammap = FiniteField::new(gamma, p);
-                let ap = a.to_finite_field(p);
-                let bp = b.to_finite_field(p);
-                let mut range = Range::new(1, p);
-
-                let mut S = vec![]; // coefficients for the linear system
-                let mut ni = 0;
-                let mut failure_count = 0;
-                'newimage: loop {
-                    // generate random numbers for all non-leading variables
-                    let (r, a1, b1) = loop {
-                        let r: Vec<(usize, FiniteField)> = (1..a.nvars)
-                            .map(|i| (i, FiniteField::new(range.sample(&mut rng), p)))
-                            .collect();
-
-                        let a1 = ap.replace_multiple(&r);
-                        let b1 = bp.replace_multiple(&r);
-
-                        if a1.ldegree() == a.ldegree() && b1.ldegree() == b.ldegree() {
-                            break (r, a1, b1);
-                        }
-                    };
-
-                    let g1 = MultivariatePolynomial::univariate_gcd(&a1, &b1);
-
-                    if g1.ldegree().as_() < bounds[0] {
-                        // original image and form and degree bounds are unlucky
-                        // change the bound and try a new prime
-                        bounds[0] = g1.ldegree().as_();
-                        continue 'newfirstprime;
-                    }
-
-                    if g1.ldegree().as_() > bounds[0] {
-                        failure_count += 1;
-
-                        if failure_count > 2 || failure_count > ni {
-                            // p is likely unlucky
-                            continue 'newprime;
-                        }
-                        continue;
-                    }
-
-                    // check if the single scaling is there, if we had a single scale
-                    if let Some(d) = single_scale {
-                        if !(0..g1.nterms).any(|i| g1.exponents(i)[0].as_() == *d) {
-                            // the scaling term is missing, so the assumed form is wrong
-                            continue 'newfirstprime;
-                        }
-                    }
-
-                    S.push((r, g1));
-                    ni += 1;
-
-                    // make sure we have at least nx images
-                    if ni < nx {
-                        continue 'newimage;
-                    }
-
-                    // construct the linear system
-                    let mut gfm = vec![];
-
-                    for (i, &(ref c, ref e)) in gfu.iter().enumerate() {
-                        for (j, &(ref r, ref g)) in S.iter().enumerate() {
-                            let mut row = vec![];
-
-                            assert_eq!(g.nterms, gfu.len());
-
-                            // the first elements in the row come from the shape
-                            for ii in 0..gfu.len() {
-                                if i == ii {
-                                    // note that we ignore the coefficient of the shape
-                                    for t in 0..c.nterms {
-                                        let mut coeff = FiniteField::new(1, p);
-                                        for &(n, v) in r.iter() {
-                                            coeff = coeff * pow(v.clone(), c.exponents(t)[n].as_());
-                                        }
-                                        row.push(coeff.n);
-                                    }
-                                } else {
-                                    for t in 0..c.nterms {
-                                        row.push(0);
-                                    }
-                                }
-                            }
-
-                            // add the coefficient from the image
-                            for ii in 0..g.nterms {
-                                if ii == i {
-                                    row.push(g.coefficients[i].n);
-                                } else {
-                                    row.push(0);
-                                }
-                            }
-
-                            gfm.push(row);
-                        }
-                    }
-
-                    // solve for S and call the result gp
-                    gp = MultivariatePolynomial::new();
-
-                    // if inconsistent: continue `newfirstprime
-                    // underdetermined and same degree 3 times? bad prime: continue 'newprime
-                    // else: more images: continue 'newimage
-
-                    // correct?
-                    break;
-                }
-
-                // scale the new image
-                let gpc = gp.content();
-                gp = gp * (gammap / gpc);
-
-                // use chinese remainder theorem to merge coefficients
-                for (gmc, gpc) in gm.coefficients.iter_mut().zip(gp.coefficients) {
-                    *gmc = FiniteField::new(
-                        FiniteField::chinese_remainder(gmc.n, gpc.n, gmc.p, gpc.p),
-                        m * p,
-                    );
-                }
-
-                m = m * p;
-            }
-        }
     }
 }
