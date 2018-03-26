@@ -3,10 +3,10 @@ use num_traits::{pow, One, Zero};
 use poly::exponent::Exponent;
 use poly::ring::Ring;
 
+use poly::raw::MultivariatePolynomial;
 use poly::raw::finitefield::FiniteField;
 use rand;
 use rand::distributions::{Range, Sample};
-use poly::raw::MultivariatePolynomial;
 use tools;
 
 enum GCDError {
@@ -306,8 +306,8 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                 }
             };
 
-            if a.long_division(&gc).1 == MultivariatePolynomial::new()
-                && b.long_division(&gc).1 == MultivariatePolynomial::new()
+            if a1.long_division(&g1).1 == MultivariatePolynomial::new()
+                && b1.long_division(&g1).1 == MultivariatePolynomial::new()
             {
                 return Some(gc);
             }
@@ -318,15 +318,56 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
 }
 
 impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
-    /// Compute the gcd of two multivariate polynomials using Zippel's algorithm.
+    /// Compute the gcd of the univariate content in `x`.
+    pub fn univariate_content_gcd(
+        a: &MultivariatePolynomial<R, E>,
+        b: &MultivariatePolynomial<R, E>,
+        x: usize,
+    ) -> MultivariatePolynomial<R, E> {
+        let af = a.to_univariate_polynomial(x);
+        let bf = b.to_univariate_polynomial(x);
+
+        // find the smallest coefficient in a or b
+        let smallest = af.iter()
+            .chain(bf.iter())
+            .min_by_key(|x| x.0.nterms)
+            .unwrap();
+
+        // create a new polynomial that contains all the other terms
+        let mut p = MultivariatePolynomial::<R, E>::new();
+        for &(ref c, _) in af.iter().chain(bf.iter()) {
+            for t in c.into_iter() {
+                p.append_monomial(t.coefficient.clone(), t.exponents.to_vec());
+            }
+        }
+
+        MultivariatePolynomial::gcd(&smallest.0, &p)
+    }
+
+    /// Compute the gcd of two multivariate polynomials.
     pub fn gcd(
         a: &MultivariatePolynomial<R, E>,
         b: &MultivariatePolynomial<R, E>,
     ) -> MultivariatePolynomial<R, E> {
-        // TODO: check if a and b are monic
-
         assert_eq!(a.nvars, b.nvars);
 
+        // remove the gcd of the content in the first variable
+        let c = MultivariatePolynomial::univariate_content_gcd(a, b, 0);
+        let x1 = a.long_division(&c);
+        let x2 = b.long_division(&c);
+
+        assert!(x1.1.is_zero());
+        assert!(x2.1.is_zero());
+
+        MultivariatePolynomial::gcd_zippel(&x1.0, &x1.1)
+    }
+
+    /// Compute the gcd of two multivariate polynomials using Zippel's algorithm.
+    /// TODO: provide a parallel implementation?
+    fn gcd_zippel(
+        a: &MultivariatePolynomial<R, E>,
+        b: &MultivariatePolynomial<R, E>,
+    ) -> MultivariatePolynomial<R, E> {
         let mut rng = rand::thread_rng();
 
         // TODO: get proper degree bounds on gcd. how?

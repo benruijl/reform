@@ -1,9 +1,9 @@
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::fmt;
 use std::mem;
 use std::ops::{Add, Mul, Neg, Sub};
 use tools::gcd;
-use std::collections::HashMap;
 
 use num_traits::{pow, One, Zero};
 
@@ -670,6 +670,8 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
     /// Get the content of a multivariate polynomial viewed as a
     /// univariate polynomial in `x`.
+    /// TODO: reduce calls to gcd routine by taking one coefficient
+    /// and taking the gcd with the sum of all the other coefficients
     pub fn univariate_content(&self, x: usize) -> MultivariatePolynomial<R, E> {
         if self.coefficients.is_empty() {
             return MultivariatePolynomial::new();
