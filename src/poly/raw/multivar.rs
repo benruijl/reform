@@ -13,7 +13,6 @@ use poly::ring::Ring;
 use poly::raw::finitefield::FiniteField;
 use poly::raw::gcd;
 use rand;
-use rand::distributions::{Range, Sample};
 
 /// Multivariate polynomial with a degree sparse and variable dense representation.
 #[derive(Clone)]
@@ -85,11 +84,10 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             .map(|x| x.to_finite_field(p))
             .collect();
 
-        let mut a = MultivariatePolynomial::new();
+        let mut a = MultivariatePolynomial::with_nvars(self.nvars);
         a.exponents = self.exponents.clone();
         a.coefficients = newc;
         a.nterms = self.nterms;
-        a.nvars = self.nvars;
         a
     }
 
@@ -674,7 +672,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     /// and taking the gcd with the sum of all the other coefficients
     pub fn univariate_content(&self, x: usize) -> MultivariatePolynomial<R, E> {
         if self.coefficients.is_empty() {
-            return MultivariatePolynomial::new();
+            return MultivariatePolynomial::with_nvars(self.nvars);
         }
 
         // get maximum degree for variable x
@@ -689,7 +687,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         // construct the coefficient per power of x
         let mut result = None;
         for d in 0..maxdeg + 1 {
-            let mut a = MultivariatePolynomial::new();
+            let mut a = MultivariatePolynomial::with_nvars(self.nvars);
             for t in 0..self.nterms {
                 if self.exponents(t)[x].as_() == d {
                     let mut e = self.exponents(t).to_vec();
@@ -726,7 +724,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         // construct the coefficient per power of x
         let mut result = vec![];
         for d in 0..maxdeg + 1 {
-            let mut a = MultivariatePolynomial::new();
+            let mut a = MultivariatePolynomial::with_nvars(self.nvars);
             for t in 0..self.nterms {
                 if self.exponents(t)[x].as_() == d {
                     let mut e = self.exponents(t).to_vec();
@@ -747,7 +745,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     /// mutlivariate polynomial in all variables except `x`.
     pub fn multivariate_content(&self, x: usize) -> MultivariatePolynomial<R, E> {
         if self.coefficients.is_empty() {
-            return MultivariatePolynomial::new();
+            return MultivariatePolynomial::with_nvars(self.nvars);
         }
 
         let mut tm: HashMap<Vec<E>, MultivariatePolynomial<R, E>> = HashMap::new();

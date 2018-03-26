@@ -1,7 +1,8 @@
+use num_traits::cast::AsPrimitive;
 use num_traits::{One, Pow, Zero};
-use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
-use std::fmt;
 use poly::ring::ToFiniteField;
+use std::fmt;
+use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct FiniteField {
@@ -172,5 +173,11 @@ impl ToFiniteField for FiniteField {
 
     fn from_finite_field(ff: &FiniteField) -> FiniteField {
         ff.clone()
+    }
+}
+
+impl AsPrimitive<usize> for FiniteField {
+    fn as_(self) -> usize {
+        self.n
     }
 }

@@ -1,4 +1,4 @@
-use num_traits::{pow, One, Zero};
+use num_traits::{pow, Zero};
 
 use poly::exponent::Exponent;
 use poly::ring::Ring;
@@ -162,7 +162,7 @@ fn construct_new_image<R: Ring, E: Exponent>(
         }
 
         // solve for S and call the result gp
-        let gp = MultivariatePolynomial::new();
+        let gp = MultivariatePolynomial::with_nvars(ap.nvars);
 
         // if inconsistent: return Err(GCDError::BadOriginalImage);
         // underdetermined and same degree 3 times? bad prime: return Err(GCDError::BadCurrentImage);
@@ -306,9 +306,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                 }
             };
 
-            if a1.long_division(&g1).1 == MultivariatePolynomial::new()
-                && b1.long_division(&g1).1 == MultivariatePolynomial::new()
-            {
+            if a1.long_division(&g1).1.is_zero() && b1.long_division(&g1).1.is_zero() {
                 return Some(gc);
             }
 
@@ -334,14 +332,14 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             .unwrap();
 
         // create a new polynomial that contains all the other terms
-        let mut p = MultivariatePolynomial::<R, E>::new();
+        let mut p = MultivariatePolynomial::<R, E>::with_nvars(a.nvars);
         for &(ref c, _) in af.iter().chain(bf.iter()) {
             for t in c.into_iter() {
                 p.append_monomial(t.coefficient.clone(), t.exponents.to_vec());
             }
         }
 
-        MultivariatePolynomial::gcd(&smallest.0, &p)
+        MultivariatePolynomial::gcd_zippel(&smallest.0, &p)
     }
 
     /// Compute the gcd of two multivariate polynomials.
@@ -369,6 +367,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         b: &MultivariatePolynomial<R, E>,
     ) -> MultivariatePolynomial<R, E> {
         let mut rng = rand::thread_rng();
+        println!("INPUT {:?} {:?}", a, b);
 
         // TODO: get proper degree bounds on gcd. how?
         // for now: take the lowest degree for each variable
@@ -384,8 +383,8 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             })
             .collect();
 
-        // compute scaling factor
-        let gamma = tools::gcd(a.ldegree().as_(), b.ldegree().as_());
+        // compute scaling factor in Z
+        let gamma = tools::gcd(a.lcoeff(), b.lcoeff()).as_();
 
         let primes = [
             4254797, 4255213, 4255609, 4256009, 4254799, 4255249, 4255619, 4256029, 4254821,
@@ -412,7 +411,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             let ap = a.to_finite_field(p);
             let bp = b.to_finite_field(p);
 
-            println!("{:?} {:?} {}", ap, bp, p);
+            println!("New prime {:?} {:?} {}", ap, bp, p);
 
             // calculate modular gcd image
             let mut gp = loop {
@@ -454,14 +453,14 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             let mut gm = gp * (gammap / gpc);
             let mut m = p; // used for CRT
 
-            let mut old_gm = MultivariatePolynomial::new();
+            let mut old_gm = MultivariatePolynomial::with_nvars(a.nvars);
 
             // add new primes until we can reconstruct the full gcd
             'newprime: loop {
                 if gm == old_gm {
                     // divide by lcoeff and convert from finite field
                     let gmc = gm.lcoeff();
-                    let mut gc = MultivariatePolynomial::new();
+                    let mut gc = MultivariatePolynomial::with_nvars(a.nvars);
                     gc.nterms = gm.nterms;
                     gc.nvars = gm.nvars;
                     gc.exponents = gm.exponents.clone();
@@ -470,9 +469,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                         .map(|x| R::from_finite_field(&(x.clone() / gmc.clone())))
                         .collect();
 
-                    if a.long_division(&gc).1 == MultivariatePolynomial::new()
-                        && b.long_division(&gc).1 == MultivariatePolynomial::new()
-                    {
+                    if a.long_division(&gc).1.is_zero() && b.long_division(&gc).1.is_zero() {
                         return gc;
                     }
 

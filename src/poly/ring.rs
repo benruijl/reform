@@ -1,8 +1,8 @@
-use std::ops::{Div, Neg, Rem};
+use num_traits::cast::AsPrimitive;
 use num_traits::{One, Pow, Zero};
-
 use poly::raw::finitefield::FiniteField;
 use std::fmt::{Debug, Display};
+use std::ops::{Div, Neg, Rem};
 
 pub trait ToFiniteField {
     fn to_finite_field(&self, p: usize) -> FiniteField;
@@ -10,35 +10,38 @@ pub trait ToFiniteField {
 }
 
 /// Trait for rings.
-pub trait Ring
-    : Copy
+pub trait Ring:
+    Copy
     + Zero
     + One
     + Debug
     + Display
+    + AsPrimitive<usize>
     + Pow<usize>
     + Neg<Output = Self>
     + Div<Output = Self>
     + Rem<Output = Self>
     + ToFiniteField
     + Eq
-    + Clone {
+    + Clone
+{
 }
 
 impl<
-    T: Copy
-        + Zero
-        + One
-        + Debug
-        + Display
-        + Pow<usize>
-        + Neg<Output = Self>
-        + Div<Output = Self>
-        + Rem<Output = Self>
-        + ToFiniteField
-        + Eq
-        + Clone,
-> Ring for T
+        T: Copy
+            + Zero
+            + One
+            + Debug
+            + Display
+            + AsPrimitive<usize>
+            + Pow<usize>
+            + Neg<Output = Self>
+            + Div<Output = Self>
+            + Rem<Output = Self>
+            + ToFiniteField
+            + Eq
+            + Clone,
+    > Ring for T
 {
 }
 

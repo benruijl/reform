@@ -1,7 +1,9 @@
 use num_traits::{One, Pow, Zero};
-use std::ops::{Add, Div, Mul, Neg, Rem};
 use std::fmt;
+use std::ops::{Add, Div, Mul, Neg, Rem};
 use tools::gcd;
+
+use num_traits::cast::AsPrimitive;
 
 use poly::raw::finitefield::FiniteField;
 use poly::ring::ToFiniteField;
@@ -157,5 +159,11 @@ impl ToFiniteField for Fraction {
             num: ff.n as isize,
             den: 1,
         }
+    }
+}
+
+impl AsPrimitive<usize> for Fraction {
+    fn as_(self) -> usize {
+        unreachable!("Cannot convert fraction to integer");
     }
 }
