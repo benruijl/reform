@@ -1,6 +1,8 @@
-pub mod multivar;
-pub mod fraction;
 pub mod finitefield;
+pub mod fraction;
 pub mod gcd;
+pub mod multivar;
+pub mod overflowing;
+pub mod zp;
 
-pub use self::multivar::MultivariatePolynomial;
+pub use poly::raw::multivar::MultivariatePolynomial;
