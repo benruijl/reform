@@ -1,11 +1,11 @@
 #[cfg(test)]
 mod tests {
     use module;
+    use num_traits::One;
     use parser;
     use poly::raw::MultivariatePolynomial;
-    use poly::raw::fraction::Fraction;
     use poly::raw::finitefield::FiniteField;
-    use num_traits::One;
+    use poly::raw::fraction::Fraction;
 
     #[test]
     fn simple_match() {
@@ -130,6 +130,16 @@ mod tests {
         b.append_monomial(1, vec![0]);
 
         MultivariatePolynomial::<i64, usize>::gcd(&a, &b);
+    }
+
+    #[test]
+    fn gcd1() {
+        // gcd(x*y,2*x*y)
+        let mut a = MultivariatePolynomial::from_monomial(1, vec![1, 1]);
+
+        let mut b = MultivariatePolynomial::from_monomial(2, vec![1, 1]);
+
+        println!("{}", MultivariatePolynomial::gcd(&a, &b));
     }
 
 }

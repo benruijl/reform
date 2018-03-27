@@ -146,6 +146,17 @@ impl Div for FiniteField {
     }
 }
 
+impl Div<usize> for FiniteField {
+    type Output = Self;
+
+    fn div(self, other: usize) -> Self::Output {
+        FiniteField {
+            n: self.n * FiniteField::inverse(other % self.p, self.p) % self.p,
+            p: self.p,
+        }
+    }
+}
+
 impl Rem for FiniteField {
     type Output = Self;
 

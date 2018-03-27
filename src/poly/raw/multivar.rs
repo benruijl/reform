@@ -11,6 +11,7 @@ use poly::exponent::Exponent;
 use poly::ring::Ring;
 
 use poly::raw::finitefield::FiniteField;
+use poly::raw::fraction::Fraction;
 use poly::raw::gcd;
 use rand;
 
@@ -123,6 +124,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     }
 
     pub fn last_exponents(&self) -> &[E] {
+        assert!(self.nterms > 0);
         &self.exponents[(self.nterms - 1) * self.nvars..self.nterms * self.nvars]
     }
 
@@ -607,7 +609,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         let last = self.last_exponents();
 
         let mut res = MultivariatePolynomial::with_nvars(self.nvars);
-        for t in (0..self.nterms() - 1).rev() {
+        for t in (0..self.nterms()).rev() {
             if (0..self.nvars - 1).all(|i| self.exponents(t)[i] == last[i]) {
                 let mut e = vec![E::zero(); self.nvars];
                 e[self.nvars - 1] = self.exponents(t)[self.nvars - 1];
@@ -811,6 +813,9 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         a: &MultivariatePolynomial<R, E>,
         b: &MultivariatePolynomial<R, E>,
     ) -> MultivariatePolynomial<R, E> {
+        println!("univ {} {}", a, b);
+        assert!(!a.is_zero() && !b.is_zero());
+
         let mut c = a.clone();
         let mut d = b.clone();
         if a.ldegree() < b.ldegree() {

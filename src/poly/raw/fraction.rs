@@ -124,6 +124,19 @@ impl Div for Fraction {
     }
 }
 
+impl Div<usize> for Fraction {
+    type Output = Self;
+
+    fn div(self, other: usize) -> Self::Output {
+        let gcd = gcd(self.num, other as isize) as usize;
+
+        Fraction {
+            num: self.num / gcd as isize,
+            den: self.den * (other / gcd),
+        }
+    }
+}
+
 impl Rem for Fraction {
     type Output = Self;
 

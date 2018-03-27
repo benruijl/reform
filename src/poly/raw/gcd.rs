@@ -1,4 +1,4 @@
-use num_traits::{pow, Zero};
+use num_traits::{pow, One, Zero};
 
 use poly::exponent::Exponent;
 use poly::ring::Ring;
@@ -181,8 +181,15 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
         n: usize,         // number of active vars
         dx: &mut [usize], // degree bounds
     ) -> Option<MultivariatePolynomial<FiniteField, E>> {
-        // TODO: "If the gcd of the inputs has content in x n return Fail.""
-        // what do they mean? we don't know this gcd yet...
+        println!("modular! {} {} {}", a, b, n);
+        assert!(n > 1);
+
+        // the gcd of the content in the last variable should be 1
+        // FIXME: should be multivariate content....
+        /*let c = MultivariatePolynomial::univariate_content_gcd(a, b, n - 1);
+        if c.nterms > 1 || !c.coefficients[0].is_one() {
+            return None;
+        }*/
 
         let gamma = MultivariatePolynomial::univariate_gcd(&a.lcoeff_last(), &b.lcoeff_last());
 
@@ -339,7 +346,8 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             }
         }
 
-        MultivariatePolynomial::gcd_zippel(&smallest.0, &p)
+        println!("univ content {:?} {:?}", &smallest.0, &p);
+        MultivariatePolynomial::gcd(&smallest.0, &p)
     }
 
     /// Compute the gcd of two multivariate polynomials.
@@ -349,6 +357,36 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     ) -> MultivariatePolynomial<R, E> {
         assert_eq!(a.nvars, b.nvars);
 
+        // if we have two numbers, use the integer gcd
+        if a.nterms == 1 && a.exponents.iter().all(|c| c.is_zero()) {
+            if b.nterms == 1 && b.exponents.iter().all(|c| c.is_zero()) {
+                println!("yo {}", tools::gcd(a.coefficients[0], b.coefficients[0]));
+                return MultivariatePolynomial::from_constant_with_nvars(
+                    tools::gcd(a.coefficients[0], b.coefficients[0]),
+                    a.nvars,
+                );
+            }
+        }
+
+        // TODO: treat cases where some variables only occur in one polynomial
+
+        // check if we have a univariate polynomial
+        // FIXME: we should apply a modular gcd algorithm for this case too
+        /*
+        let mut scratch = vec![0i32; a.nvars];
+        for t in 0..a.nterms {
+            for (e, ee) in scratch.iter_mut().zip(a.exponents(t)) {
+                if !ee.is_zero() {
+                    *e = 1;
+                }
+            }
+        }
+
+        if scratch.iter().sum::<i32>() == 1 {
+            return MultivariatePolynomial::univariate_gcd(a, b);
+        }*/
+
+        println!("AA {} {}", a, b);
         // remove the gcd of the content in the first variable
         let c = MultivariatePolynomial::univariate_content_gcd(a, b, 0);
         let x1 = a.long_division(&c);
@@ -357,7 +395,9 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         assert!(x1.1.is_zero());
         assert!(x2.1.is_zero());
 
-        MultivariatePolynomial::gcd_zippel(&x1.0, &x1.1)
+        // TODO: convert coefficients to Z?
+
+        c * MultivariatePolynomial::gcd_zippel(&x1.0, &x2.0)
     }
 
     /// Compute the gcd of two multivariate polynomials using Zippel's algorithm.
@@ -366,7 +406,6 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         a: &MultivariatePolynomial<R, E>,
         b: &MultivariatePolynomial<R, E>,
     ) -> MultivariatePolynomial<R, E> {
-        let mut rng = rand::thread_rng();
         println!("INPUT {:?} {:?}", a, b);
 
         // TODO: get proper degree bounds on gcd. how?
@@ -399,7 +438,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
         'newfirstprime: loop {
             for _ in pi..primes.len() {
-                if gamma % primes[pi] != 0 {
+                if !(gamma % primes[pi]).is_zero() {
                     break;
                 }
                 pi += 1;
@@ -479,7 +518,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                 old_gm = gm.clone();
 
                 for _ in pi..primes.len() {
-                    if gamma % primes[pi] != 0 {
+                    if !(gamma % primes[pi]).is_zero() {
                         break;
                     }
                     pi += 1;
