@@ -137,6 +137,19 @@ impl Div<usize> for Fraction {
     }
 }
 
+impl Mul<usize> for Fraction {
+    type Output = Self;
+
+    fn mul(self, other: usize) -> Self::Output {
+        let gcd = gcd(self.den, other);
+
+        Fraction {
+            num: self.num * ((other / gcd) as isize),
+            den: self.den / gcd,
+        }
+    }
+}
+
 impl Rem for Fraction {
     type Output = Self;
 

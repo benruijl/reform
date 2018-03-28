@@ -670,41 +670,15 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
     /// Get the content of a multivariate polynomial viewed as a
     /// univariate polynomial in `x`.
-    /// TODO: reduce calls to gcd routine by taking one coefficient
-    /// and taking the gcd with the sum of all the other coefficients
     pub fn univariate_content(&self, x: usize) -> MultivariatePolynomial<R, E> {
-        if self.coefficients.is_empty() {
-            return MultivariatePolynomial::with_nvars(self.nvars);
+        let a = self.to_univariate_polynomial(x);
+
+        let mut f = vec![];
+        for &(ref c, _) in a.iter() {
+            f.push(c);
         }
 
-        // get maximum degree for variable x
-        let mut maxdeg = 0;
-        for t in 0..self.nterms {
-            let d = self.exponents(t)[x].as_();
-            if d > maxdeg {
-                maxdeg = d.clone();
-            }
-        }
-
-        // construct the coefficient per power of x
-        let mut result = None;
-        for d in 0..maxdeg + 1 {
-            let mut a = MultivariatePolynomial::with_nvars(self.nvars);
-            for t in 0..self.nterms {
-                if self.exponents(t)[x].as_() == d {
-                    let mut e = self.exponents(t).to_vec();
-                    e[x] = E::zero();
-                    a.append_monomial(self.coefficients[t].clone(), e);
-                }
-            }
-
-            result = match result {
-                Some(x) => Some(MultivariatePolynomial::gcd(&a, &x)),
-                None => Some(a),
-            };
-        }
-
-        result.unwrap()
+        MultivariatePolynomial::gcd_multiple(&mut f)
     }
 
     /// Create a univariate polynomial out of a multivariate one.
@@ -743,34 +717,28 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         result
     }
 
-    /// Get the content of a multivariate polynomial viewed as a
-    /// mutlivariate polynomial in all variables except `x`.
-    pub fn multivariate_content(&self, x: usize) -> MultivariatePolynomial<R, E> {
+    /// Split the polynomial as a polynomial in variables `xs`
+    pub fn to_multivariate_polynomial(&self, xs: &[usize]) -> HashMap<Vec<E>, MultivariatePolynomial<R, E>> {
         if self.coefficients.is_empty() {
-            return MultivariatePolynomial::with_nvars(self.nvars);
+            return HashMap::new();
         }
 
         let mut tm: HashMap<Vec<E>, MultivariatePolynomial<R, E>> = HashMap::new();
         for t in 0..self.nterms {
             let mut e = self.exponents(t).to_vec();
             let mut me = vec![E::zero(); self.nvars];
-            me[x] = e[x].clone();
-            e[x] = E::zero();
+
+            for x in xs {
+                me[*x] = e[*x].clone();
+                e[*x] = E::zero();
+            }            
 
             tm.entry(e)
                 .or_insert_with(|| MultivariatePolynomial::with_nvars(self.nvars))
                 .append_monomial(self.coefficients[t].clone(), me);
         }
 
-        let mut gcd = MultivariatePolynomial::from_monomial(
-            self.coefficients[0].clone(),
-            self.exponents(0).to_vec(),
-        );
-        for (_, tt) in tm {
-            gcd = MultivariatePolynomial::gcd(&gcd, &tt);
-        }
-
-        gcd
+        tm
     }
 
     /// Long division for univariate polynomial.
@@ -806,35 +774,5 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         }
 
         (q, r)
-    }
-
-    /// Compute the univariate GCD using Euclid's algorithm. The result is normalized to 1.
-    pub fn univariate_gcd(
-        a: &MultivariatePolynomial<R, E>,
-        b: &MultivariatePolynomial<R, E>,
-    ) -> MultivariatePolynomial<R, E> {
-        println!("univ {} {}", a, b);
-        assert!(!a.is_zero() && !b.is_zero());
-
-        let mut c = a.clone();
-        let mut d = b.clone();
-        if a.ldegree() < b.ldegree() {
-            mem::swap(&mut c, &mut d);
-        }
-
-        let mut r = c.long_division(&d).1;
-        while !r.is_zero() {
-            c = d;
-            d = r;
-            r = c.long_division(&d).1;
-        }
-
-        // normalize the gcd
-        let l = d.coefficients.last().unwrap().clone();
-        for x in &mut d.coefficients {
-            *x = x.clone() / l.clone();
-        }
-
-        d
     }
 }

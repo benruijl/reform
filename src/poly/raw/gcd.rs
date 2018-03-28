@@ -1,4 +1,5 @@
 use num_traits::{pow, One, Zero};
+use std::mem;
 
 use poly::exponent::Exponent;
 use poly::ring::Ring;
@@ -8,6 +9,7 @@ use poly::raw::finitefield::FiniteField;
 use rand;
 use rand::distributions::{Range, Sample};
 use tools;
+use std::collections::HashMap;
 
 enum GCDError {
     BadOriginalImage,
@@ -173,6 +175,35 @@ fn construct_new_image<R: Ring, E: Exponent>(
 }
 
 impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
+    /// Compute the univariate GCD using Euclid's algorithm. The result is normalized to 1.
+    fn univariate_gcd(
+        a: &MultivariatePolynomial<FiniteField, E>,
+        b: &MultivariatePolynomial<FiniteField, E>,
+    ) -> MultivariatePolynomial<FiniteField, E> {
+        assert!(!a.is_zero() && !b.is_zero());
+
+        let mut c = a.clone();
+        let mut d = b.clone();
+        if a.ldegree() < b.ldegree() {
+            mem::swap(&mut c, &mut d);
+        }
+
+        let mut r = c.long_division(&d).1;
+        while !r.is_zero() {
+            c = d;
+            d = r;
+            r = c.long_division(&d).1;
+        }
+
+        // normalize the gcd
+        let l = d.coefficients.last().unwrap().clone();
+        for x in &mut d.coefficients {
+            *x = x.clone() / l.clone();
+        }
+
+        d
+    }
+
     /// Compute the gcd shape of two polynomials in a finite field by filling in random
     /// numbers.
     fn gcd_shape_modular(
@@ -181,8 +212,13 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
         n: usize,         // number of active vars
         dx: &mut [usize], // degree bounds
     ) -> Option<MultivariatePolynomial<FiniteField, E>> {
-        println!("modular! {} {} {}", a, b, n);
-        assert!(n > 1);
+        println!("modular: {} {} {}", a, b, n);
+
+        // if we are in the univariate case, return the univariate gcd
+        // TODO: this is a modification of the algorithm!
+        if n == 1 {
+            return Some(MultivariatePolynomial::univariate_gcd(&a, &b));
+        }
 
         // the gcd of the content in the last variable should be 1
         // FIXME: should be multivariate content....
@@ -323,6 +359,46 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
 }
 
 impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
+    /// Compute the gcd of multiple polynomials efficiently.
+    /// `gcd(f0,f1,f2,...)=gcd(f0,f1+k2*f(2)+k3*f(3))`
+    /// with high likelihood.
+    pub fn gcd_multiple(
+        mut f: &mut Vec<&MultivariatePolynomial<R, E>>,
+    ) -> MultivariatePolynomial<R, E> {
+        assert!(f.len() > 0);
+
+        let mut a = f[0]; // TODO: take the smallest?
+        let mut b = MultivariatePolynomial::with_nvars(a.nvars);
+
+        let mut k = 1; // counter for scalar multiple
+
+        let mut gcd;
+        let mut newf : Vec<&MultivariatePolynomial<R, E>> = vec![];
+        loop {
+            for p in f.iter().skip(1) {
+                for v in p.into_iter() {
+                    b.append_monomial(v.coefficient.clone() * k, v.exponents.to_vec());
+                    k += 1;
+                }
+            }
+
+            gcd = MultivariatePolynomial::gcd(a, &b);
+
+            for x in f {
+                if !x.long_division(&gcd).1.is_zero() {
+                    newf.push(x);
+                }
+            }
+
+            if newf.len() == 0 {
+                return gcd;
+            }
+
+            newf.push(&mut gcd);
+            mem::swap(&mut newf, &mut f);
+        }
+    }
+
     /// Compute the gcd of the univariate content in `x`.
     pub fn univariate_content_gcd(
         a: &MultivariatePolynomial<R, E>,
@@ -332,22 +408,43 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         let af = a.to_univariate_polynomial(x);
         let bf = b.to_univariate_polynomial(x);
 
-        // find the smallest coefficient in a or b
-        let smallest = af.iter()
-            .chain(bf.iter())
-            .min_by_key(|x| x.0.nterms)
-            .unwrap();
-
-        // create a new polynomial that contains all the other terms
-        let mut p = MultivariatePolynomial::<R, E>::with_nvars(a.nvars);
+        let mut f = vec![];
         for &(ref c, _) in af.iter().chain(bf.iter()) {
-            for t in c.into_iter() {
-                p.append_monomial(t.coefficient.clone(), t.exponents.to_vec());
-            }
+            f.push(c);
         }
 
-        println!("univ content {:?} {:?}", &smallest.0, &p);
-        MultivariatePolynomial::gcd(&smallest.0, &p)
+        MultivariatePolynomial::gcd_multiple(&mut f)
+    }
+
+
+    /// Get the content of a multivariate polynomial viewed as a
+    /// multivariate polynomial in all variables except `x`.
+    pub fn multivariate_content_gcd(&self, x: usize) -> MultivariatePolynomial<R, E> {
+        if self.coefficients.is_empty() {
+            return MultivariatePolynomial::with_nvars(self.nvars);
+        }
+
+        let mut tm: HashMap<Vec<E>, MultivariatePolynomial<R, E>> = HashMap::new();
+        for t in 0..self.nterms {
+            let mut e = self.exponents(t).to_vec();
+            let mut me = vec![E::zero(); self.nvars];
+            me[x] = e[x].clone();
+            e[x] = E::zero();
+
+            tm.entry(e)
+                .or_insert_with(|| MultivariatePolynomial::with_nvars(self.nvars))
+                .append_monomial(self.coefficients[t].clone(), me);
+        }
+
+        let mut gcd = MultivariatePolynomial::from_monomial(
+            self.coefficients[0].clone(),
+            self.exponents(0).to_vec(),
+        );
+        for (_, tt) in tm {
+            gcd = MultivariatePolynomial::gcd(&gcd, &tt);
+        }
+
+        gcd
     }
 
     /// Compute the gcd of two multivariate polynomials.
@@ -368,12 +465,10 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             }
         }
 
-        // TODO: treat cases where some variables only occur in one polynomial
 
-        // check if we have a univariate polynomial
-        // FIXME: we should apply a modular gcd algorithm for this case too
-        /*
-        let mut scratch = vec![0i32; a.nvars];
+        // compute the gcd efficiently if some variables do not occur in both
+        // polynomials
+        /*let mut scratch = vec![0i32; a.nvars];
         for t in 0..a.nterms {
             for (e, ee) in scratch.iter_mut().zip(a.exponents(t)) {
                 if !ee.is_zero() {
@@ -460,6 +555,8 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                     break x;
                 }
             };
+
+            println!("GCD suggestion: {}", gp);
 
             bounds[0] = gp.last_exponents()[0].as_();
 

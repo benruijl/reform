@@ -157,6 +157,17 @@ impl Div<usize> for FiniteField {
     }
 }
 
+impl Mul<usize> for FiniteField {
+    type Output = Self;
+
+    fn mul(self, other: usize) -> Self::Output {
+        FiniteField {
+            n: self.n * (other % self.p) % self.p,
+            p: self.p,
+        }
+    }
+}
+
 impl Rem for FiniteField {
     type Output = Self;
 
