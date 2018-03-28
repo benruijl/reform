@@ -2,7 +2,11 @@ use num_traits::cast::AsPrimitive;
 use num_traits::{One, Pow, Zero};
 use poly::raw::finitefield::FiniteField;
 use std::fmt::{Debug, Display};
-use std::ops::{Div, Neg, Mul, Rem};
+use std::ops::{Div, Mul, Neg, Rem};
+
+pub trait MulNum {
+    fn mul_num(&self, n: usize) -> Self;
+}
 
 pub trait ToFiniteField {
     fn to_finite_field(&self, p: usize) -> FiniteField;
@@ -16,6 +20,7 @@ pub trait Ring:
     + One
     + Debug
     + Display
+    + MulNum
     + AsPrimitive<usize>
     + Pow<usize>
     + Neg<Output = Self>
@@ -33,6 +38,7 @@ impl<
             + One
             + Debug
             + Display
+            + MulNum
             + AsPrimitive<usize>
             + Pow<usize>
             + Neg<Output = Self>
@@ -56,5 +62,11 @@ impl ToFiniteField for i64 {
 
     fn from_finite_field(ff: &FiniteField) -> i64 {
         ff.n as i64
+    }
+}
+
+impl MulNum for i64 {
+    fn mul_num(&self, n: usize) -> i64 {
+        self * (n as i64)
     }
 }

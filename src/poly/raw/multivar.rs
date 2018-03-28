@@ -675,10 +675,10 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
         let mut f = vec![];
         for &(ref c, _) in a.iter() {
-            f.push(c);
+            f.push(c.clone());
         }
 
-        MultivariatePolynomial::gcd_multiple(&mut f)
+        MultivariatePolynomial::gcd_multiple(f)
     }
 
     /// Create a univariate polynomial out of a multivariate one.
@@ -717,8 +717,13 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         result
     }
 
-    /// Split the polynomial as a polynomial in variables `xs`
-    pub fn to_multivariate_polynomial(&self, xs: &[usize]) -> HashMap<Vec<E>, MultivariatePolynomial<R, E>> {
+    /// Split the polynomial as a polynomial in `xs` if include is true,
+    /// else excluding `xs`.
+    pub fn to_multivariate_polynomial(
+        &self,
+        xs: &[usize],
+        include: bool,
+    ) -> HashMap<Vec<E>, MultivariatePolynomial<R, E>> {
         if self.coefficients.is_empty() {
             return HashMap::new();
         }
@@ -731,11 +736,17 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             for x in xs {
                 me[*x] = e[*x].clone();
                 e[*x] = E::zero();
-            }            
+            }
 
-            tm.entry(e)
-                .or_insert_with(|| MultivariatePolynomial::with_nvars(self.nvars))
-                .append_monomial(self.coefficients[t].clone(), me);
+            if include {
+                tm.entry(me)
+                    .or_insert_with(|| MultivariatePolynomial::with_nvars(self.nvars))
+                    .append_monomial(self.coefficients[t].clone(), e);
+            } else {
+                tm.entry(e)
+                    .or_insert_with(|| MultivariatePolynomial::with_nvars(self.nvars))
+                    .append_monomial(self.coefficients[t].clone(), me);
+            }
         }
 
         tm
@@ -755,7 +766,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         let mut q = MultivariatePolynomial::with_nvars(self.nvars);
         let mut r = self.clone();
 
-        while !r.is_zero() && r.ldegree() >= div.ldegree() {
+        while !r.is_zero() && r.ldegree_max() >= div.ldegree_max() {
             let tc =
                 r.coefficients.last().unwrap().clone() / div.coefficients.last().unwrap().clone();
 

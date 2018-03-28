@@ -6,7 +6,7 @@ use tools::gcd;
 use num_traits::cast::AsPrimitive;
 
 use poly::raw::finitefield::FiniteField;
-use poly::ring::ToFiniteField;
+use poly::ring::{MulNum, ToFiniteField};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Fraction {
@@ -147,6 +147,12 @@ impl Mul<usize> for Fraction {
             num: self.num * ((other / gcd) as isize),
             den: self.den / gcd,
         }
+    }
+}
+
+impl MulNum for Fraction {
+    fn mul_num(&self, n: usize) -> Fraction {
+        self.clone() * n
     }
 }
 

@@ -1,6 +1,6 @@
 use num_traits::cast::AsPrimitive;
 use num_traits::{One, Pow, Zero};
-use poly::ring::ToFiniteField;
+use poly::ring::{MulNum, ToFiniteField};
 use std::fmt;
 use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 
@@ -165,6 +165,12 @@ impl Mul<usize> for FiniteField {
             n: self.n * (other % self.p) % self.p,
             p: self.p,
         }
+    }
+}
+
+impl MulNum for FiniteField {
+    fn mul_num(&self, n: usize) -> FiniteField {
+        self.clone() * n
     }
 }
 
