@@ -353,6 +353,19 @@ impl<R: Ring, E: Exponent> Zero for MultivariatePolynomial<R, E> {
     }
 }
 
+impl<R: Ring, E: Exponent> One for MultivariatePolynomial<R, E> {
+    #[inline]
+    fn one() -> Self {
+        MultivariatePolynomial::from_constant_with_nvars(R::one(), 0)
+    }
+
+    #[inline]
+    fn is_one(&self) -> bool {
+        self.nterms == 1 && self.coefficients[0].is_one()
+            && self.exponents.iter().all(|x| x.is_zero())
+    }
+}
+
 impl<R: Ring, E: Exponent> Add for MultivariatePolynomial<R, E> {
     type Output = Self;
 

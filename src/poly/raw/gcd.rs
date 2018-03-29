@@ -224,7 +224,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
 
         // the gcd of the content in the last variable should be 1
         let c = MultivariatePolynomial::multivariate_content_gcd(a, b, lastvar);
-        if c.nterms > 1 || !c.coefficients[0].is_one() {
+        if !c.is_one() {
             return None;
         }
 
@@ -504,7 +504,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         let c = MultivariatePolynomial::univariate_content_gcd(a, b, vars[0]);
         println!("GCD of content: {}", c);
 
-        if c.nterms > 1 || c.coefficients[0] != R::one() {
+        if !c.is_one() {
             let x1 = a.long_division(&c);
             let x2 = b.long_division(&c);
 

@@ -110,7 +110,7 @@ impl Sub for FiniteField {
 
 impl Zero for FiniteField {
     fn zero() -> Self {
-        FiniteField { n: 0, p: 1 }
+        FiniteField { n: 0, p: 2 }
     }
 
     fn is_zero(&self) -> bool {
@@ -120,7 +120,11 @@ impl Zero for FiniteField {
 
 impl One for FiniteField {
     fn one() -> FiniteField {
-        FiniteField { n: 1, p: 1 }
+        FiniteField { n: 1, p: 2 }
+    }
+
+    fn is_one(&self) -> bool {
+        self.n == 1
     }
 }
 

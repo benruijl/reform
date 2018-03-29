@@ -174,6 +174,16 @@ mod tests {
         assert_eq!(MultivariatePolynomial::<i64, usize>::gcd(&a, &b), b);
     }
 
+    #[test]
+    fn gcd5() {
+        // gcd(3*x*y,x*y)=x*y
+        let mut a = MultivariatePolynomial::from_monomial(3, vec![1, 1]);
+
+        let mut b = MultivariatePolynomial::from_monomial(1, vec![1, 1]);
+
+        assert_eq!(MultivariatePolynomial::<i64, usize>::gcd(&a, &b), b);
+    }
+
     /*#[test]
     fn gcd1() {
         // gcd(x*y,2*x*y)
