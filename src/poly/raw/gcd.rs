@@ -480,15 +480,15 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                 .filter_map(|(i, v)| if *v == 1 || *v == 3 { Some(i) } else { None })
                 .collect();
 
-            let mut a1 = a.to_multivariate_polynomial(&inca, true);
-
             let incb: Vec<_> = scratch
                 .iter()
                 .enumerate()
                 .filter_map(|(i, v)| if *v == 2 || *v == 3 { Some(i) } else { None })
                 .collect();
 
-            let mut b1 = b.to_multivariate_polynomial(&incb, true);
+            // extract the variables of b in the coefficient of a and vice versa
+            let mut a1 = a.to_multivariate_polynomial(&incb, false);
+            let mut b1 = b.to_multivariate_polynomial(&inca, false);
 
             let mut f = a1.values().cloned().chain(b1.values().cloned()).collect();
             return MultivariatePolynomial::gcd_multiple(f);
