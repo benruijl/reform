@@ -163,6 +163,8 @@ fn construct_new_image<R: Ring, E: Exponent>(
             }
         }
 
+        println!("Solve matrix {:?}", gfm);
+
         // solve for S and call the result gp
         let gp = MultivariatePolynomial::with_nvars(ap.nvars);
 
@@ -213,7 +215,6 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
         dx: &mut [usize], // degree bounds
     ) -> Option<MultivariatePolynomial<FiniteField, E>> {
         let lastvar = vars.last().unwrap().clone();
-        println!("modular: {} {}", a, b);
 
         // if we are in the univariate case, return the univariate gcd
         // TODO: this is a modification of the algorithm!
@@ -447,7 +448,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     ) -> MultivariatePolynomial<R, E> {
         assert_eq!(a.nvars, b.nvars);
 
-        println!("gcd {} {}", a, b);
+        println!("Compute gcd({}, {})", a, b);
 
         // if we have two numbers, use the integer gcd
         if a.nterms == 1 && a.exponents.iter().all(|c| c.is_zero()) {
@@ -499,7 +500,6 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             .filter_map(|(i, v)| if *v == 3 { Some(i) } else { None })
             .collect();
 
-        println!("AA {} {} {:?}", a, b, vars);
         // remove the gcd of the content in the first variable
         let c = MultivariatePolynomial::univariate_content_gcd(a, b, vars[0]);
         let x1 = a.long_division(&c);
@@ -520,7 +520,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         b: &MultivariatePolynomial<R, E>,
         v: &[usize], // variables
     ) -> MultivariatePolynomial<R, E> {
-        println!("INPUT {:?} {:?}", a, b);
+        println!("Compute modular gcd({},{})", a, b);
 
         // TODO: get proper degree bounds on gcd. how?
         // for now: take the lowest degree for each variable
@@ -551,11 +551,16 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         let mut pi = 0;
 
         'newfirstprime: loop {
+            pi += 1;
             for _ in pi..primes.len() {
                 if !(gamma % primes[pi]).is_zero() {
                     break;
                 }
                 pi += 1;
+            }
+
+            if pi == primes.len() {
+                panic!("Ran out of primes for gcd reconstruction");
             }
 
             let p = primes[pi];
@@ -564,7 +569,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             let ap = a.to_finite_field(p);
             let bp = b.to_finite_field(p);
 
-            println!("New prime {:?} {:?} {}", ap, bp, p);
+            println!("New first image: gcd({},{}) mod {}", ap, bp, p);
 
             // calculate modular gcd image
             let mut gp = loop {
@@ -632,6 +637,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
                 old_gm = gm.clone();
 
+                pi += 1;
                 for _ in pi..primes.len() {
                     if !(gamma % primes[pi]).is_zero() {
                         break;
@@ -639,11 +645,16 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                     pi += 1;
                 }
 
+                if pi == primes.len() {
+                    panic!("Ran out of primes for gcd images");
+                }
+
                 let p = primes[pi];
 
                 let gammap = FiniteField::new(gamma, p);
                 let ap = a.to_finite_field(p);
                 let bp = b.to_finite_field(p);
+                println!("New image: gcd({},{}) mod {}", ap, bp, p);
 
                 match construct_new_image(
                     &ap,
