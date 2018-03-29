@@ -370,9 +370,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     /// Compute the gcd of multiple polynomials efficiently.
     /// `gcd(f0,f1,f2,...)=gcd(f0,f1+k2*f(2)+k3*f(3))`
     /// with high likelihood.
-    pub fn gcd_multiple(
-        mut f: Vec<MultivariatePolynomial<R, E>>,
-    ) -> MultivariatePolynomial<R, E> {
+    pub fn gcd_multiple(mut f: Vec<MultivariatePolynomial<R, E>>) -> MultivariatePolynomial<R, E> {
         assert!(f.len() > 0);
 
         let mut a = f[0].clone(); // TODO: take the smallest?
@@ -518,7 +516,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     fn gcd_zippel(
         a: &MultivariatePolynomial<R, E>,
         b: &MultivariatePolynomial<R, E>,
-        v: &[usize], // variables
+        vars: &[usize], // variables
     ) -> MultivariatePolynomial<R, E> {
         println!("Compute modular gcd({},{})", a, b);
 
@@ -565,7 +563,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
             let p = primes[pi];
 
-            let gammap = FiniteField::new(gamma, p);
+            let mut gammap = FiniteField::new(gamma, p);
             let ap = a.to_finite_field(p);
             let bp = b.to_finite_field(p);
 
@@ -573,7 +571,8 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
             // calculate modular gcd image
             let mut gp = loop {
-                if let Some(x) = MultivariatePolynomial::gcd_shape_modular(&ap, &bp, v, &mut bounds)
+                if let Some(x) =
+                    MultivariatePolynomial::gcd_shape_modular(&ap, &bp, vars, &mut bounds)
                 {
                     break x;
                 }
@@ -616,18 +615,18 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
             // add new primes until we can reconstruct the full gcd
             'newprime: loop {
-                if gm == old_gm {
+                if gm == old_gm.to_finite_field(m) {
                     // divide by lcoeff and convert from finite field
                     let gmc = gm.lcoeff();
-                    let mut gc = MultivariatePolynomial::with_nvars(a.nvars);
+                    let mut gc = MultivariatePolynomial::with_nvars(gm.nvars);
                     gc.nterms = gm.nterms;
-                    gc.nvars = gm.nvars;
                     gc.exponents = gm.exponents.clone();
                     gc.coefficients = gm.coefficients
                         .iter()
                         .map(|x| R::from_finite_field(&(x.clone() / gmc.clone())))
                         .collect();
 
+                    println!("Final suggested gcd: {}", gc);
                     if a.long_division(&gc).1.is_zero() && b.long_division(&gc).1.is_zero() {
                         return gc;
                     }
@@ -651,43 +650,49 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
                 let p = primes[pi];
 
-                let gammap = FiniteField::new(gamma, p);
+                gammap = FiniteField::new(gamma, p);
                 let ap = a.to_finite_field(p);
                 let bp = b.to_finite_field(p);
                 println!("New image: gcd({},{}) mod {}", ap, bp, p);
 
-                match construct_new_image(
-                    &ap,
-                    &bp,
-                    a.ldegree(),
-                    b.ldegree(),
-                    &mut bounds,
-                    single_scale,
-                    nx,
-                    &gfu,
-                ) {
-                    Ok(r) => {
-                        gp = r;
-                        break;
+                // for the univariate case, we don't need to construct an image
+                if vars.len() == 1 {
+                    gp = MultivariatePolynomial::univariate_gcd(&ap, &bp);
+                } else {
+                    match construct_new_image(
+                        &ap,
+                        &bp,
+                        a.ldegree(),
+                        b.ldegree(),
+                        &mut bounds,
+                        single_scale,
+                        nx,
+                        &gfu,
+                    ) {
+                        Ok(r) => {
+                            gp = r;
+                        }
+                        Err(GCDError::BadOriginalImage) => continue 'newfirstprime,
+                        Err(GCDError::BadCurrentImage) => continue 'newprime,
                     }
-                    Err(GCDError::BadOriginalImage) => continue 'newfirstprime,
-                    Err(GCDError::BadCurrentImage) => continue 'newprime,
                 }
+
+                // scale the new image
+                let gpc = gp.content();
+                gp = gp * (gammap / gpc);
+                println!("gp: {}", gp);
+
+                // use chinese remainder theorem to merge coefficients
+                for (gmc, gpc) in gm.coefficients.iter_mut().zip(gp.coefficients) {
+                    *gmc = FiniteField::new(
+                        FiniteField::chinese_remainder(gmc.n, gpc.n, gmc.p, gpc.p),
+                        m * p,
+                    );
+                }
+
+                m = m * p;
+                println!("gm: {} mod {}", gm, m);
             }
-
-            // scale the new image
-            let gpc = gp.content();
-            gp = gp * (gammap / gpc);
-
-            // use chinese remainder theorem to merge coefficients
-            for (gmc, gpc) in gm.coefficients.iter_mut().zip(gp.coefficients) {
-                *gmc = FiniteField::new(
-                    FiniteField::chinese_remainder(gmc.n, gpc.n, gmc.p, gpc.p),
-                    m * p,
-                );
-            }
-
-            m = m * p;
         }
     }
 }
