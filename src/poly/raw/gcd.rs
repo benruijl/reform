@@ -372,6 +372,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     /// with high likelihood.
     pub fn gcd_multiple(mut f: Vec<MultivariatePolynomial<R, E>>) -> MultivariatePolynomial<R, E> {
         assert!(f.len() > 0);
+        println!("Multiple gcds of {:?}", f);
 
         let mut a = f[0].clone(); // TODO: take the smallest?
         let mut b = MultivariatePolynomial::with_nvars(a.nvars);
@@ -385,11 +386,12 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             for p in f.iter().skip(1) {
                 for v in p.into_iter() {
                     b.append_monomial(v.coefficient.mul_num(k), v.exponents.to_vec());
-                    k += 1;
                 }
+                k += 1;
             }
 
             gcd = MultivariatePolynomial::gcd(&a, &b);
+            println!("First gcd: {}", gcd);
 
             for x in &f {
                 if !x.long_division(&gcd).1.is_zero() {
@@ -492,7 +494,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             return MultivariatePolynomial::gcd_multiple(f);
         }
 
-        let vars: Vec<_> = scratch
+        let mut vars: Vec<_> = scratch
             .iter()
             .enumerate()
             .filter_map(|(i, v)| if *v == 3 { Some(i) } else { None })
@@ -500,15 +502,21 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
         // remove the gcd of the content in the first variable
         let c = MultivariatePolynomial::univariate_content_gcd(a, b, vars[0]);
-        let x1 = a.long_division(&c);
-        let x2 = b.long_division(&c);
+        println!("GCD of content: {}", c);
 
-        assert!(x1.1.is_zero());
-        assert!(x2.1.is_zero());
+        if c.nterms > 1 || c.coefficients[0] != R::one() {
+            let x1 = a.long_division(&c);
+            let x2 = b.long_division(&c);
+
+            assert!(x1.1.is_zero());
+            assert!(x2.1.is_zero());
+
+            return c * MultivariatePolynomial::gcd(&x1.0, &x2.0);
+        }
 
         // TODO: can the performance be improved by selecting a different lead
         // variable?
-        c * MultivariatePolynomial::gcd_zippel(&x1.0, &x2.0, &vars)
+        MultivariatePolynomial::gcd_zippel(a, b, &vars)
     }
 
     /// Compute the gcd of two multivariate polynomials using Zippel's algorithm.
