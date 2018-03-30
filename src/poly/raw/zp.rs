@@ -8,6 +8,8 @@ use num_traits::Unsigned;
 
 use poly::raw::overflowing::Overflowing;
 
+pub use poly::raw::zp_solve::{solve, LinearSolverError};
+
 /// Unsigned integer.
 pub trait UnsignedInteger: Integer + Unsigned + Overflowing + Clone + fmt::Display {}
 
