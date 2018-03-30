@@ -21,4 +21,5 @@ byteorder = "1.1.0"
 crossbeam = "0.3.2"
 num-integer = "0.1"
 num-traits = "0.2"
+ndarray = "0.11.0"
 cpuprofiler = { version = "0.0.3", optional = true }
