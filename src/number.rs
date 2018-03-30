@@ -4,7 +4,7 @@ use rug::{Integer, Rational};
 use std::cmp::Ordering;
 use std::fmt;
 use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub};
-use tools::gcdi;
+use tools::GCD;
 
 #[macro_export]
 macro_rules! DUMMY_NUM {
@@ -174,7 +174,7 @@ impl Add for Number {
                     None => Number::BigRat(Box::new(Rational::from(i1) + Rational::from((n2, d2)))),
                 }
             }
-            (SmallRat(n1, d1), SmallRat(n2, d2)) => match d2.checked_mul(d1 / gcdi(d1, d2)) {
+            (SmallRat(n1, d1), SmallRat(n2, d2)) => match d2.checked_mul(d1 / GCD::gcd(d1, d2)) {
                 Some(lcm) => match n2.checked_mul(lcm / d2) {
                     Some(num2) => match n1.checked_mul(lcm / d1) {
                         Some(num1) => match num1.checked_add(num2) {
@@ -241,7 +241,7 @@ impl Mul for Number {
                 BigInt(Integer::from(i1) * i2)
             }
             (SmallInt(i1), SmallRat(n2, mut d2)) | (SmallRat(n2, mut d2), SmallInt(i1)) => {
-                let gcd = gcdi(i1, d2);
+                let gcd = GCD::gcd(i1, d2);
                 d2 /= gcd;
 
                 match n2.checked_mul(i1 / gcd) {
@@ -261,8 +261,8 @@ impl Mul for Number {
                 }
             }
             (SmallRat(n1, d1), SmallRat(n2, d2)) => {
-                let gcd1 = gcdi(n1, d2);
-                let gcd2 = gcdi(n2, d1);
+                let gcd1 = GCD::gcd(n1, d2);
+                let gcd2 = GCD::gcd(n2, d1);
 
                 match (n2 / gcd2).checked_mul(n1 / gcd1) {
                     Some(nn) => match (d1 / gcd2).checked_mul(d2 / gcd1) {

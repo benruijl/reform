@@ -3,17 +3,14 @@ use std::collections::HashMap;
 use std::fmt;
 use std::mem;
 use std::ops::{Add, Mul, Neg, Sub};
-use tools::gcd;
+use tools::GCD;
 
-use num_traits::{Pow, One, Zero};
+use num_traits::{One, Zero};
 
 use poly::exponent::Exponent;
 use poly::ring::Ring;
 
 use poly::raw::finitefield::FiniteField;
-use poly::raw::fraction::Fraction;
-use poly::raw::gcd;
-use rand;
 
 /// Multivariate polynomial with a degree sparse and variable dense representation.
 #[derive(Clone)]
@@ -555,7 +552,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     }
 
     #[inline]
-    fn divexact_monomial(
+    fn _divexact_monomial(
         dividend_coefficient: &R,
         dividend_exponents: &[E],
         divisor_coefficient: &R,
@@ -676,22 +673,9 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         }
         let mut c = self.coefficients.first().unwrap().clone();
         for cc in self.coefficients.iter().skip(1) {
-            c = gcd(c, cc.clone());
+            c = GCD::gcd(c, cc.clone());
         }
         c
-    }
-
-    /// Get the content of a multivariate polynomial viewed as a
-    /// univariate polynomial in `x`.
-    pub fn univariate_content(&self, x: usize) -> MultivariatePolynomial<R, E> {
-        let a = self.to_univariate_polynomial(x);
-
-        let mut f = vec![];
-        for &(ref c, _) in a.iter() {
-            f.push(c.clone());
-        }
-
-        MultivariatePolynomial::gcd_multiple(f)
     }
 
     /// Create a univariate polynomial out of a multivariate one.

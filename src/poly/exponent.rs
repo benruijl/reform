@@ -1,6 +1,6 @@
 use std::ops::Sub;
 use num_traits::{CheckedAdd, One, Zero};
-use num_traits::cast::AsPrimitive;
+use num_traits::cast::{FromPrimitive, AsPrimitive};
 use std::hash::Hash;
 use std::fmt::{Debug, Display};
 
@@ -11,6 +11,7 @@ pub trait Exponent
     + Debug
     + Display
     + One
+    + FromPrimitive
     + AsPrimitive<usize>
     + CheckedAdd
     + Sub<Output = Self>
@@ -24,6 +25,7 @@ impl<
         + Debug
         + Display
         + One
+        + FromPrimitive
         + AsPrimitive<usize>
         + CheckedAdd
         + Sub<Output = Self>

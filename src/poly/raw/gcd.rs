@@ -1,4 +1,4 @@
-use num_traits::{Pow, One, Zero};
+use num_traits::{One, Pow, Zero};
 use std::mem;
 
 use poly::exponent::Exponent;
@@ -6,10 +6,14 @@ use poly::ring::Ring;
 
 use poly::raw::MultivariatePolynomial;
 use poly::raw::finitefield::FiniteField;
+use poly::ring::MulModNum;
+use poly::ring::ToFiniteField;
 use rand;
 use rand::distributions::{Range, Sample};
-use std::collections::HashMap;
-use tools;
+use tools::GCD;
+
+use ndarray::{Array, arr1};
+use poly::raw::zp_solve::{solve, LinearSolverError};
 
 enum GCDError {
     BadOriginalImage,
@@ -47,14 +51,14 @@ fn newton_interpolation<E: Exponent>(
     e[x] = E::one();
     let xp = MultivariatePolynomial::from_monomial(FiniteField::new(1, p), e);
     let mut u = v[v.len() - 1].clone();
-    for k in (0..v.len()).rev() {
+    for k in (0..v.len() - 1).rev() {
         u = u * (xp.clone() - MultivariatePolynomial::from_constant_with_nvars(a[k], xp.nvars))
             + v[k].clone();
     }
     u
 }
 
-fn construct_new_image<R: Ring, E: Exponent>(
+fn construct_new_image<E: Exponent>(
     ap: &MultivariatePolynomial<FiniteField, E>,
     bp: &MultivariatePolynomial<FiniteField, E>,
     aldegree: E,
@@ -62,20 +66,22 @@ fn construct_new_image<R: Ring, E: Exponent>(
     bounds: &mut [usize],
     single_scale: Option<usize>,
     nx: usize,
-    gfu: &[(MultivariatePolynomial<R, E>, usize)],
+    vars: &[usize],
+    var: usize,
+    gfu: &[(MultivariatePolynomial<FiniteField, E>, usize)],
 ) -> Result<MultivariatePolynomial<FiniteField, E>, GCDError> {
     let p = ap.coefficients[0].p;
     let mut rng = rand::thread_rng();
     let mut range = Range::new(1, p);
 
-    let mut S = vec![]; // coefficients for the linear system
+    let mut system = vec![]; // coefficients for the linear system
     let mut ni = 0;
     let mut failure_count = 0;
     'newimage: loop {
         // generate random numbers for all non-leading variables
         let (r, a1, b1) = loop {
-            let r: Vec<(usize, FiniteField)> = (1..ap.nvars)
-                .map(|i| (i, FiniteField::new(range.sample(&mut rng), p)))
+            let r: Vec<(usize, FiniteField)> = vars.iter()
+                .map(|i| (i.clone(), FiniteField::new(range.sample(&mut rng), p)))
                 .collect();
 
             let a1 = ap.replace_multiple(&r);
@@ -87,13 +93,13 @@ fn construct_new_image<R: Ring, E: Exponent>(
         };
 
         let g1 = MultivariatePolynomial::univariate_gcd(&a1, &b1);
+        println!("GCD of sample at point {:?}: {}", r, g1);
 
         if g1.ldegree().as_() < bounds[0] {
             // original image and form and degree bounds are unlucky
             // change the bound and try a new prime
             bounds[0] = g1.ldegree().as_();
             return Err(GCDError::BadOriginalImage);
-            //continue 'newfirstprime;
         }
 
         if g1.ldegree().as_() > bounds[0] {
@@ -102,20 +108,38 @@ fn construct_new_image<R: Ring, E: Exponent>(
             if failure_count > 2 || failure_count > ni {
                 // p is likely unlucky
                 return Err(GCDError::BadCurrentImage);
-                //continue 'newprime;
             }
             continue;
         }
 
         // check if the single scaling is there, if we had a single scale
-        if let Some(d) = single_scale {
-            if !(0..g1.nterms).any(|i| g1.exponents(i)[0].as_() == d) {
+        let mut scale_factor = FiniteField::new(1, p);
+        if let Some(scaling_index) = single_scale {
+            // construct the scaling coefficient
+            let mut coeff = FiniteField::new(1, p);
+            let (ref c, ref d) = gfu[scaling_index];
+            for &(n, v) in r.iter() {
+                coeff = coeff * v.clone().pow(c.exponents(0)[n].as_());
+            }
+
+            let mut found = false;
+            for t in 0..g1.nterms {
+                // g1 is univariate, so we can compare the maximum degree
+                if g1.exponents(t).iter().max().unwrap().as_() == *d {
+                    scale_factor = coeff / g1.coefficients[0];
+                    println!("Single scale factor: {}", scale_factor);
+                    found = true;
+                    break;
+                }
+            }
+
+            if !found {
                 // the scaling term is missing, so the assumed form is wrong
                 return Err(GCDError::BadOriginalImage);
             }
         }
 
-        S.push((r, g1));
+        system.push((r, g1, scale_factor));
         ni += 1;
 
         // make sure we have at least nx images
@@ -123,11 +147,13 @@ fn construct_new_image<R: Ring, E: Exponent>(
             continue 'newimage;
         }
 
+        println!("GFU {:?}", gfu);
+
         // construct the linear system
         let mut gfm = vec![];
 
-        for (i, &(ref c, ref e)) in gfu.iter().enumerate() {
-            for (j, &(ref r, ref g)) in S.iter().enumerate() {
+        for (i, &(ref c, ref _e)) in gfu.iter().enumerate() {
+            for (j, &(ref r, ref g, ref scale_factor)) in system.iter().enumerate() {
                 let mut row = vec![];
 
                 assert_eq!(g.nterms, gfu.len());
@@ -144,35 +170,91 @@ fn construct_new_image<R: Ring, E: Exponent>(
                             row.push(coeff.n);
                         }
                     } else {
-                        for t in 0..c.nterms {
+                        for _ in 0..gfu[ii].0.nterms {
                             row.push(0);
                         }
                     }
                 }
 
                 // add the coefficient from the image
-                for ii in 0..g.nterms {
-                    if ii == i {
-                        row.push(g.coefficients[i].n);
+                for ii in 0..system.len() {
+                    if ii == j {
+                        // TODO: is i always the correct coefficient index?
+
+                        // for the single scaling case, we scale the images in the matrix
+                        // we also add rows (later) to the matrix that force all scaling constants
+                        // to 1.
+                        row.push((g.coefficients[i] * scale_factor.clone()).n);
                     } else {
                         row.push(0);
                     }
                 }
 
-                gfm.push(row);
+                println!("{:?} {}", row, c);
+                gfm.extend(row);
             }
         }
 
-        println!("Solve matrix {:?}", gfm);
+        let rows = gfu.len() * system.len();
+        let cols = gfm.len() / rows;
+        let mut newrows = rows;
 
-        // solve for S and call the result gp
-        let gp = MultivariatePolynomial::with_nvars(ap.nvars);
+        // add constraint row to set the first scaling coefficient to 1
+        // or all of them, in case of single scaling
+        let onecount = if single_scale == None {
+            newrows += 1;
+            1
+        } else {
+            newrows += system.len();
+            system.len()
+        };
 
-        // if inconsistent: return Err(GCDError::BadOriginalImage);
-        // underdetermined and same degree 3 times? bad prime: return Err(GCDError::BadCurrentImage);
-        // else: more images: continue 'newimage
+        println!("gfm {:?} {:?} {} {}", gfm, system, rows, cols);
 
-        return Ok(gp);
+        let mut rhs = vec![0; newrows];
+        for i in 0..onecount {
+            let mut con = vec![0; cols];
+            con[cols - system.len() + i] = 1;
+
+            rhs[rows + i] = 1;
+            gfm.extend(con);
+        }
+
+        let m = Array::from_shape_vec((newrows, cols), gfm).unwrap();
+
+        println!("Solve matrix {:?}={:?}", m, rhs);
+
+        match solve(&m, &arr1(&rhs), p) {
+            Ok(x) => {
+                println!("Solution: {:?}", x);
+                // construct the gcd
+                let mut gp = MultivariatePolynomial::with_nvars(ap.nvars);
+
+                // for every power of the main variable
+                let mut i = 0; // index in the result x
+                for &(ref c, ref ex) in gfu.iter() {
+                    for mv in c.into_iter() {
+                        let mut ee = mv.exponents.to_vec();
+                        ee[var] = E::from_usize(ex.clone()).unwrap();
+
+                        gp.append_monomial(FiniteField::new(x[i].clone(), p), ee);
+                        i += 1;
+                    }
+                }
+
+                println!("Reconstructed {}", gp);
+                return Ok(gp);
+            }
+            Err(LinearSolverError::Underdetermined) => {
+                println!("Underdetermined system");
+                //TODO: same degree 3 times? bad prime: return Err(GCDError::BadCurrentImage);
+                // else, get more images
+            }
+            Err(LinearSolverError::Inconsistent) => {
+                println!("Inconsistent system");
+                return Err(GCDError::BadOriginalImage);
+            }
+        }
     }
 }
 
@@ -223,12 +305,11 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
         }
 
         // the gcd of the content in the last variable should be 1
-        // FIXME: the content is computed in Z instead of Z_p.
-        // create a dedicated function?
-        /*let c = MultivariatePolynomial::multivariate_content_gcd(a, b, lastvar);
+        let c = MultivariatePolynomial::multivariate_content_gcd(a, b, lastvar);
         if !c.is_one() {
+            println!("Content in last variable is not 1, but {}!", c);
             return None;
-        }*/
+        }
 
         let gamma = MultivariatePolynomial::univariate_gcd(&a.lcoeff_last(), &b.lcoeff_last());
 
@@ -267,22 +348,23 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                 gg
             };
 
-            // construct a new assumed form
-            // we have to find the proper normalization
-            let mut gf = gv.clone();
+            println!(
+                "GCD shape suggestion for sample point {} and gamma {}: {}",
+                v, gamma, gv
+            );
 
-            // construct the univariate polynomial
-            let gfu = gf.to_univariate_polynomial(0);
+            // construct a new assumed form
+            let gfu = gv.to_univariate_polynomial(vars[0]);
 
             // find a coefficient of x1 in gg that is a monomial (single scaling)
             let mut single_scale = None;
             let mut nx = 0; // count the minimal number of samples needed
-            for &(ref c, ref e) in &gfu {
+            for (i, &(ref c, ref _e)) in gfu.iter().enumerate() {
                 if c.nterms > nx {
                     nx = c.nterms;
                 }
                 if c.nterms == 1 {
-                    single_scale = Some(e.clone());
+                    single_scale = Some(i);
                 }
             }
 
@@ -294,7 +376,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
 
             let mut lc = gv.lcoeff();
             let mut gseq = vec![
-                gv * (gamma.replace(vars[0], v).coefficients[0].clone() / lc),
+                gv * (gamma.replace(lastvar, v).coefficients[0].clone() / lc),
             ];
             let mut vseq = vec![v];
 
@@ -307,6 +389,8 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                     }
                 };
 
+                println!("Choose sample point {}", v);
+
                 let av = a.replace(lastvar, v);
                 let bv = b.replace(lastvar, v);
 
@@ -318,6 +402,8 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                     dx,
                     single_scale,
                     nx,
+                    &vars[1..vars.len() - 1],
+                    vars[0],
                     &gfu,
                 ) {
                     Ok(r) => {
@@ -338,6 +424,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
 
             // use interpolation to construct x_n dependence
             let mut gc = newton_interpolation(&vseq, &gseq, p, lastvar);
+            println!("Interpolated: {} from {:?} -- {:?}", gc, vseq, gseq);
 
             // remove content in x_n
             let cont = gc.univariate_content(lastvar);
@@ -369,19 +456,42 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
     }
 }
 
-impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
+impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E>
+where
+    MultivariatePolynomial<R, E>: PolynomialGCD,
+{
+    /// Get the content of a multivariate polynomial viewed as a
+    /// univariate polynomial in `x`.
+    pub fn univariate_content(&self, x: usize) -> MultivariatePolynomial<R, E> {
+        let a = self.to_univariate_polynomial(x);
+
+        let mut f = vec![];
+        for &(ref c, _) in a.iter() {
+            f.push(c.clone());
+        }
+
+        MultivariatePolynomial::gcd_multiple(f)
+    }
+
     /// Compute the gcd of multiple polynomials efficiently.
     /// `gcd(f0,f1,f2,...)=gcd(f0,f1+k2*f(2)+k3*f(3))`
     /// with high likelihood.
-    pub fn gcd_multiple(mut f: Vec<MultivariatePolynomial<R, E>>) -> MultivariatePolynomial<R, E> {
+    pub fn gcd_multiple(mut f: Vec<MultivariatePolynomial<R, E>>) -> MultivariatePolynomial<R, E>
+    where
+        MultivariatePolynomial<R, E>: PolynomialGCD,
+    {
         assert!(f.len() > 0);
         println!("Multiple gcds of {:?}", f);
+
+        if f.len() == 1 {
+            return f[0].clone();
+        }
 
         let mut k = 1; // counter for scalar multiple
         let mut gcd;
 
         loop {
-            let mut a = f[0].clone(); // TODO: take the smallest?
+            let a = f[0].clone(); // TODO: take the smallest?
             let mut b = MultivariatePolynomial::with_nvars(a.nvars);
 
             for p in f.iter().skip(1) {
@@ -437,7 +547,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         let bf = b.to_multivariate_polynomial(&[x], false);
 
         // TODO: drain?
-        let mut f = af.values().cloned().chain(bf.values().cloned()).collect();
+        let f = af.values().cloned().chain(bf.values().cloned()).collect();
 
         MultivariatePolynomial::gcd_multiple(f)
     }
@@ -455,7 +565,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         if a.nterms == 1 && a.exponents.iter().all(|c| c.is_zero()) {
             if b.nterms == 1 && b.exponents.iter().all(|c| c.is_zero()) {
                 return MultivariatePolynomial::from_constant_with_nvars(
-                    tools::gcd(a.coefficients[0], b.coefficients[0]),
+                    GCD::gcd(a.coefficients[0], b.coefficients[0]),
                     a.nvars,
                 );
             }
@@ -488,14 +598,14 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                 .collect();
 
             // extract the variables of b in the coefficient of a and vice versa
-            let mut a1 = a.to_multivariate_polynomial(&incb, false);
-            let mut b1 = b.to_multivariate_polynomial(&inca, false);
+            let a1 = a.to_multivariate_polynomial(&incb, false);
+            let b1 = b.to_multivariate_polynomial(&inca, false);
 
-            let mut f = a1.values().cloned().chain(b1.values().cloned()).collect();
+            let f = a1.values().cloned().chain(b1.values().cloned()).collect();
             return MultivariatePolynomial::gcd_multiple(f);
         }
 
-        let mut vars: Vec<_> = scratch
+        let vars: Vec<_> = scratch
             .iter()
             .enumerate()
             .filter_map(|(i, v)| if *v == 3 { Some(i) } else { None })
@@ -515,20 +625,6 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             return c * MultivariatePolynomial::gcd(&x1.0, &x2.0);
         }
 
-        // TODO: can the performance be improved by selecting a different lead
-        // variable?
-        MultivariatePolynomial::gcd_zippel(a, b, &vars)
-    }
-
-    /// Compute the gcd of two multivariate polynomials using Zippel's algorithm.
-    /// TODO: provide a parallel implementation?
-    fn gcd_zippel(
-        a: &MultivariatePolynomial<R, E>,
-        b: &MultivariatePolynomial<R, E>,
-        vars: &[usize], // variables
-    ) -> MultivariatePolynomial<R, E> {
-        println!("Compute modular gcd({},{})", a, b);
-
         // TODO: get proper degree bounds on gcd. how?
         // for now: take the lowest degree for each variable
         let mut bounds: Vec<usize> = (0..a.nvars)
@@ -543,8 +639,27 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             })
             .collect();
 
+        // TODO: can the performance be improved by selecting a different lead
+        // variable?
+        PolynomialGCD::gcd(a, b, &vars, &mut bounds)
+    }
+}
+
+impl<E: Exponent> MultivariatePolynomial<i64, E> {
+    /// Compute the gcd of two multivariate polynomials using Zippel's algorithm.
+    /// TODO: provide a parallel implementation?
+    fn gcd_zippel(
+        a: &MultivariatePolynomial<i64, E>,
+        b: &MultivariatePolynomial<i64, E>,
+        vars: &[usize], // variables
+        bounds: &mut [usize],
+    ) -> MultivariatePolynomial<i64, E> {
+        println!("Compute modular gcd({},{})", a, b);
+
         // compute scaling factor in Z
-        let gamma = tools::gcd(a.lcoeff(), b.lcoeff()).as_();
+        println!("gamma comp {} {}", a.lcoeff(), b.lcoeff());
+        let gamma = GCD::gcd(a.lcoeff(), b.lcoeff());
+        println!("gamma {}", gamma);
 
         let primes = [
             4254797, 4255213, 4255609, 4256009, 4254799, 4255249, 4255619, 4256029, 4254821,
@@ -560,7 +675,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         'newfirstprime: loop {
             pi += 1;
             for _ in pi..primes.len() {
-                if !(gamma % primes[pi]).is_zero() {
+                if !(gamma.mod_num(primes[pi])).is_zero() {
                     break;
                 }
                 pi += 1;
@@ -570,9 +685,9 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                 panic!("Ran out of primes for gcd reconstruction");
             }
 
-            let p = primes[pi];
+            let mut p = primes[pi];
 
-            let mut gammap = FiniteField::new(gamma, p);
+            let mut gammap = gamma.to_finite_field(p);
             let ap = a.to_finite_field(p);
             let bp = b.to_finite_field(p);
 
@@ -580,33 +695,28 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
             // calculate modular gcd image
             let mut gp = loop {
-                if let Some(x) =
-                    MultivariatePolynomial::gcd_shape_modular(&ap, &bp, vars, &mut bounds)
-                {
+                if let Some(x) = MultivariatePolynomial::gcd_shape_modular(&ap, &bp, vars, bounds) {
                     break x;
                 }
             };
 
             println!("GCD suggestion: {}", gp);
 
-            bounds[0] = gp.last_exponents()[0].as_();
+            bounds[vars[0]] = gp.last_exponents()[vars[0]].as_();
 
             // construct a new assumed form
             // we have to find the proper normalization
-            let mut gf = gp.clone();
-
-            // construct the univariate polynomial
-            let gfu = gf.to_univariate_polynomial(0);
+            let gfu = gp.to_univariate_polynomial(vars[0]);
 
             // find a coefficient of x1 in gf that is a monomial (single scaling)
             let mut single_scale = None;
             let mut nx = 0; // count the minimal number of samples needed
-            for &(ref c, ref e) in &gfu {
+            for (i, &(ref c, ref _e)) in gfu.iter().enumerate() {
                 if c.nterms > nx {
                     nx = c.nterms;
                 }
                 if c.nterms == 1 {
-                    single_scale = Some(e.clone());
+                    single_scale = Some(i);
                 }
             }
 
@@ -620,7 +730,9 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             let mut gm = gp * (gammap / gpc);
             let mut m = p; // used for CRT
 
-            let mut old_gm = MultivariatePolynomial::with_nvars(a.nvars);
+            println!("GCD suggestion with gamma: {}", gm);
+
+            let mut old_gm = MultivariatePolynomial::<FiniteField, E>::with_nvars(a.nvars);
 
             // add new primes until we can reconstruct the full gcd
             'newprime: loop {
@@ -632,7 +744,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                     gc.exponents = gm.exponents.clone();
                     gc.coefficients = gm.coefficients
                         .iter()
-                        .map(|x| R::from_finite_field(&(x.clone() / gmc.clone())))
+                        .map(|x| i64::from_finite_field(&(x.clone() / gmc.clone())))
                         .collect();
 
                     println!("Final suggested gcd: {}", gc);
@@ -647,7 +759,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
                 pi += 1;
                 for _ in pi..primes.len() {
-                    if !(gamma % primes[pi]).is_zero() {
+                    if !(gamma.mod_num(primes[pi])).is_zero() {
                         break;
                     }
                     pi += 1;
@@ -657,9 +769,9 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                     panic!("Ran out of primes for gcd images");
                 }
 
-                let p = primes[pi];
+                p = primes[pi];
 
-                gammap = FiniteField::new(gamma, p);
+                gammap = gamma.to_finite_field(p);
                 let ap = a.to_finite_field(p);
                 let bp = b.to_finite_field(p);
                 println!("New image: gcd({},{}) mod {}", ap, bp, p);
@@ -673,9 +785,11 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                         &bp,
                         a.ldegree(),
                         b.ldegree(),
-                        &mut bounds,
+                        bounds,
                         single_scale,
                         nx,
+                        &vars[1..],
+                        vars[0],
                         &gfu,
                     ) {
                         Ok(r) => {
@@ -687,7 +801,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                 }
 
                 // scale the new image
-                let gpc = gp.content();
+                let gpc = gp.lcoeff();
                 gp = gp * (gammap / gpc);
                 println!("gp: {}", gp);
 
@@ -703,5 +817,31 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                 println!("gm: {} mod {}", gm, m);
             }
         }
+    }
+}
+
+pub trait PolynomialGCD: Sized {
+    fn gcd(a: &Self, b: &Self, vars: &[usize], dx: &mut [usize]) -> Self;
+}
+
+impl<E: Exponent> PolynomialGCD for MultivariatePolynomial<i64, E> {
+    fn gcd(
+        a: &MultivariatePolynomial<i64, E>,
+        b: &MultivariatePolynomial<i64, E>,
+        vars: &[usize],
+        dx: &mut [usize],
+    ) -> MultivariatePolynomial<i64, E> {
+        MultivariatePolynomial::gcd_zippel(&a, &b, vars, dx)
+    }
+}
+
+impl<E: Exponent> PolynomialGCD for MultivariatePolynomial<FiniteField, E> {
+    fn gcd(
+        a: &MultivariatePolynomial<FiniteField, E>,
+        b: &MultivariatePolynomial<FiniteField, E>,
+        vars: &[usize],
+        dx: &mut [usize],
+    ) -> MultivariatePolynomial<FiniteField, E> {
+        MultivariatePolynomial::gcd_shape_modular(&a, &b, vars, dx).unwrap()
     }
 }

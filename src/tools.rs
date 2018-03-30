@@ -1,9 +1,9 @@
-use num_traits::One;
+use num_traits::{Signed, Zero, One};
 use number::Number;
 use std::cmp::Ordering;
 use structure::{Element, NumOrder};
+use num_traits::sign::abs;
 use std::ops::Rem;
-use num_traits::Zero;
 
 // a SliceRef has either a borrowed slice,
 // or a vector of borrowed arguments.
@@ -88,8 +88,11 @@ impl<T> Heap<T> {
     }
 }
 
-// TODO: use num package?
-pub fn gcd<T: Copy + Zero + Rem<Output = T> + PartialEq>(mut a: T, mut b: T) -> T {
+pub trait GCD {
+    fn gcd(a: Self, b: Self) -> Self;
+}
+
+pub fn gcd_unsigned<T: Copy + Zero + Rem<Output = T> + PartialEq>(mut a: T, mut b: T) -> T {
     let mut c;
     while !a.is_zero() {
         c = a;
@@ -99,23 +102,44 @@ pub fn gcd<T: Copy + Zero + Rem<Output = T> + PartialEq>(mut a: T, mut b: T) -> 
     b
 }
 
-pub fn gcdi(mut a: isize, mut b: isize) -> isize {
-    let mut c;
-    while a != 0 {
-        c = a;
-        a = b % a;
-        b = c;
+pub fn gcd_signed<T: Copy + Signed + Zero + Rem<Output = T> + PartialEq>(a: T, b: T) -> T {
+    abs(gcd_unsigned(a, b))
+}
+
+impl GCD for u64 {
+    fn gcd(a: u64, b: u64) -> u64 {
+        gcd_unsigned(a, b)
     }
-    b.abs()
+}
+
+impl GCD for usize {
+    fn gcd(a: usize, b: usize) -> usize {
+        gcd_unsigned(a, b)
+    }
+}
+
+impl GCD for isize {
+    fn gcd(a: isize, b: isize) -> isize {
+        gcd_signed(a, b)
+    }
+}
+
+impl GCD for i32 {
+    fn gcd(a: i32, b: i32) -> i32 {
+        gcd_signed(a, b)
+    }
+}
+
+impl GCD for i64 {
+    fn gcd(a: i64, b: i64) -> i64 {
+        gcd_signed(a, b)
+    }
 }
 
 pub fn lcm(a: u64, b: u64) -> u64 {
-    (a / gcd(a, b)) * b
+    (a / GCD::gcd(a, b)) * b
 }
 
-pub fn lcmi(a: isize, b: isize) -> isize {
-    (a / gcdi(a, b)) * b
-}
 
 pub fn normalize_fraction(pos: &mut bool, num: &mut u64, den: &mut u64) {
     if *num == 0 {
@@ -126,7 +150,7 @@ pub fn normalize_fraction(pos: &mut bool, num: &mut u64, den: &mut u64) {
         panic!("Division by 0 in fraction: {}/0", *num);
     }
 
-    let gcd = gcd(*num, *den);
+    let gcd = GCD::gcd(*num, *den);
     *num /= gcd;
     *den /= gcd;
 }
@@ -142,12 +166,12 @@ pub fn mul_fractions(
 ) {
     *pos = (*pos & pos1) || (!*pos && !pos1); // xnor
                                               // gcd(num,den) is always 1
-    let gcd0 = gcd(num1, den1);
+    let gcd0 = GCD::gcd(num1, den1);
     num1 /= gcd0;
     den1 /= gcd0;
 
-    let gcd1 = gcd(*num, den1);
-    let gcd2 = gcd(num1, *den);
+    let gcd1 = GCD::gcd(*num, den1);
+    let gcd2 = GCD::gcd(num1, *den);
     *num = (*num / gcd1) * (num1 / gcd2);
     *den = (*den / gcd2) * (den1 / gcd1);
 }

@@ -1,8 +1,9 @@
 use num_traits::cast::AsPrimitive;
 use num_traits::{One, Pow, Zero};
-use poly::ring::{MulNum, ToFiniteField};
+use poly::ring::{MulModNum, ToFiniteField};
 use std::fmt;
 use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
+use tools::{GCD};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct FiniteField {
@@ -51,6 +52,10 @@ impl FiniteField {
     /// Use Garner's algorithm for the Chinese remainder theorem
     /// to reconstruct an x that satisfies n1 = x % p1 and n2 = x % p2
     pub fn chinese_remainder(n1: usize, n2: usize, p1: usize, p2: usize) -> usize {
+        if n1 > n2 {
+            return FiniteField::chinese_remainder(n2, n1, p2, p1);
+        }
+
         let gamma1 = FiniteField::inverse(p1 % p2, p2);
 
         // convert to mixed-radix notation
@@ -99,7 +104,7 @@ impl Sub for FiniteField {
 
         FiniteField {
             n: if self.n >= other.n {
-                (self.n + other.n) % self.p
+                (self.n - other.n) % self.p
             } else {
                 (self.n + self.p - other.n) % self.p
             },
@@ -172,9 +177,13 @@ impl Mul<usize> for FiniteField {
     }
 }
 
-impl MulNum for FiniteField {
+impl MulModNum for FiniteField {
     fn mul_num(&self, n: usize) -> FiniteField {
         self.clone() * n
+    }
+
+    fn mod_num(&self, n: usize) -> FiniteField {
+        self.clone() % FiniteField::new(n, self.p)
     }
 }
 
@@ -211,5 +220,16 @@ impl ToFiniteField for FiniteField {
 impl AsPrimitive<usize> for FiniteField {
     fn as_(self) -> usize {
         self.n
+    }
+}
+
+impl GCD for FiniteField {
+    fn gcd(a: FiniteField, b: FiniteField) -> FiniteField {
+        assert_eq!(a.p, b.p);
+        if a == b {
+            a
+        } else {
+            FiniteField::new(1, a.p)
+        }
     }
 }
