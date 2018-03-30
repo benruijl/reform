@@ -11,6 +11,9 @@ use rand::distributions::{Range, Sample};
 use std::collections::HashMap;
 use tools;
 
+use poly::raw::zp_solve::{solve, LinearSolverError};
+use ndarray::{Array, arr1};
+
 enum GCDError {
     BadOriginalImage,
     BadCurrentImage,
@@ -62,6 +65,7 @@ fn construct_new_image<R: Ring, E: Exponent>(
     bounds: &mut [usize],
     single_scale: Option<usize>,
     nx: usize,
+    var: usize,
     gfu: &[(MultivariatePolynomial<R, E>, usize)],
 ) -> Result<MultivariatePolynomial<FiniteField, E>, GCDError> {
     let p = ap.coefficients[0].p;
@@ -93,7 +97,6 @@ fn construct_new_image<R: Ring, E: Exponent>(
             // change the bound and try a new prime
             bounds[0] = g1.ldegree().as_();
             return Err(GCDError::BadOriginalImage);
-            //continue 'newfirstprime;
         }
 
         if g1.ldegree().as_() > bounds[0] {
@@ -102,7 +105,6 @@ fn construct_new_image<R: Ring, E: Exponent>(
             if failure_count > 2 || failure_count > ni {
                 // p is likely unlucky
                 return Err(GCDError::BadCurrentImage);
-                //continue 'newprime;
             }
             continue;
         }
@@ -159,20 +161,47 @@ fn construct_new_image<R: Ring, E: Exponent>(
                     }
                 }
 
-                gfm.push(row);
+                gfm.extend(row);
             }
         }
 
-        println!("Solve matrix {:?}", gfm);
+        let rows = gfu.len() * S.len();
+        let cols = gfm.len() / rows;
 
-        // solve for S and call the result gp
-        let gp = MultivariatePolynomial::with_nvars(ap.nvars);
+        let m = Array::from_shape_vec((rows, cols), gfm).unwrap();
 
-        // if inconsistent: return Err(GCDError::BadOriginalImage);
-        // underdetermined and same degree 3 times? bad prime: return Err(GCDError::BadCurrentImage);
-        // else: more images: continue 'newimage
+        println!("Solve matrix {:?}", m);
 
-        return Ok(gp);
+        // TODO: set the first scaling parameter to 1
+        match solve(&m.t(), &arr1(&vec![0; cols]), p) {
+            Ok(x) => {
+                println!("Solution: {:?}", x);
+                // construct the gcd
+                let mut gp = MultivariatePolynomial::with_nvars(ap.nvars);
+
+                // for every power of the main variable
+                let mut i = 0; // index in the result x
+                for &(ref c, ref ex) in gfu.iter() {
+                    for mv in c.into_iter() {
+                        let mut ee = mv.exponents.to_vec();
+                        ee[var] = E::from_usize(ex.clone()).unwrap();
+
+                        gp.append_monomial(FiniteField::new(x[i].clone(), p), ee);
+                        i += 1;
+                    }
+                }
+
+                println!("Reconstructed {}", gp);
+                return Ok(gp);
+            }
+            Err(LinearSolverError::Underdetermined) => {
+                //TODO: same degree 3 times? bad prime: return Err(GCDError::BadCurrentImage);
+                // else, get more images
+            }
+            Err(LinearSolverError::Inconsistent) => {
+                return Err(GCDError::BadOriginalImage);
+            }
+        }
     }
 }
 
@@ -272,7 +301,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             let mut gf = gv.clone();
 
             // construct the univariate polynomial
-            let gfu = gf.to_univariate_polynomial(0);
+            let gfu = gf.to_univariate_polynomial(vars[0]);
 
             // find a coefficient of x1 in gg that is a monomial (single scaling)
             let mut single_scale = None;
@@ -318,6 +347,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                     dx,
                     single_scale,
                     nx,
+                    vars[0],
                     &gfu,
                 ) {
                     Ok(r) => {
@@ -596,7 +626,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             let mut gf = gp.clone();
 
             // construct the univariate polynomial
-            let gfu = gf.to_univariate_polynomial(0);
+            let gfu = gf.to_univariate_polynomial(vars[0]);
 
             // find a coefficient of x1 in gf that is a monomial (single scaling)
             let mut single_scale = None;
@@ -676,6 +706,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                         &mut bounds,
                         single_scale,
                         nx,
+                        vars[0],
                         &gfu,
                     ) {
                         Ok(r) => {

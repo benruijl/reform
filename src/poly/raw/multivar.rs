@@ -5,7 +5,7 @@ use std::mem;
 use std::ops::{Add, Mul, Neg, Sub};
 use tools::gcd;
 
-use num_traits::{Pow, One, Zero};
+use num_traits::{One, Zero};
 
 use poly::exponent::Exponent;
 use poly::ring::Ring;
