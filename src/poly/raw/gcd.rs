@@ -223,10 +223,12 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
         }
 
         // the gcd of the content in the last variable should be 1
-        let c = MultivariatePolynomial::multivariate_content_gcd(a, b, lastvar);
+        // FIXME: the content is computed in Z instead of Z_p.
+        // create a dedicated function?
+        /*let c = MultivariatePolynomial::multivariate_content_gcd(a, b, lastvar);
         if !c.is_one() {
             return None;
-        }
+        }*/
 
         let gamma = MultivariatePolynomial::univariate_gcd(&a.lcoeff_last(), &b.lcoeff_last());
 
@@ -339,7 +341,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             // remove content in x_n
             let cont = gc.univariate_content(lastvar);
             let cc = gc.long_division(&cont);
-            assert_eq!(cc.1, MultivariatePolynomial::zero());
+            assert!(cc.1.is_zero());
             gc = cc.0;
 
             // do a probabilistic division test

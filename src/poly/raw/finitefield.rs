@@ -190,9 +190,9 @@ impl Pow<usize> for FiniteField {
     type Output = Self;
 
     fn pow(self, e: usize) -> Self::Output {
-        let mut r = self.clone();
+        let mut r = FiniteField::new(1, self.p);
         for _ in 0..e {
-            r = r * r;
+            r = r * self;
         }
         r
     }

@@ -184,6 +184,25 @@ mod tests {
         assert_eq!(MultivariatePolynomial::<i64, usize>::gcd(&a, &b), b);
     }
 
+    #[test]
+    fn gcd6() {
+        // gcd(2+x+2*x*y+x^2*y,3+x+3*x*y+x^2*y)=1+x*y
+        let mut a = MultivariatePolynomial::from_monomial(1, vec![2, 1]);
+        a.append_monomial(2, vec![1, 1]);
+        a.append_monomial(1, vec![1, 0]);
+        a.append_monomial(2, vec![0, 0]);
+
+        let mut b = MultivariatePolynomial::from_monomial(1, vec![2, 1]);
+        b.append_monomial(3, vec![1, 1]);
+        b.append_monomial(1, vec![1, 0]);
+        b.append_monomial(3, vec![0, 0]);
+
+        let mut res = MultivariatePolynomial::from_monomial(1, vec![1, 1]);
+        res.append_monomial(1, vec![0, 0]);
+
+        assert_eq!(MultivariatePolynomial::<i64, usize>::gcd(&a, &b), res);
+    }
+
     /*#[test]
     fn gcd1() {
         // gcd(x*y,2*x*y)

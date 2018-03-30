@@ -780,12 +780,22 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         let mut r = self.clone();
 
         while !r.is_zero() && r.ldegree_max() >= div.ldegree_max() {
+            if !(r.coefficients.last().unwrap().clone() % div.coefficients.last().unwrap().clone())
+                .is_zero()
+            {
+                // long division failed!
+                // return the term as the rest
+                println!(
+                    "Long divison failed: {} {}",
+                    r.coefficients.last().unwrap().clone(),
+                    div.coefficients.last().unwrap().clone()
+                );
+
+                return (q, r);
+            }
+
             let tc =
                 r.coefficients.last().unwrap().clone() / div.coefficients.last().unwrap().clone();
-
-            if tc.is_zero() {
-                panic!("Cannot do long division in a ring. Use a field.");
-            }
 
             let tp: Vec<E> = r.last_exponents()
                 .iter()

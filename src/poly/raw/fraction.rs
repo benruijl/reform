@@ -168,9 +168,9 @@ impl Pow<usize> for Fraction {
     type Output = Self;
 
     fn pow(self, e: usize) -> Self::Output {
-        let mut r = self.clone();
+        let mut r = Fraction::one();
         for _ in 0..e {
-            r = r * r;
+            r = r * self;
         }
         r
     }
