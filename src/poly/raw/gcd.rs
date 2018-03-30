@@ -377,15 +377,13 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         assert!(f.len() > 0);
         println!("Multiple gcds of {:?}", f);
 
-        let mut a = f[0].clone(); // TODO: take the smallest?
-        let mut b = MultivariatePolynomial::with_nvars(a.nvars);
-
         let mut k = 1; // counter for scalar multiple
-
-        let mut newf: Vec<MultivariatePolynomial<R, E>> = vec![];
         let mut gcd;
 
         loop {
+            let mut a = f[0].clone(); // TODO: take the smallest?
+            let mut b = MultivariatePolynomial::with_nvars(a.nvars);
+
             for p in f.iter().skip(1) {
                 for v in p.into_iter() {
                     b.append_monomial(v.coefficient.mul_num(k), v.exponents.to_vec());
@@ -394,8 +392,8 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             }
 
             gcd = MultivariatePolynomial::gcd(&a, &b);
-            println!("First gcd: {}", gcd);
 
+            let mut newf: Vec<MultivariatePolynomial<R, E>> = vec![];
             for x in &f {
                 if !x.long_division(&gcd).1.is_zero() {
                     newf.push(x.clone());
@@ -406,7 +404,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                 return gcd;
             }
 
-            newf.push(gcd);
+            newf.push(gcd); // should the gcd be cleared after the next round?
             mem::swap(&mut newf, &mut f);
         }
     }
