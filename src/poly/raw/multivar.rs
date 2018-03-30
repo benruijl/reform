@@ -5,7 +5,7 @@ use std::mem;
 use std::ops::{Add, Mul, Neg, Sub};
 use tools::gcd;
 
-use num_traits::{pow, One, Zero};
+use num_traits::{Pow, One, Zero};
 
 use poly::exponent::Exponent;
 use poly::ring::Ring;
@@ -640,7 +640,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     pub fn replace(&self, n: usize, v: R) -> MultivariatePolynomial<R, E> {
         let mut res = MultivariatePolynomial::with_nvars(self.nvars);
         for t in 0..self.nterms {
-            let mut c = self.coefficients[t] * pow(v, self.exponents(t)[n].as_());
+            let mut c = self.coefficients[t] * v.pow(self.exponents(t)[n].as_());
             let mut e = self.exponents(t).to_vec();
             e[n] = E::zero();
 
@@ -659,7 +659,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
             let mut c = self.coefficients[t];
             for &(n, v) in r {
-                c = c * pow(v.clone(), self.exponents(t)[n].as_());
+                c = c * v.clone().pow(self.exponents(t)[n].as_());
                 e[n] = E::zero();
             }
 

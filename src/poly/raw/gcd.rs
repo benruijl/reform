@@ -1,4 +1,4 @@
-use num_traits::{pow, One, Zero};
+use num_traits::{Pow, One, Zero};
 use std::mem;
 
 use poly::exponent::Exponent;
@@ -139,7 +139,7 @@ fn construct_new_image<R: Ring, E: Exponent>(
                         for t in 0..c.nterms {
                             let mut coeff = FiniteField::new(1, p);
                             for &(n, v) in r.iter() {
-                                coeff = coeff * pow(v.clone(), c.exponents(t)[n].as_());
+                                coeff = coeff * v.clone().pow(c.exponents(t)[n].as_());
                             }
                             row.push(coeff.n);
                         }
@@ -239,7 +239,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
         'newfirstnum: loop {
             let v = loop {
                 let a = FiniteField::new(range.sample(&mut rng), p);
-                if gamma.replace(lastvar, a).nterms() != 0 {
+                if !gamma.replace(lastvar, a).is_zero() {
                     break a;
                 }
             };
@@ -302,10 +302,11 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             'newnum: loop {
                 let v = loop {
                     let v = FiniteField::new(range.sample(&mut rng), a.coefficients[0].p);
-                    if gamma.replace(lastvar, v).nterms() != 0 {
+                    if !gamma.replace(lastvar, v).is_zero() {
                         break v;
                     }
                 };
+
                 let av = a.replace(lastvar, v);
                 let bv = b.replace(lastvar, v);
 

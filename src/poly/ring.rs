@@ -22,7 +22,7 @@ pub trait Ring:
     + Display
     + MulNum
     + AsPrimitive<usize>
-    + Pow<usize>
+    + Pow<usize, Output = Self>
     + Neg<Output = Self>
     + Div<Output = Self>
     + Rem<Output = Self>
@@ -40,7 +40,7 @@ impl<
             + Display
             + MulNum
             + AsPrimitive<usize>
-            + Pow<usize>
+            + Pow<usize, Output = Self>
             + Neg<Output = Self>
             + Div<Output = Self>
             + Rem<Output = Self>
