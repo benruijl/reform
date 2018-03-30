@@ -4,6 +4,7 @@ extern crate itertools; // command line argument options
                         //extern crate rand;
 extern crate byteorder; // for serialization
 extern crate crossbeam;
+extern crate ndarray;
 extern crate num_integer;
 extern crate num_traits;
 extern crate rug; // for gmp and bigint support
