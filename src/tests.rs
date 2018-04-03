@@ -1,11 +1,9 @@
 #[cfg(test)]
 mod tests {
     use module;
-    use num_traits::One;
     use parser;
     use poly::raw::MultivariatePolynomial;
     use poly::raw::finitefield::FiniteField;
-    use poly::raw::fraction::Fraction;
 
     #[test]
     fn simple_match() {

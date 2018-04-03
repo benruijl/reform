@@ -99,7 +99,7 @@ impl Sub for FiniteField {
 
         FiniteField {
             n: if self.n >= other.n {
-                (self.n + other.n) % self.p
+                (self.n - other.n) % self.p
             } else {
                 (self.n + self.p - other.n) % self.p
             },

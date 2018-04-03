@@ -2,7 +2,7 @@ use num_traits::cast::AsPrimitive;
 use num_traits::{One, Pow, Zero};
 use poly::raw::finitefield::FiniteField;
 use std::fmt::{Debug, Display};
-use std::ops::{Div, Mul, Neg, Rem};
+use std::ops::{Div, Neg, Rem};
 
 pub trait MulNum {
     fn mul_num(&self, n: usize) -> Self;

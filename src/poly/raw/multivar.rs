@@ -11,9 +11,6 @@ use poly::exponent::Exponent;
 use poly::ring::Ring;
 
 use poly::raw::finitefield::FiniteField;
-use poly::raw::fraction::Fraction;
-use poly::raw::gcd;
-use rand;
 
 /// Multivariate polynomial with a degree sparse and variable dense representation.
 #[derive(Clone)]
