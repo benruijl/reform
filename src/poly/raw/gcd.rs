@@ -245,7 +245,7 @@ fn construct_new_image<E: Exponent>(
                 println!("Reconstructed {}", gp);
                 return Ok(gp);
             }
-            Err(LinearSolverError::Underdetermined) => {
+            Err(LinearSolverError::Underdetermined { .. }) => {
                 println!("Underdetermined system");
                 //TODO: same degree 3 times? bad prime: return Err(GCDError::BadCurrentImage);
                 // else, get more images

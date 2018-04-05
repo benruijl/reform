@@ -8,7 +8,7 @@ use poly::raw::zp::UnsignedInteger;
 /// Error from linear solver.
 #[derive(Debug, Eq, PartialEq)]
 pub enum LinearSolverError {
-    Underdetermined,
+    Underdetermined { min_rank: usize, max_rank: usize },
     Inconsistent,
 }
 
@@ -23,8 +23,12 @@ pub fn solve<T: UnsignedInteger, S1: Data<Elem = T>, S2: Data<Elem = T>>(
     let neqs = a.shape()[0];
     let nvars = a.shape()[1];
 
+    // A fast check.
     if neqs < nvars {
-        return Err(LinearSolverError::Underdetermined);
+        return Err(LinearSolverError::Underdetermined {
+            min_rank: 0,
+            max_rank: neqs,
+        });
     }
 
     // Create the augmented matrix.
@@ -53,7 +57,11 @@ pub fn solve<T: UnsignedInteger, S1: Data<Elem = T>, S2: Data<Elem = T>>(
                 }
             }
             if m[(i, j)].is_zero() {
-                return Err(LinearSolverError::Underdetermined);
+                // NOTE: complete pivoting may give an increase of the rank.
+                return Err(LinearSolverError::Underdetermined {
+                    min_rank: i,
+                    max_rank: nvars - 1,
+                });
             }
         }
         let x = m[(i, j)].clone();
@@ -77,18 +85,23 @@ pub fn solve<T: UnsignedInteger, S1: Data<Elem = T>, S2: Data<Elem = T>>(
         }
     }
 
-    // Check the rank.
     let rank = i;
-    if rank < nvars {
-        return Err(LinearSolverError::Underdetermined);
-    }
 
     // Check the consistency.
-    for k in i..neqs {
+    for k in rank..neqs {
         if !m[(k, nvars)].is_zero() {
             return Err(LinearSolverError::Inconsistent);
         }
     }
+
+    // Check the rank.
+    if rank < nvars {
+        return Err(LinearSolverError::Underdetermined {
+            min_rank: rank,
+            max_rank: rank,
+        });
+    }
+    assert_eq!(rank, nvars);
 
     // Now, back substitution.
     i -= 1;
@@ -145,13 +158,51 @@ fn test_solve_bad_shape() {
 }
 
 #[test]
-fn test_solve_underdetermined() {
+fn test_solve_underdetermined1() {
+    use ndarray::{arr1, arr2};
+    let a: Array2<u8> = arr2(&[[1, 1, 2], [3, 4, 3]]);
+    let b: Array1<u8> = arr1(&[3, 15]);
+    let p: u8 = 17;
+    let r = solve(&a, &b, p);
+    assert_eq!(
+        r,
+        Err(LinearSolverError::Underdetermined {
+            min_rank: 0,
+            max_rank: 2
+        })
+    );
+}
+
+#[test]
+fn test_solve_underdetermined2() {
+    use ndarray::{arr1, arr2};
+    let a: Array2<u8> = arr2(&[[1, 1, 1, 1], [0, 0, 1, 1], [0, 0, 0, 1], [0, 0, 0, 2]]);
+    let b: Array1<u8> = arr1(&[1, 15, 1, 2]);
+    let p: u8 = 17;
+    let r = solve(&a, &b, p);
+    assert_eq!(
+        r,
+        Err(LinearSolverError::Underdetermined {
+            min_rank: 1,
+            max_rank: 3
+        })
+    );
+}
+
+#[test]
+fn test_solve_underdetermined3() {
     use ndarray::{arr1, arr2};
     let a: Array2<u8> = arr2(&[[1, 1, 2], [3, 4, 3], [10, 7, 12]]);
     let b: Array1<u8> = arr1(&[3, 15, 12]);
     let p: u8 = 17;
     let r = solve(&a, &b, p);
-    assert_eq!(r, Err(LinearSolverError::Underdetermined));
+    assert_eq!(
+        r,
+        Err(LinearSolverError::Underdetermined {
+            min_rank: 2,
+            max_rank: 2
+        })
+    );
 }
 
 #[test]
