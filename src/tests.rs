@@ -115,7 +115,7 @@ mod tests {
 
     #[test]
     fn chinese_remainder() {
-        assert_eq!(FiniteField::chinese_remainder(5, 30, 11, 31), 247);
+        assert_eq!(FiniteField::chinese_remainder(5, 30, 11, 31), -94);
     }
 
     #[test]
