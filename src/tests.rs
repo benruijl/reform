@@ -265,4 +265,37 @@ mod tests {
 
         assert_eq!(MultivariatePolynomial::<i64, usize>::gcd(&a, &b), res);
     }
+
+    #[test]
+    fn gcd9() {
+        // gcd with multiple scaling
+        //gcd(100 + 100 x - 90 x^3 - 90 x^4 + 12 y + 12 x y + 3 x^3 y^2 + 3 x^4 y^2,
+        //    100 - 100 x - 90 x^3 + 90 x^4 + 12 y - 12 x y + 3 x^3 y^2 - 3 x^4 y^2)
+        // = 100 - 90 x^3 + 12 y + 3 x^3 y^2
+        let mut a = MultivariatePolynomial::from_monomial(100, vec![0, 0]);
+        a.append_monomial(100, vec![1, 0]);
+        a.append_monomial(-90, vec![3, 0]);
+        a.append_monomial(-90, vec![4, 0]);
+        a.append_monomial(12, vec![0, 1]);
+        a.append_monomial(12, vec![1, 1]);
+        a.append_monomial(3, vec![3, 2]);
+        a.append_monomial(3, vec![4, 2]);
+
+        let mut b = MultivariatePolynomial::from_monomial(100, vec![0, 0]);
+        b.append_monomial(-100, vec![1, 0]);
+        b.append_monomial(-90, vec![3, 0]);
+        b.append_monomial(90, vec![4, 0]);
+        b.append_monomial(12, vec![0, 1]);
+        b.append_monomial(-12, vec![1, 1]);
+        b.append_monomial(3, vec![3, 2]);
+        b.append_monomial(-3, vec![4, 2]);
+
+        let mut res = MultivariatePolynomial::from_monomial(100, vec![0, 0]);
+        res.append_monomial(-90, vec![3, 0]);
+        res.append_monomial(12, vec![0, 1]);
+        res.append_monomial(3, vec![3, 2]);
+
+        assert_eq!(MultivariatePolynomial::<i64, usize>::gcd(&a, &b), res);
+    }
+
 }
