@@ -1,9 +1,10 @@
 use num_traits::cast::AsPrimitive;
 use num_traits::{One, Pow, Zero};
+use poly::raw::zp;
 use poly::ring::{MulModNum, ToFiniteField};
 use std::fmt;
 use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
-use tools::{GCD};
+use tools::GCD;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct FiniteField {
@@ -24,34 +25,13 @@ impl FiniteField {
 
     // Compute the multiplicative inverse of an element in the field.
     pub fn inverse(n: usize, p: usize) -> usize {
-        let mut t = 0isize;
-        let mut newt = 1isize;
-        let mut r = p as isize;
-        let mut newr = n as isize;
-
-        while newr != 0 {
-            let q = r / newr;
-            let mut tmp = t;
-            t = newt;
-            newt = tmp - q * newt;
-            tmp = r;
-            r = newr;
-            newr = tmp - q * newr;
-        }
-        if r > 1 {
-            panic!("{} is not invertible in ring of size {}", n, p);
-        }
-
-        while t < 0 {
-            t += p as isize;
-        }
-
-        t as usize
+        zp::inv(n, p)
     }
 
     /// Use Garner's algorithm for the Chinese remainder theorem
-    /// to reconstruct an x that satisfies n1 = x % p1 and n2 = x % p2
-    pub fn chinese_remainder(n1: usize, n2: usize, p1: usize, p2: usize) -> usize {
+    /// to reconstruct an x that satisfies n1 = x % p1 and n2 = x % p2.
+    /// The x will be in the range [-p1*p2/2,p1*p2/2].
+    pub fn chinese_remainder(n1: usize, n2: usize, p1: usize, p2: usize) -> isize {
         if n1 > n2 {
             return FiniteField::chinese_remainder(n2, n1, p2, p1);
         }
@@ -59,10 +39,15 @@ impl FiniteField {
         let gamma1 = FiniteField::inverse(p1 % p2, p2);
 
         // convert to mixed-radix notation
-        let v1 = ((n2 - n1) * gamma1) % p2;
+        let v1 = zp::mul(n2 - n1, gamma1, p2);
 
         // convert to standard representation
-        v1 * p1 + n1
+        let r = v1 * p1 + n1;
+        if r > p1 / 2 * p2 {
+            r as isize - (p1 * p2) as isize // TODO: could overflow!
+        } else {
+            r as isize
+        }
     }
 }
 
@@ -78,7 +63,7 @@ impl Mul for FiniteField {
     fn mul(self, other: Self) -> Self::Output {
         assert_eq!(self.p, other.p);
         FiniteField {
-            n: (self.n * other.n) % self.p,
+            n: zp::mul(self.n, other.n, self.p),
             p: self.p,
         }
     }
@@ -90,7 +75,7 @@ impl Add for FiniteField {
     fn add(self, other: Self) -> Self::Output {
         assert_eq!(self.p, other.p);
         FiniteField {
-            n: (self.n + other.n) % self.p,
+            n: zp::add(self.n, other.n, self.p),
             p: self.p,
         }
     }
@@ -103,11 +88,7 @@ impl Sub for FiniteField {
         assert_eq!(self.p, other.p);
 
         FiniteField {
-            n: if self.n >= other.n {
-                (self.n - other.n) % self.p
-            } else {
-                (self.n + self.p - other.n) % self.p
-            },
+            n: zp::sub(self.n, other.n, self.p),
             p: self.p,
         }
     }
@@ -138,7 +119,7 @@ impl Neg for FiniteField {
 
     fn neg(self) -> Self::Output {
         FiniteField {
-            n: self.p - self.n,
+            n: zp::neg(self.n, self.p),
             p: self.p,
         }
     }
@@ -148,8 +129,9 @@ impl Div for FiniteField {
     type Output = Self;
 
     fn div(self, other: FiniteField) -> Self::Output {
+        assert_eq!(self.p, other.p);
         FiniteField {
-            n: self.n * FiniteField::inverse(other.n, other.p) % self.p,
+            n: zp::mul(self.n, zp::inv(other.n, self.p), self.p),
             p: self.p,
         }
     }
@@ -160,7 +142,7 @@ impl Div<usize> for FiniteField {
 
     fn div(self, other: usize) -> Self::Output {
         FiniteField {
-            n: self.n * FiniteField::inverse(other % self.p, self.p) % self.p,
+            n: zp::mul(self.n, zp::inv(other, self.p), self.p),
             p: self.p,
         }
     }
@@ -171,7 +153,7 @@ impl Mul<usize> for FiniteField {
 
     fn mul(self, other: usize) -> Self::Output {
         FiniteField {
-            n: self.n * (other % self.p) % self.p,
+            n: zp::mul(self.n, other, self.p),
             p: self.p,
         }
     }
@@ -199,11 +181,7 @@ impl Pow<usize> for FiniteField {
     type Output = Self;
 
     fn pow(self, e: usize) -> Self::Output {
-        let mut r = FiniteField::new(1, self.p);
-        for _ in 0..e {
-            r = r * self;
-        }
-        r
+        FiniteField::new(zp::pow(self.n, e as u32, self.p), self.p)
     }
 }
 

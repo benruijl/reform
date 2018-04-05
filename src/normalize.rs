@@ -3,15 +3,20 @@ use number::Number;
 use std::cmp::Ordering;
 use std::mem;
 use std::ptr;
-use structure::{Element, FunctionAttributes, GlobalVarInfo, FUNCTION_DELTA, FUNCTION_MUL,
-                FUNCTION_NARGS, FUNCTION_SUM};
-use std::ops::{Mul,Add};
+use structure::{Element, FunctionAttributes, GlobalVarInfo, FUNCTION_DELTA, FUNCTION_GCD,
+                FUNCTION_MUL, FUNCTION_NARGS, FUNCTION_RAT, FUNCTION_SUM};
+use poly::convert::{to_expression, to_rational_polynomial};
+use poly::raw::MultivariatePolynomial;
 
 impl Element {
     // TODO: return iterator over Elements for ground level?
     /// Apply builtin-functions, such as `delta_` and `nargs_`.
     /// This function should be called during normalization.
-    pub fn apply_builtin_functions(&mut self, _ground_level: bool) -> bool {
+    pub fn apply_builtin_functions(
+        &mut self,
+        var_info: &GlobalVarInfo,
+        _ground_level: bool,
+    ) -> bool {
         *self = match *self {
             Element::Fn(_, ref mut n, ref mut a) => {
                 match *n {
@@ -55,6 +60,54 @@ impl Element {
                                 }
                                 _ => return false,
                             }
+                        } else {
+                            return false;
+                        }
+                    }
+                    FUNCTION_RAT => {
+                        if a.len() > 2 {
+                            panic!("Polyratfun can have at most two components");
+                        }
+
+                        // convert to polyratfun
+                        // TODO: what to do with variable mappings?
+                        // we don't want an enormous array
+                        if a.len() == 1 {
+                            Element::RationalPolynomialCoefficient(
+                                false,
+                                Box::new((
+                                    to_rational_polynomial(&a[0], var_info.num_vars()).unwrap(),
+                                    MultivariatePolynomial::from_constant_with_nvars(
+                                        1,
+                                        var_info.num_vars(),
+                                    ),
+                                )),
+                            )
+                        } else {
+                            Element::RationalPolynomialCoefficient(
+                                false,
+                                Box::new((
+                                    to_rational_polynomial(&a[0], var_info.num_vars()).unwrap(),
+                                    to_rational_polynomial(&a[1], var_info.num_vars()).unwrap(),
+                                )),
+                            )
+                        }
+                    }
+                    FUNCTION_GCD => {
+                        if a.len() != 2 {
+                            return false;
+                        }
+
+                        let ar = to_rational_polynomial(&a[0], var_info.num_vars());
+                        let br = to_rational_polynomial(&a[1], var_info.num_vars());
+
+                        if let (Ok(a1), Ok(a2)) = (ar, br) {
+                            let gcd = MultivariatePolynomial::gcd(&a1, &a2);
+
+                            // TODO: convert back to a subexpression
+                            let mut res = to_expression(gcd);
+                            res.normalize_inplace(var_info);
+                            res
                         } else {
                             return false;
                         }
@@ -109,13 +162,34 @@ impl Element {
                                 // x^1 = x
                                 break mem::replace(b, DUMMY_ELEM!());
                             }
-                            Element::Num(_, Number::SmallInt(n)) if n > 0 => {
+                            Element::Num(_, Number::SmallInt(ref mut n)) if *n > 0 => {
                                 // exponent is a positive integer
                                 // check if some simplification can be made
 
                                 if let Element::Num(_, ref mut num) = *b {
                                     // base is a rational number: (p/q)^n = p^n/q^n
-                                    break Element::Num(false, num.clone().pow(n as u32));
+                                    break Element::Num(false, num.clone().pow(*n as u32));
+                                }
+
+                                // simplify x^a^b = x^(a*b) where x is a variable
+                                // and a and b are positive integers
+                                // In general, this may be mathematically wrong, e.g.,
+                                //   for x = (-1+i), a = 2, b = 3/2,
+                                //   (x^a)^b = - x^(a*b).
+                                // We need to add more detailed conditions for such a reduction.
+                                let mut newbase = DUMMY_ELEM!();
+                                if let Element::Pow(_, ref mut be1) = *b {
+                                    if let Element::Var(_) = be1.0 {
+                                        if let Element::Num(_, Number::SmallInt(n1)) = be1.1 {
+                                            newbase = be1.0.clone();
+                                            *n *= n1;
+                                            changed = true;
+                                        }
+                                    }
+                                }
+
+                                if newbase != DUMMY_ELEM!() {
+                                    *b = newbase;
                                 }
                             }
                             Element::Num(_, Number::SmallInt(n)) if n < 0 => {
@@ -128,11 +202,6 @@ impl Element {
                                 }*/                            }
                             _ => {}
                         };
-                        // TODO: The old code contained reduction of (x^a)^b = x^(a*b).
-                        // This may be mathematically wrong, e.g.,
-                        //   for x = (-1+i), a = 2, b = 3/2,
-                        //   (x^a)^b = - x^(a*b).
-                        // We need more detailed conditions for such a reduction.
                         return changed;
                     }
                 } else {
@@ -209,7 +278,9 @@ impl Element {
                         return true;
                     }
                 }
-                changed |= self.apply_builtin_functions(false);
+
+                // TODO: only call when the function does not contain wildcards
+                changed |= self.apply_builtin_functions(var_info, false);
             }
             Element::Term(dirty, _) => {
                 if !dirty {
@@ -371,13 +442,27 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
     }
 
     // multiply two polyratfuns
-    if let Element::RationalPolynomialCoefficient(ref mut num, ref mut den) = *first {
-        if let Element::RationalPolynomialCoefficient(ref mut num1, ref mut den1) = *sec {
-            *num = num.clone().mul(num1.clone()); // FIXME: do inplace!
+    if let Element::RationalPolynomialCoefficient(ref mut _dirty, ref mut p) = *first {
+        if let Element::RationalPolynomialCoefficient(ref mut _dirty1, ref mut p1) = *sec {
+            let (ref mut num, ref mut den) = &mut **p;
+            let (ref mut num1, ref mut den1) = &mut **p1;
 
-            if *den != None || *den1 != None {
-                unimplemented!();
-            }
+            let g1 = MultivariatePolynomial::gcd(num, den1);
+            let g2 = MultivariatePolynomial::gcd(num1, den);
+
+            let numnew = num.long_division(&g1).0;
+            let num1new = num1.long_division(&g2).0;
+            let dennew = den.long_division(&g2).0;
+            let den1new = den1.long_division(&g1).0;
+
+            *num = numnew * num1new;
+            *den = dennew * den1new;
+
+            let g = MultivariatePolynomial::gcd(num, den);
+
+            *num = num.long_division(&g).0;
+            *den = den.long_division(&g).0;
+
             return true;
         }
     }
@@ -385,12 +470,13 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
     // x*x => x^2
     if first == sec {
         *first = Element::Pow(
-            false,
+            true,
             Box::new((
                 mem::replace(first, DUMMY_ELEM!()),
                 Element::Num(false, Number::SmallInt(2)),
             )),
         );
+        first.normalize_inplace(var_info);
         return true;
     }
 
@@ -472,21 +558,30 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
             assert!(!t1.is_empty() && !t2.is_empty());
 
             // TODO: implement case where only one term has a polyratfun
-            if let Some(&mut Element::RationalPolynomialCoefficient(ref mut num, ref mut den)) =
+            if let Some(&mut Element::RationalPolynomialCoefficient(ref mut _dirty, ref mut p)) =
                 t1.last_mut()
             {
                 if let Some(&mut Element::RationalPolynomialCoefficient(
-                    ref mut num1,
-                    ref mut den1,
+                    ref mut _dirty1,
+                    ref mut p1,
                 )) = t2.last_mut()
                 {
-                    *num = num.clone().add(num1.clone()); // FIXME: do inplace
+                    let (ref mut num, ref mut den) = &mut **p1; // note the switch
+                    let (ref mut num1, ref mut den1) = &mut **p;
 
-                    if *den1 != None || *den != None {
-                        unimplemented!()
-                    }
+                    // TODO: improve!
+                    let newnum = num.clone() * den1.clone() + num1.clone() * den.clone();
+                    let newden = den.clone() * den1.clone();
+                    let g1 = MultivariatePolynomial::gcd(&newnum, &newden);
+
+                    *num = newnum.long_division(&g1).0;
+                    *den = newden.long_division(&g1).0;
 
                     // TODO: add 0 check
+                    //if num.is_zero() {
+                    //    is_zero = true;
+                    // }
+
                     return true;
                 }
             }
@@ -579,14 +674,19 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
             }
         }
         (
-            &mut Element::RationalPolynomialCoefficient(ref mut num1, ref mut den1),
-            &mut &mut Element::RationalPolynomialCoefficient(ref mut num, ref mut den),
+            &mut Element::RationalPolynomialCoefficient(ref mut _dirty, ref mut p),
+            &mut &mut Element::RationalPolynomialCoefficient(ref mut _dirty1, ref mut p1),
         ) => {
-            *num = num.clone().add(num1.clone()); // FIXME: do inplace
+            let (ref mut num, ref mut den) = &mut **p1;
+            let (ref mut num1, ref mut den1) = &mut **p;
 
-            if *den1 != None || *den != None {
-                unimplemented!()
-            }
+            // TODO: improve!
+            let newnum = num.clone() * den1.clone() + num1.clone() * den.clone();
+            let newden = den.clone() * den1.clone();
+            let g1 = MultivariatePolynomial::gcd(&newnum, &newden);
+
+            *num = newnum.long_division(&g1).0;
+            *den = newden.long_division(&g1).0;
 
             if num.is_zero() {
                 is_zero = true;

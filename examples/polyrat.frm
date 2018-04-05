@@ -1,4 +1,4 @@
-expr F = x*rat_(5)*rat_(6) + x*rat_(8);
+expr F = rat_(x^2+2*x+1,1)*rat_(1,1+x)+rat_(2,1);
 
 {
 

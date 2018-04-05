@@ -77,6 +77,9 @@ fn construct_new_image<E: Exponent>(
     let mut system = vec![]; // coefficients for the linear system
     let mut ni = 0;
     let mut failure_count = 0;
+
+    let mut rank_failure_count = 0;
+    let mut last_rank = (0, 0);
     'newimage: loop {
         // generate random numbers for all non-leading variables
         let (r, a1, b1) = loop {
@@ -124,9 +127,8 @@ fn construct_new_image<E: Exponent>(
 
             let mut found = false;
             for t in 0..g1.nterms {
-                // g1 is univariate, so we can compare the maximum degree
-                if g1.exponents(t).iter().max().unwrap().as_() == *d {
-                    scale_factor = coeff / g1.coefficients[0];
+                if g1.exponents(t)[var].as_() == *d {
+                    scale_factor = coeff / g1.coefficients[t];
                     println!("Single scale factor: {}", scale_factor);
                     found = true;
                     break;
@@ -245,10 +247,21 @@ fn construct_new_image<E: Exponent>(
                 println!("Reconstructed {}", gp);
                 return Ok(gp);
             }
-            Err(LinearSolverError::Underdetermined { .. }) => {
+            Err(LinearSolverError::Underdetermined { min_rank, max_rank }) => {
                 println!("Underdetermined system");
-                //TODO: same degree 3 times? bad prime: return Err(GCDError::BadCurrentImage);
-                // else, get more images
+
+                if last_rank == (min_rank, max_rank) {
+                    rank_failure_count += 1;
+
+                    if rank_failure_count == 3 {
+                        println!("Same degrees of freedom encountered 3 times: assuming bad prime/evaluation point");
+                        return Err(GCDError::BadCurrentImage);
+                    }
+                } else {
+                    // update the rank and get new images
+                    rank_failure_count = 0;
+                    last_rank = (min_rank, max_rank);
+                }
             }
             Err(LinearSolverError::Inconsistent) => {
                 println!("Inconsistent system");
@@ -368,10 +381,10 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                 }
             }
 
-            // In the case of multiple scaling, we need an additional sample
-            // TODO: is this correct?
+            // In the case of multiple scaling, each sample adds an
+            // additional unknown, except for the first
             if single_scale == None {
-                nx += 1;
+                nx = (gv.nterms() - 1) / (gfu.len() - 1);
             }
 
             let mut lc = gv.lcoeff();
@@ -481,7 +494,6 @@ where
         MultivariatePolynomial<R, E>: PolynomialGCD,
     {
         assert!(f.len() > 0);
-        println!("Multiple gcds of {:?}", f);
 
         if f.len() == 1 {
             return f[0].clone();
@@ -494,6 +506,7 @@ where
             let a = f[0].clone(); // TODO: take the smallest?
             let mut b = MultivariatePolynomial::with_nvars(a.nvars);
 
+            // TODO: this could cause an overflow in the coefficient
             for p in f.iter().skip(1) {
                 for v in p.into_iter() {
                     b.append_monomial(v.coefficient.mul_num(k), v.exponents.to_vec());
@@ -720,32 +733,36 @@ impl<E: Exponent> MultivariatePolynomial<i64, E> {
                 }
             }
 
-            // In the case of multiple scaling, we need an additional sample
-            // TODO: is this correct?
+            // In the case of multiple scaling, each sample adds an
+            // additional unknown, except for the first
             if single_scale == None {
-                nx += 1;
+                nx = (gp.nterms() - 1) / (gfu.len() - 1);
             }
 
             let gpc = gp.lcoeff();
-            let mut gm = gp * (gammap / gpc);
+
+            // construct the gcd suggestion in Z
+            let mut gm = MultivariatePolynomial::with_nvars(gp.nvars);
+            gm.nterms = gp.nterms;
+            gm.exponents = gp.exponents.clone();
+            gm.coefficients = gp.coefficients
+                .iter()
+                .map(|x| i64::from_finite_field(&(x.clone() * gammap / gpc)))
+                .collect();
+
             let mut m = p; // used for CRT
 
             println!("GCD suggestion with gamma: {}", gm);
 
-            let mut old_gm = MultivariatePolynomial::<FiniteField, E>::with_nvars(a.nvars);
+            let mut old_gm = MultivariatePolynomial::with_nvars(a.nvars);
 
             // add new primes until we can reconstruct the full gcd
             'newprime: loop {
-                if gm == old_gm.to_finite_field(m) {
-                    // divide by lcoeff and convert from finite field
-                    let gmc = gm.lcoeff();
-                    let mut gc = MultivariatePolynomial::with_nvars(gm.nvars);
-                    gc.nterms = gm.nterms;
-                    gc.exponents = gm.exponents.clone();
-                    gc.coefficients = gm.coefficients
-                        .iter()
-                        .map(|x| i64::from_finite_field(&(x.clone() / gmc.clone())))
-                        .collect();
+                if gm == old_gm {
+                    // divide by integer content
+                    let gmc = gm.content();
+                    let mut gc = gm.clone();
+                    gc.coefficients = gc.coefficients.iter().map(|x| x.clone() / gmc).collect();
 
                     println!("Final suggested gcd: {}", gc);
                     if a.long_division(&gc).1.is_zero() && b.long_division(&gc).1.is_zero() {
@@ -805,16 +822,18 @@ impl<E: Exponent> MultivariatePolynomial<i64, E> {
                 gp = gp * (gammap / gpc);
                 println!("gp: {}", gp);
 
-                // use chinese remainder theorem to merge coefficients
+                // use chinese remainder theorem to merge coefficients and map back to Z
                 for (gmc, gpc) in gm.coefficients.iter_mut().zip(gp.coefficients) {
-                    *gmc = FiniteField::new(
-                        FiniteField::chinese_remainder(gmc.n, gpc.n, gmc.p, gpc.p),
-                        m * p,
-                    );
+                    let mut coeff = if *gmc < 0 {
+                        (*gmc + m as i64) as usize
+                    } else {
+                        *gmc as usize
+                    };
+                    *gmc = FiniteField::chinese_remainder(coeff, gpc.n, m, gpc.p) as i64;
                 }
 
                 m = m * p;
-                println!("gm: {} mod {}", gm, m);
+                println!("gm: {}", gm);
             }
         }
     }

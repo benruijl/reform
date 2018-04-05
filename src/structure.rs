@@ -1,17 +1,21 @@
 use num_traits::One;
 use number::Number;
+use poly::convert::PolyPrinter;
+use poly::raw::MultivariatePolynomial;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
 use std::mem;
 use streaming::InputTermStreamer;
-use poly::raw::MultivariatePolynomial;
 
-pub const BUILTIN_FUNCTIONS: &'static [&'static str] = &["delta_", "nargs_", "sum_", "mul_"];
+pub const BUILTIN_FUNCTIONS: &'static [&'static str] =
+    &["delta_", "nargs_", "sum_", "mul_", "rat_", "gcd_"];
 pub const FUNCTION_DELTA: VarName = 0;
 pub const FUNCTION_NARGS: VarName = 1;
 pub const FUNCTION_SUM: VarName = 2;
 pub const FUNCTION_MUL: VarName = 3;
+pub const FUNCTION_RAT: VarName = 4;
+pub const FUNCTION_GCD: VarName = 5;
 
 /// Trait for variable ID. Normally `VarName` or `String`.
 pub trait Id: Ord + fmt::Debug {}
@@ -63,6 +67,10 @@ impl GlobalVarInfo {
             name_map: HashMap::new(),
             func_attribs: HashMap::new(),
         }
+    }
+
+    pub fn num_vars(&self) -> usize {
+        self.name_map.len()
     }
 }
 
@@ -293,7 +301,13 @@ pub enum Element<ID: Id = VarName> {
     Term(bool, Vec<Element<ID>>),
     SubExpr(bool, Vec<Element<ID>>),
     Num(bool, Number),
-    RationalPolynomialCoefficient(MultivariatePolynomial<i64, VarName>, Option<MultivariatePolynomial<i64, VarName>>),
+    RationalPolynomialCoefficient(
+        bool,
+        Box<(
+            MultivariatePolynomial<i64, u64>,
+            MultivariatePolynomial<i64, u64>,
+        )>,
+    ),
 }
 
 impl<ID: Id> Default for Element<ID> {
@@ -696,7 +710,7 @@ impl fmt::Display for Statement {
     }
 }
 
-fn fmt_varname(v: &VarName, f: &mut fmt::Formatter, var_info: &GlobalVarInfo) -> fmt::Result {
+pub fn fmt_varname(v: &VarName, f: &mut fmt::Formatter, var_info: &GlobalVarInfo) -> fmt::Result {
     if var_info.inv_name_map.len() == 0 {
         write!(f, "var_{}", v)
     } else {
@@ -845,9 +859,18 @@ impl Element {
                 }
                 write!(f, "")
             }
-            &Element::RationalPolynomialCoefficient(ref num, ref _den) => {
-                write!(f, "rat_{}", num)
-            }
+            &Element::RationalPolynomialCoefficient(_, ref p) => write!(
+                f,
+                "rat_({},{})",
+                PolyPrinter {
+                    poly: &p.0,
+                    var_info: var_info
+                },
+                PolyPrinter {
+                    poly: &p.1,
+                    var_info: var_info
+                }
+            ),
         }
     }
 }

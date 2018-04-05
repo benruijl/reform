@@ -4,7 +4,6 @@ use std::str::FromStr;
 use structure::{Element, FunctionAttributes, IdentityStatement, IdentityStatementMode, Module,
                 NumOrder, Procedure, Program, Statement};
 use number::Number;
-use poly::raw::MultivariatePolynomial;
 
 use combine::State;
 use combine::char::*;
@@ -400,14 +399,15 @@ parser!{
             res
         });
 
-    let polyratfun = string("rat_").with(between(lex_char('('), lex_char(')'), many1(digit())
+    /*let polyratfun = string("rat_").with(between(lex_char('('), lex_char(')'), many1(digit())
             .map(|d: String| d.parse::<i64>().unwrap())))
         .map(|n| Element::RationalPolynomialCoefficient(MultivariatePolynomial::from_monomial(n, vec![]), None));
+    */
 
     choice!(
         number(),
         dollarvar(),
-        try(polyratfun),
+        //try(polyratfun),
         namedfactor,
         variableargument,
         parenexpr()
