@@ -1,12 +1,12 @@
 use num_traits::{One, Pow, Zero};
 use std::fmt;
 use std::ops::{Add, Div, Mul, Neg, Rem};
-use tools::gcd;
+use tools::GCD;
 
 use num_traits::cast::AsPrimitive;
 
 use poly::raw::finitefield::FiniteField;
-use poly::ring::{MulNum, ToFiniteField};
+use poly::ring::{MulModNum, ToFiniteField};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Fraction {
@@ -30,7 +30,7 @@ impl Mul for Fraction {
     type Output = Self;
 
     fn mul(self, other: Self) -> Self::Output {
-        let gcd1 = gcd(
+        let gcd1 = GCD::gcd(
             if self.num >= 0 {
                 self.num as usize
             } else {
@@ -38,7 +38,7 @@ impl Mul for Fraction {
             },
             other.den,
         );
-        let gcd2 = gcd(
+        let gcd2 = GCD::gcd(
             if other.num >= 0 {
                 other.num as usize
             } else {
@@ -96,7 +96,7 @@ impl Div for Fraction {
     type Output = Self;
 
     fn div(self, other: Fraction) -> Self::Output {
-        let gcd1 = gcd(
+        let gcd1 = GCD::gcd(
             if self.num >= 0 {
                 self.num as usize
             } else {
@@ -108,7 +108,7 @@ impl Div for Fraction {
                 -other.num as usize
             },
         );
-        let gcd2 = gcd(self.den, other.den);
+        let gcd2 = GCD::gcd(self.den, other.den);
 
         if other.num < 0 {
             Fraction {
@@ -128,7 +128,7 @@ impl Div<usize> for Fraction {
     type Output = Self;
 
     fn div(self, other: usize) -> Self::Output {
-        let gcd = gcd(self.num, other as isize) as usize;
+        let gcd = GCD::gcd(self.num, other as isize) as usize;
 
         Fraction {
             num: self.num / gcd as isize,
@@ -141,7 +141,7 @@ impl Mul<usize> for Fraction {
     type Output = Self;
 
     fn mul(self, other: usize) -> Self::Output {
-        let gcd = gcd(self.den, other);
+        let gcd = GCD::gcd(self.den, other);
 
         Fraction {
             num: self.num * ((other / gcd) as isize),
@@ -150,9 +150,13 @@ impl Mul<usize> for Fraction {
     }
 }
 
-impl MulNum for Fraction {
+impl MulModNum for Fraction {
     fn mul_num(&self, n: usize) -> Fraction {
         self.clone() * n
+    }
+
+    fn mod_num(&self, n: usize) -> Fraction {
+        self.clone() % Fraction::new(n as isize, 1)
     }
 }
 

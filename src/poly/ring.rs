@@ -3,9 +3,11 @@ use num_traits::{One, Pow, Zero};
 use poly::raw::finitefield::FiniteField;
 use std::fmt::{Debug, Display};
 use std::ops::{Div, Neg, Rem};
+use tools::GCD;
 
-pub trait MulNum {
+pub trait MulModNum {
     fn mul_num(&self, n: usize) -> Self;
+    fn mod_num(&self, n: usize) -> Self;
 }
 
 pub trait ToFiniteField {
@@ -20,7 +22,8 @@ pub trait Ring:
     + One
     + Debug
     + Display
-    + MulNum
+    + MulModNum
+    + GCD
     + AsPrimitive<usize>
     + Pow<usize, Output = Self>
     + Neg<Output = Self>
@@ -38,7 +41,8 @@ impl<
             + One
             + Debug
             + Display
-            + MulNum
+            + MulModNum
+            + GCD
             + AsPrimitive<usize>
             + Pow<usize, Output = Self>
             + Neg<Output = Self>
@@ -54,7 +58,7 @@ impl<
 impl ToFiniteField for i64 {
     fn to_finite_field(&self, p: usize) -> FiniteField {
         if *self < 0 {
-            FiniteField::new((-*self / p as i64 + *self + 1) as usize, p)
+            FiniteField::new(((-*self / p as i64 + 1) * p as i64 + *self) as usize, p)
         } else {
             FiniteField::new(*self as usize, p)
         }
@@ -65,8 +69,12 @@ impl ToFiniteField for i64 {
     }
 }
 
-impl MulNum for i64 {
+impl MulModNum for i64 {
     fn mul_num(&self, n: usize) -> i64 {
         self * (n as i64)
+    }
+
+    fn mod_num(&self, n: usize) -> i64 {
+        self % (n as i64)
     }
 }

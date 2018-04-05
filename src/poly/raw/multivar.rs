@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::mem;
 use std::ops::{Add, Mul, Neg, Sub};
-use tools::gcd;
+use tools::GCD;
 
 use num_traits::{One, Zero};
 
@@ -673,7 +673,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         }
         let mut c = self.coefficients.first().unwrap().clone();
         for cc in self.coefficients.iter().skip(1) {
-            c = gcd(c, cc.clone());
+            c = GCD::gcd(c, cc.clone());
         }
         c
     }
