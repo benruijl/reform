@@ -3,7 +3,7 @@ use num_traits::{One, Pow, Zero};
 use poly::ring::{MulModNum, ToFiniteField};
 use std::fmt;
 use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
-use tools::GCD;
+use tools::{gcd_unsigned, GCD};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct FiniteField {
@@ -223,4 +223,13 @@ impl AsPrimitive<usize> for FiniteField {
     }
 }
 
-impl GCD for FiniteField {}
+impl GCD for FiniteField {
+    fn gcd(a: FiniteField, b: FiniteField) -> FiniteField {
+        assert_eq!(a.p, b.p);
+        if a == b {
+            a
+        } else {
+            FiniteField::new(1, a.p)
+        }
+    }
+}

@@ -1,4 +1,5 @@
-use num_traits::{One, Zero};
+use num_traits::sign::abs;
+use num_traits::{Signed, Zero};
 use std::ops::Rem;
 use structure::{Element, NumOrder};
 
@@ -85,70 +86,51 @@ impl<T> Heap<T> {
     }
 }
 
-pub trait GCD: Copy + One + Zero + Rem<Output = Self> + PartialEq {
-    fn gcd(mut a: Self, mut b: Self) -> Self {
-        let mut c;
-        while !a.is_zero() {
-            c = a;
-            a = b % a;
-            b = c;
-        }
-        b
+pub trait GCD {
+    fn gcd(a: Self, b: Self) -> Self;
+}
+
+pub fn gcd_unsigned<T: Copy + Zero + Rem<Output = T> + PartialEq>(mut a: T, mut b: T) -> T {
+    let mut c;
+    while !a.is_zero() {
+        c = a;
+        a = b % a;
+        b = c;
     }
+    b
+}
+
+pub fn gcd_signed<T: Copy + Signed + Zero + Rem<Output = T> + PartialEq>(a: T, b: T) -> T {
+    abs(gcd_unsigned(a, b))
 }
 
 impl GCD for u64 {
+    fn gcd(a: u64, b: u64) -> u64 {
+        gcd_unsigned(a, b)
+    }
 }
 
 impl GCD for usize {
+    fn gcd(a: usize, b: usize) -> usize {
+        gcd_unsigned(a, b)
+    }
 }
 
-// TODO: prevent code duplication
 impl GCD for isize {
-    fn gcd(mut a: isize, mut b: isize) -> isize {
-        let mut c;
-        while !a.is_zero() {
-            c = a;
-            a = b % a;
-            b = c;
-        }
-        if b < 0 {
-            -b
-        } else {
-            b
-        }
+    fn gcd(a: isize, b: isize) -> isize {
+        gcd_signed(a, b)
     }
 }
 
 impl GCD for i32 {
-    fn gcd(mut a: i32, mut b: i32) -> i32 {
-        let mut c;
-        while !a.is_zero() {
-            c = a;
-            a = b % a;
-            b = c;
-        }
-        if b < 0 {
-            -b
-        } else {
-            b
-        }
+    fn gcd(a: i32, b: i32) -> i32 {
+        gcd_signed(a, b)
     }
 }
 
 impl GCD for i64 {
-    fn gcd(mut a: i64, mut b: i64) -> i64 {
-        let mut c;
-        while !a.is_zero() {
-            c = a;
-            a = b % a;
-            b = c;
-        }
-        if b < 0 {
-            -b
-        } else {
-            b
-        }
+    fn gcd(a: i64, b: i64) -> i64 {
+        gcd_signed(a, b)
     }
 }
 

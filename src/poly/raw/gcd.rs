@@ -6,9 +6,11 @@ use poly::ring::Ring;
 
 use poly::raw::MultivariatePolynomial;
 use poly::raw::finitefield::FiniteField;
+use poly::ring::MulModNum;
+use poly::ring::ToFiniteField;
 use rand;
 use rand::distributions::{Range, Sample};
-use tools;
+use tools::GCD;
 
 use ndarray::{Array, arr1};
 use poly::raw::zp_solve::{solve, LinearSolverError};
@@ -56,7 +58,7 @@ fn newton_interpolation<E: Exponent>(
     u
 }
 
-fn construct_new_image<R: Ring, E: Exponent>(
+fn construct_new_image<E: Exponent>(
     ap: &MultivariatePolynomial<FiniteField, E>,
     bp: &MultivariatePolynomial<FiniteField, E>,
     aldegree: E,
@@ -66,7 +68,7 @@ fn construct_new_image<R: Ring, E: Exponent>(
     nx: usize,
     vars: &[usize],
     var: usize,
-    gfu: &[(MultivariatePolynomial<R, E>, usize)],
+    gfu: &[(MultivariatePolynomial<FiniteField, E>, usize)],
 ) -> Result<MultivariatePolynomial<FiniteField, E>, GCDError> {
     let p = ap.coefficients[0].p;
     let mut rng = rand::thread_rng();
@@ -303,12 +305,11 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
         }
 
         // the gcd of the content in the last variable should be 1
-        // FIXME: the content is computed in Z instead of Z_p.
-        // create a dedicated function?
-        /*let c = MultivariatePolynomial::multivariate_content_gcd(a, b, lastvar);
+        let c = MultivariatePolynomial::multivariate_content_gcd(a, b, lastvar);
         if !c.is_one() {
+            println!("Content in last variable is not 1, but {}!", c);
             return None;
-        }*/
+        }
 
         let gamma = MultivariatePolynomial::univariate_gcd(&a.lcoeff_last(), &b.lcoeff_last());
 
@@ -422,15 +423,14 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             }
 
             // use interpolation to construct x_n dependence
-            let gc = newton_interpolation(&vseq, &gseq, p, lastvar);
+            let mut gc = newton_interpolation(&vseq, &gseq, p, lastvar);
             println!("Interpolated: {} from {:?} -- {:?}", gc, vseq, gseq);
 
             // remove content in x_n
-            // FIXME: make accessible to the modular algorithm
-            //let cont = gc.univariate_content(lastvar);
-            //let cc = gc.long_division(&cont);
-            //assert!(cc.1.is_zero());
-            //gc = cc.0;
+            let cont = gc.univariate_content(lastvar);
+            let cc = gc.long_division(&cont);
+            assert!(cc.1.is_zero());
+            gc = cc.0;
 
             // do a probabilistic division test
             let (g1, a1, b1) = loop {
@@ -456,11 +456,30 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
     }
 }
 
-impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
+impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E>
+where
+    MultivariatePolynomial<R, E>: PolynomialGCD,
+{
+    /// Get the content of a multivariate polynomial viewed as a
+    /// univariate polynomial in `x`.
+    pub fn univariate_content(&self, x: usize) -> MultivariatePolynomial<R, E> {
+        let a = self.to_univariate_polynomial(x);
+
+        let mut f = vec![];
+        for &(ref c, _) in a.iter() {
+            f.push(c.clone());
+        }
+
+        MultivariatePolynomial::gcd_multiple(f)
+    }
+
     /// Compute the gcd of multiple polynomials efficiently.
     /// `gcd(f0,f1,f2,...)=gcd(f0,f1+k2*f(2)+k3*f(3))`
     /// with high likelihood.
-    pub fn gcd_multiple(mut f: Vec<MultivariatePolynomial<R, E>>) -> MultivariatePolynomial<R, E> {
+    pub fn gcd_multiple(mut f: Vec<MultivariatePolynomial<R, E>>) -> MultivariatePolynomial<R, E>
+    where
+        MultivariatePolynomial<R, E>: PolynomialGCD,
+    {
         assert!(f.len() > 0);
         println!("Multiple gcds of {:?}", f);
 
@@ -546,7 +565,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         if a.nterms == 1 && a.exponents.iter().all(|c| c.is_zero()) {
             if b.nterms == 1 && b.exponents.iter().all(|c| c.is_zero()) {
                 return MultivariatePolynomial::from_constant_with_nvars(
-                    tools::GCD::gcd(a.coefficients[0], b.coefficients[0]),
+                    GCD::gcd(a.coefficients[0], b.coefficients[0]),
                     a.nvars,
                 );
             }
@@ -606,20 +625,6 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             return c * MultivariatePolynomial::gcd(&x1.0, &x2.0);
         }
 
-        // TODO: can the performance be improved by selecting a different lead
-        // variable?
-        MultivariatePolynomial::gcd_zippel(a, b, &vars)
-    }
-
-    /// Compute the gcd of two multivariate polynomials using Zippel's algorithm.
-    /// TODO: provide a parallel implementation?
-    fn gcd_zippel(
-        a: &MultivariatePolynomial<R, E>,
-        b: &MultivariatePolynomial<R, E>,
-        vars: &[usize], // variables
-    ) -> MultivariatePolynomial<R, E> {
-        println!("Compute modular gcd({},{})", a, b);
-
         // TODO: get proper degree bounds on gcd. how?
         // for now: take the lowest degree for each variable
         let mut bounds: Vec<usize> = (0..a.nvars)
@@ -634,9 +639,26 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             })
             .collect();
 
+        // TODO: can the performance be improved by selecting a different lead
+        // variable?
+        PolynomialGCD::gcd(a, b, &vars, &mut bounds)
+    }
+}
+
+impl<E: Exponent> MultivariatePolynomial<i64, E> {
+    /// Compute the gcd of two multivariate polynomials using Zippel's algorithm.
+    /// TODO: provide a parallel implementation?
+    fn gcd_zippel(
+        a: &MultivariatePolynomial<i64, E>,
+        b: &MultivariatePolynomial<i64, E>,
+        vars: &[usize], // variables
+        bounds: &mut [usize],
+    ) -> MultivariatePolynomial<i64, E> {
+        println!("Compute modular gcd({},{})", a, b);
+
         // compute scaling factor in Z
         println!("gamma comp {} {}", a.lcoeff(), b.lcoeff());
-        let gamma = tools::GCD::gcd(a.lcoeff(), b.lcoeff());
+        let gamma = GCD::gcd(a.lcoeff(), b.lcoeff());
         println!("gamma {}", gamma);
 
         let primes = [
@@ -673,9 +695,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
             // calculate modular gcd image
             let mut gp = loop {
-                if let Some(x) =
-                    MultivariatePolynomial::gcd_shape_modular(&ap, &bp, vars, &mut bounds)
-                {
+                if let Some(x) = MultivariatePolynomial::gcd_shape_modular(&ap, &bp, vars, bounds) {
                     break x;
                 }
             };
@@ -712,7 +732,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
             println!("GCD suggestion with gamma: {}", gm);
 
-            let mut old_gm = MultivariatePolynomial::with_nvars(a.nvars);
+            let mut old_gm = MultivariatePolynomial::<FiniteField, E>::with_nvars(a.nvars);
 
             // add new primes until we can reconstruct the full gcd
             'newprime: loop {
@@ -724,7 +744,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                     gc.exponents = gm.exponents.clone();
                     gc.coefficients = gm.coefficients
                         .iter()
-                        .map(|x| R::from_finite_field(&(x.clone() / gmc.clone())))
+                        .map(|x| i64::from_finite_field(&(x.clone() / gmc.clone())))
                         .collect();
 
                     println!("Final suggested gcd: {}", gc);
@@ -765,7 +785,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                         &bp,
                         a.ldegree(),
                         b.ldegree(),
-                        &mut bounds,
+                        bounds,
                         single_scale,
                         nx,
                         &vars[1..],
@@ -797,5 +817,31 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                 println!("gm: {} mod {}", gm, m);
             }
         }
+    }
+}
+
+pub trait PolynomialGCD: Sized {
+    fn gcd(a: &Self, b: &Self, vars: &[usize], dx: &mut [usize]) -> Self;
+}
+
+impl<E: Exponent> PolynomialGCD for MultivariatePolynomial<i64, E> {
+    fn gcd(
+        a: &MultivariatePolynomial<i64, E>,
+        b: &MultivariatePolynomial<i64, E>,
+        vars: &[usize],
+        dx: &mut [usize],
+    ) -> MultivariatePolynomial<i64, E> {
+        MultivariatePolynomial::gcd_zippel(&a, &b, vars, dx)
+    }
+}
+
+impl<E: Exponent> PolynomialGCD for MultivariatePolynomial<FiniteField, E> {
+    fn gcd(
+        a: &MultivariatePolynomial<FiniteField, E>,
+        b: &MultivariatePolynomial<FiniteField, E>,
+        vars: &[usize],
+        dx: &mut [usize],
+    ) -> MultivariatePolynomial<FiniteField, E> {
+        MultivariatePolynomial::gcd_shape_modular(&a, &b, vars, dx).unwrap()
     }
 }
