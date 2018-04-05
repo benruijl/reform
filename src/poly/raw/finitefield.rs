@@ -3,7 +3,7 @@ use num_traits::{One, Pow, Zero};
 use poly::ring::{MulModNum, ToFiniteField};
 use std::fmt;
 use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
-use tools::{gcd_unsigned, GCD};
+use tools::GCD;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct FiniteField {

@@ -77,6 +77,9 @@ fn construct_new_image<E: Exponent>(
     let mut system = vec![]; // coefficients for the linear system
     let mut ni = 0;
     let mut failure_count = 0;
+
+    let mut rank_failure_count = 0;
+    let mut last_rank = (0, 0);
     'newimage: loop {
         // generate random numbers for all non-leading variables
         let (r, a1, b1) = loop {
@@ -245,10 +248,21 @@ fn construct_new_image<E: Exponent>(
                 println!("Reconstructed {}", gp);
                 return Ok(gp);
             }
-            Err(LinearSolverError::Underdetermined { .. }) => {
+            Err(LinearSolverError::Underdetermined { min_rank, max_rank }) => {
                 println!("Underdetermined system");
-                //TODO: same degree 3 times? bad prime: return Err(GCDError::BadCurrentImage);
-                // else, get more images
+
+                if last_rank == (min_rank, max_rank) {
+                    rank_failure_count += 1;
+
+                    if rank_failure_count == 3 {
+                        println!("Same degrees of freedom encountered 3 times: assuming bad prime/evaluation point");
+                        return Err(GCDError::BadCurrentImage);
+                    }
+                } else {
+                    // update the rank and get new images
+                    rank_failure_count = 0;
+                    last_rank = (min_rank, max_rank);
+                }
             }
             Err(LinearSolverError::Inconsistent) => {
                 println!("Inconsistent system");
