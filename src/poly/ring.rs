@@ -65,7 +65,11 @@ impl ToFiniteField for i64 {
     }
 
     fn from_finite_field(ff: &FiniteField) -> i64 {
-        ff.n as i64
+        if ff.n > ff.p / 2 {
+            ff.n as i64 - ff.p as i64
+        } else {
+            ff.n as i64
+        }
     }
 }
 

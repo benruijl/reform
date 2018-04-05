@@ -741,25 +741,29 @@ impl<E: Exponent> MultivariatePolynomial<i64, E> {
             }
 
             let gpc = gp.lcoeff();
-            let mut gm = gp * (gammap / gpc);
+
+            // construct the gcd suggestion in Z
+            let mut gm = MultivariatePolynomial::with_nvars(gp.nvars);
+            gm.nterms = gp.nterms;
+            gm.exponents = gp.exponents.clone();
+            gm.coefficients = gp.coefficients
+                .iter()
+                .map(|x| i64::from_finite_field(&(x.clone() * gammap / gpc)))
+                .collect();
+
             let mut m = p; // used for CRT
 
             println!("GCD suggestion with gamma: {}", gm);
 
-            let mut old_gm = MultivariatePolynomial::<FiniteField, E>::with_nvars(a.nvars);
+            let mut old_gm = MultivariatePolynomial::with_nvars(a.nvars);
 
             // add new primes until we can reconstruct the full gcd
             'newprime: loop {
-                if gm == old_gm.to_finite_field(m) {
-                    // divide by lcoeff and convert from finite field
-                    let gmc = gm.lcoeff();
-                    let mut gc = MultivariatePolynomial::with_nvars(gm.nvars);
-                    gc.nterms = gm.nterms;
-                    gc.exponents = gm.exponents.clone();
-                    gc.coefficients = gm.coefficients
-                        .iter()
-                        .map(|x| i64::from_finite_field(&(x.clone() / gmc.clone())))
-                        .collect();
+                if gm == old_gm {
+                    // divide by integer content
+                    let gmc = gm.content();
+                    let mut gc = gm.clone();
+                    gc.coefficients = gc.coefficients.iter().map(|x| x.clone() / gmc).collect();
 
                     println!("Final suggested gcd: {}", gc);
                     if a.long_division(&gc).1.is_zero() && b.long_division(&gc).1.is_zero() {
@@ -819,16 +823,18 @@ impl<E: Exponent> MultivariatePolynomial<i64, E> {
                 gp = gp * (gammap / gpc);
                 println!("gp: {}", gp);
 
-                // use chinese remainder theorem to merge coefficients
+                // use chinese remainder theorem to merge coefficients and map back to Z
                 for (gmc, gpc) in gm.coefficients.iter_mut().zip(gp.coefficients) {
-                    *gmc = FiniteField::new(
-                        FiniteField::chinese_remainder(gmc.n, gpc.n, gmc.p, gpc.p),
-                        m * p,
-                    );
+                    let mut coeff = if *gmc < 0 {
+                        (*gmc + m as i64) as usize
+                    } else {
+                        *gmc as usize
+                    };
+                    *gmc = FiniteField::chinese_remainder(coeff, gpc.n, m, gpc.p) as i64;
                 }
 
                 m = m * p;
-                println!("gm: {} mod {}", gm, m);
+                println!("gm: {}", gm);
             }
         }
     }

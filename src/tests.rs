@@ -238,4 +238,31 @@ mod tests {
         assert_eq!(MultivariatePolynomial::<i64, usize>::gcd(&a, &b), res);
     }
 
+    #[test]
+    fn gcd8() {
+        // gcd with multiple scaling
+        //gcd(100-170x-270x^2+12y+30xy+18x^2y,
+        //    100-370x+270x^2+12y+6xy-18x^2y)
+        // = 100-270x+12y+18xy
+        let mut a = MultivariatePolynomial::from_monomial(100, vec![0, 0]);
+        a.append_monomial(-170, vec![1, 0]);
+        a.append_monomial(-270, vec![2, 0]);
+        a.append_monomial(12, vec![0, 1]);
+        a.append_monomial(30, vec![1, 1]);
+        a.append_monomial(18, vec![2, 1]);
+
+        let mut b = MultivariatePolynomial::from_monomial(100, vec![0, 0]);
+        b.append_monomial(-370, vec![1, 0]);
+        b.append_monomial(270, vec![2, 0]);
+        b.append_monomial(12, vec![0, 1]);
+        b.append_monomial(6, vec![1, 1]);
+        b.append_monomial(-18, vec![2, 1]);
+
+        let mut res = MultivariatePolynomial::from_monomial(100, vec![0, 0]);
+        res.append_monomial(-270, vec![1, 0]);
+        res.append_monomial(12, vec![0, 1]);
+        res.append_monomial(18, vec![1, 1]);
+
+        assert_eq!(MultivariatePolynomial::<i64, usize>::gcd(&a, &b), res);
+    }
 }
