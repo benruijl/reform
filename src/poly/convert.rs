@@ -1,5 +1,9 @@
+use num_traits::One;
+use poly::exponent::Exponent;
 use poly::raw::MultivariatePolynomial;
-use structure::{Element, VarName};
+use poly::ring::Ring;
+use std::fmt;
+use structure::{fmt_varname, Element, GlobalVarInfo, VarName};
 
 fn to_monomial(e: &Element, exp: &mut [u64]) -> i64 {
     match *e {
@@ -98,4 +102,65 @@ pub fn to_expression(p: MultivariatePolynomial<i64, u64>) -> Element {
         terms.push(Element::Term(true, factors));
     }
     Element::SubExpr(true, terms)
+}
+
+pub struct PolyPrinter<'a, R: Ring, E: Exponent> {
+    pub poly: &'a MultivariatePolynomial<R, E>,
+    pub var_info: &'a GlobalVarInfo,
+}
+
+impl<'a, R: Ring + fmt::Display, E: Exponent + One + fmt::Display> fmt::Display
+    for PolyPrinter<'a, R, E>
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        self.poly.fmt_output(f, self.var_info)
+    }
+}
+
+impl<R: Ring + fmt::Display, E: Exponent + One + fmt::Display> MultivariatePolynomial<R, E> {
+    fn fmt_output(&self, f: &mut fmt::Formatter, var_info: &GlobalVarInfo) -> fmt::Result {
+        let mut is_first_term = true;
+        for monomial in self {
+            if monomial.coefficient.is_zero() {
+                continue;
+            }
+            let mut is_first_factor = true;
+            if monomial.coefficient.eq(&R::one()) {
+                if !is_first_term {
+                    write!(f, "+")?;
+                }
+            } else if monomial.coefficient.eq(&R::one().neg()) {
+                write!(f, "-")?;
+            } else {
+                if is_first_term {
+                    write!(f, "{}", monomial.coefficient)?;
+                } else {
+                    write!(f, "+{}", monomial.coefficient)?;
+                }
+                is_first_factor = false;
+            }
+            is_first_term = false;
+            for (i, e) in monomial.exponents.into_iter().enumerate() {
+                if e.is_zero() {
+                    continue;
+                }
+                if is_first_factor {
+                    is_first_factor = false;
+                } else {
+                    write!(f, "*")?;
+                }
+                fmt_varname(&(i as VarName), f, var_info)?;
+                if e.ne(&E::one()) {
+                    write!(f, "^{}", e)?;
+                }
+            }
+            if is_first_factor {
+                write!(f, "1")?;
+            }
+        }
+        if is_first_term {
+            write!(f, "0")?;
+        }
+        Ok(())
+    }
 }

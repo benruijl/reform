@@ -1,3 +1,4 @@
+use poly::convert::PolyPrinter;
 use poly::raw::MultivariatePolynomial;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -699,7 +700,7 @@ impl fmt::Display for Statement {
     }
 }
 
-fn fmt_varname(v: &VarName, f: &mut fmt::Formatter, var_info: &GlobalVarInfo) -> fmt::Result {
+pub fn fmt_varname(v: &VarName, f: &mut fmt::Formatter, var_info: &GlobalVarInfo) -> fmt::Result {
     if var_info.inv_name_map.len() == 0 {
         write!(f, "var_{}", v)
     } else {
@@ -859,7 +860,18 @@ impl Element {
                 }
                 write!(f, "")
             }
-            &Element::RationalPolynomialCoefficient(_, ref p) => write!(f, "rat_({},{})", p.0, p.1),
+            &Element::RationalPolynomialCoefficient(_, ref p) => write!(
+                f,
+                "rat_({},{})",
+                PolyPrinter {
+                    poly: &p.0,
+                    var_info: var_info
+                },
+                PolyPrinter {
+                    poly: &p.1,
+                    var_info: var_info
+                }
+            ),
         }
     }
 }
