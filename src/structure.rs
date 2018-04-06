@@ -1,16 +1,19 @@
-use std::mem;
-use std::fmt;
-use streaming::InputTermStreamer;
-use std::collections::HashMap;
-use std::cmp::Ordering;
-use tools::num_cmp;
 use poly::raw::MultivariatePolynomial;
+use std::cmp::Ordering;
+use std::collections::HashMap;
+use std::fmt;
+use std::mem;
+use streaming::InputTermStreamer;
+use tools::num_cmp;
 
-pub const BUILTIN_FUNCTIONS: &'static [&'static str] = &["delta_", "nargs_", "sum_", "mul_"];
+pub const BUILTIN_FUNCTIONS: &'static [&'static str] =
+    &["delta_", "nargs_", "sum_", "mul_", "rat_", "gcd_"];
 pub const FUNCTION_DELTA: VarName = 0;
 pub const FUNCTION_NARGS: VarName = 1;
 pub const FUNCTION_SUM: VarName = 2;
 pub const FUNCTION_MUL: VarName = 3;
+pub const FUNCTION_RAT: VarName = 4;
+pub const FUNCTION_GCD: VarName = 5;
 
 /// Trait for variable ID. Normally `VarName` or `String`.
 pub trait Id: Ord + fmt::Debug {}
@@ -62,6 +65,10 @@ impl GlobalVarInfo {
             name_map: HashMap::new(),
             func_attribs: HashMap::new(),
         }
+    }
+
+    pub fn num_vars(&self) -> usize {
+        self.name_map.len()
     }
 }
 
@@ -292,7 +299,13 @@ pub enum Element<ID: Id = VarName> {
     Term(bool, Vec<Element<ID>>),
     SubExpr(bool, Vec<Element<ID>>),
     Num(bool, bool, u64, u64), // dirty, fraction (true=positive), make sure it is last for sorting
-    RationalPolynomialCoefficient(MultivariatePolynomial<i64, VarName>, Option<MultivariatePolynomial<i64, VarName>>),
+    RationalPolynomialCoefficient(
+        bool,
+        Box<(
+            MultivariatePolynomial<i64, u64>,
+            MultivariatePolynomial<i64, u64>,
+        )>,
+    ),
 }
 
 impl<ID: Id> Default for Element<ID> {
@@ -302,7 +315,11 @@ impl<ID: Id> Default for Element<ID> {
 }
 
 #[macro_export]
-macro_rules! DUMMY_ELEM { () => (Element::Num(false, true, 1, 1)) }
+macro_rules! DUMMY_ELEM {
+    () => {
+        Element::Num(false, true, 1, 1)
+    };
+}
 
 #[derive(Debug, Clone)]
 pub enum Statement<ID: Id = VarName> {
@@ -842,9 +859,7 @@ impl Element {
                 }
                 write!(f, "")
             }
-            &Element::RationalPolynomialCoefficient(ref num, ref _den) => {
-                write!(f, "rat_{}", num)
-            }
+            &Element::RationalPolynomialCoefficient(_, ref p) => write!(f, "rat_({},{})", p.0, p.1),
         }
     }
 }

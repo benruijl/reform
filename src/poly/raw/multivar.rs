@@ -139,6 +139,15 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         a.cmp(b)
     }
 
+    /// Grow the exponent list so the variable index fits in.
+    pub fn grow_to(&mut self, var: usize) {
+        if self.nterms() < var {
+            // move all the exponents
+            self.exponents.resize(var, E::zero());
+            unimplemented!()
+        }
+    }
+
     /// Appends a monomial to the polynomial.
     pub fn append_monomial(&mut self, coefficient: R, mut exponents: Vec<E>) {
         if coefficient.is_zero() {
@@ -750,6 +759,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     }
 
     /// Long division for univariate polynomial.
+    /// FIXME: what to do for multivariate polynomials? We are mostly interested in divide-if-divisible
     pub fn long_division(
         &self,
         div: &MultivariatePolynomial<R, E>,

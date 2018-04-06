@@ -1,17 +1,22 @@
-use std::mem;
-use structure::{Element, FunctionAttributes, GlobalVarInfo, FUNCTION_DELTA, FUNCTION_MUL,
-                FUNCTION_NARGS, FUNCTION_SUM};
-use tools::{add_fractions, add_one, exp_fraction, mul_fractions, normalize_fraction};
-use std::cmp::Ordering;
-use std::ptr;
-use std::ops::{Mul,Add};
 use num_traits::Zero;
+use poly::convert::{to_expression, to_rational_polynomial};
+use poly::raw::MultivariatePolynomial;
+use std::cmp::Ordering;
+use std::mem;
+use std::ptr;
+use structure::{Element, FunctionAttributes, GlobalVarInfo, FUNCTION_DELTA, FUNCTION_GCD,
+                FUNCTION_MUL, FUNCTION_NARGS, FUNCTION_RAT, FUNCTION_SUM};
+use tools::{add_fractions, add_one, exp_fraction, mul_fractions, normalize_fraction};
 
 impl Element {
     // TODO: return iterator over Elements for ground level?
     /// Apply builtin-functions, such as `delta_` and `nargs_`.
     /// This function should be called during normalization.
-    pub fn apply_builtin_functions(&mut self, _ground_level: bool) -> bool {
+    pub fn apply_builtin_functions(
+        &mut self,
+        var_info: &GlobalVarInfo,
+        _ground_level: bool,
+    ) -> bool {
         *self = match *self {
             Element::Fn(_, ref mut n, ref mut a) => {
                 match *n {
@@ -50,6 +55,49 @@ impl Element {
                         } else {
                             return false;
                         }
+                    }
+                    FUNCTION_RAT => {
+                        if a.len() > 2 {
+                            panic!("Polyratfun can have at most two components");
+                        }
+
+                        // convert to polyratfun
+                        // TODO: what to do with variable mappings?
+                        // we don't want an enormous array
+                        if a.len() == 1 {
+                            Element::RationalPolynomialCoefficient(
+                                false,
+                                Box::new((
+                                    to_rational_polynomial(&a[0], var_info.num_vars()),
+                                    MultivariatePolynomial::from_constant_with_nvars(
+                                        1,
+                                        var_info.num_vars(),
+                                    ),
+                                )),
+                            )
+                        } else {
+                            Element::RationalPolynomialCoefficient(
+                                false,
+                                Box::new((
+                                    to_rational_polynomial(&a[0], var_info.num_vars()),
+                                    to_rational_polynomial(&a[1], var_info.num_vars()),
+                                )),
+                            )
+                        }
+                    }
+                    FUNCTION_GCD => {
+                        if a.len() != 2 {
+                            panic!("The GCD function requires two arguments");
+                        }
+                        let gcd = MultivariatePolynomial::gcd(
+                            &to_rational_polynomial(&a[0], var_info.num_vars()),
+                            &to_rational_polynomial(&a[1], var_info.num_vars()),
+                        );
+
+                        // TODO: convert back to a subexpression
+                        let mut res = to_expression(gcd);
+                        res.normalize_inplace(var_info);
+                        res
                     }
                     _ => {
                         return false;
@@ -199,7 +247,7 @@ impl Element {
                         return true;
                     }
                 }
-                changed |= self.apply_builtin_functions(false);
+                changed |= self.apply_builtin_functions(var_info, false);
             }
             Element::Term(dirty, _) => {
                 if !dirty {
@@ -361,13 +409,27 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
     }
 
     // multiply two polyratfuns
-    if let Element::RationalPolynomialCoefficient(ref mut num, ref mut den) = *first {
-        if let Element::RationalPolynomialCoefficient(ref mut num1, ref mut den1) = *sec {
-            *num = num.clone().mul(num1.clone()); // FIXME: do inplace!
+    if let Element::RationalPolynomialCoefficient(ref mut _dirty, ref mut p) = *first {
+        if let Element::RationalPolynomialCoefficient(ref mut _dirty1, ref mut p1) = *sec {
+            let (ref mut num, ref mut den) = &mut **p;
+            let (ref mut num1, ref mut den1) = &mut **p1;
 
-            if *den != None || *den1 != None {
-                unimplemented!();
-            }
+            let g1 = MultivariatePolynomial::gcd(num, den1);
+            let g2 = MultivariatePolynomial::gcd(num1, den);
+
+            let numnew = num.long_division(&g1).0;
+            let num1new = num1.long_division(&g2).0;
+            let dennew = den.long_division(&g2).0;
+            let den1new = den1.long_division(&g1).0;
+
+            *num = numnew * num1new;
+            *den = dennew * den1new;
+
+            let g = MultivariatePolynomial::gcd(num, den);
+
+            *num = num.long_division(&g).0;
+            *den = den.long_division(&g).0;
+
             return true;
         }
     }
@@ -462,21 +524,30 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
             assert!(!t1.is_empty() && !t2.is_empty());
 
             // TODO: implement case where only one term has a polyratfun
-            if let Some(&mut Element::RationalPolynomialCoefficient(ref mut num, ref mut den)) =
+            if let Some(&mut Element::RationalPolynomialCoefficient(ref mut _dirty, ref mut p)) =
                 t1.last_mut()
             {
                 if let Some(&mut Element::RationalPolynomialCoefficient(
-                    ref mut num1,
-                    ref mut den1,
+                    ref mut _dirty1,
+                    ref mut p1,
                 )) = t2.last_mut()
                 {
-                    *num = num.clone().add(num1.clone()); // FIXME: do inplace
+                    let (ref mut num, ref mut den) = &mut **p1; // note the switch
+                    let (ref mut num1, ref mut den1) = &mut **p;
 
-                    if *den1 != None || *den != None {
-                        unimplemented!()
-                    }
+                    // TODO: improve!
+                    let newnum = num.clone() * den1.clone() + num1.clone() * den.clone();
+                    let newden = den.clone() * den1.clone();
+                    let g1 = MultivariatePolynomial::gcd(&newnum, &newden);
+
+                    *num = newnum.long_division(&g1).0;
+                    *den = newden.long_division(&g1).0;
 
                     // TODO: add 0 check
+                    //if num.is_zero() {
+                    //    is_zero = true;
+                    // }
+
                     return true;
                 }
             }
@@ -593,14 +664,19 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
             }
         }
         (
-            &mut Element::RationalPolynomialCoefficient(ref mut num1, ref mut den1),
-            &mut &mut Element::RationalPolynomialCoefficient(ref mut num, ref mut den),
+            &mut Element::RationalPolynomialCoefficient(ref mut _dirty, ref mut p),
+            &mut &mut Element::RationalPolynomialCoefficient(ref mut _dirty1, ref mut p1),
         ) => {
-            *num = num.clone().add(num1.clone()); // FIXME: do inplace
+            let (ref mut num, ref mut den) = &mut **p1;
+            let (ref mut num1, ref mut den1) = &mut **p;
 
-            if *den1 != None || *den != None {
-                unimplemented!()
-            }
+            // TODO: improve!
+            let newnum = num.clone() * den1.clone() + num1.clone() * den.clone();
+            let newden = den.clone() * den1.clone();
+            let g1 = MultivariatePolynomial::gcd(&newnum, &newden);
+
+            *num = newnum.long_division(&g1).0;
+            *den = newden.long_division(&g1).0;
 
             if num.is_zero() {
                 is_zero = true;
