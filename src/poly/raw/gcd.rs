@@ -382,10 +382,10 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                 }
             }
 
-            // In the case of multiple scaling, we need an additional sample
-            // TODO: is this correct?
+            // In the case of multiple scaling, each sample adds an
+            // additional unknown, except for the first
             if single_scale == None {
-                nx += 1;
+                nx = (gv.nterms() - 1) / (gfu.len() - 1);
             }
 
             let mut lc = gv.lcoeff();
@@ -734,10 +734,10 @@ impl<E: Exponent> MultivariatePolynomial<i64, E> {
                 }
             }
 
-            // In the case of multiple scaling, we need an additional sample
-            // TODO: is this correct?
+            // In the case of multiple scaling, each sample adds an
+            // additional unknown, except for the first
             if single_scale == None {
-                nx += 1;
+                nx = (gp.nterms() - 1) / (gfu.len() - 1);
             }
 
             let gpc = gp.lcoeff();
