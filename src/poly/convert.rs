@@ -5,71 +5,70 @@ use poly::ring::Ring;
 use std::fmt;
 use structure::{fmt_varname, Element, GlobalVarInfo, VarName};
 
-fn to_monomial(e: &Element, exp: &mut [u64]) -> i64 {
+fn to_monomial(e: &Element, exp: &mut [u64]) -> Result<i64, String> {
     match *e {
         Element::Var(ref x) => {
             exp[*x as usize] = 1;
-            1
+            Ok(1)
         }
         Element::Num(_, pos, num, 1) => {
             // TODO: fraction should be split
-            if pos {
-                num as i64
-            } else {
-                -(num as i64)
-            }
+            Ok(if pos { num as i64 } else { -(num as i64) })
         }
         Element::Pow(_, ref p) => {
             let (ref b, ref e) = **p;
             if let Element::Var(ref x) = *b {
                 if let Element::Num(_, true, n, 1) = *e {
                     exp[*x as usize] = n;
-                    return 1;
+                    return Ok(1);
                 }
             }
-            panic!("{} not allowed in monomial", e);
+            Err(format!("{} not allowed in monomial", e))
         }
         Element::Term(_, ref args) => {
             let mut c = 1;
             for x in args {
-                c *= to_monomial(x, exp);
+                c *= to_monomial(x, exp)?;
             }
-            c
+            Ok(c)
         }
-        _ => panic!("{} not allowed in monomial", e),
+        _ => Err(format!("{} not allowed in monomial", e)),
     }
 }
 
-pub fn to_rational_polynomial(e: &Element, num_vars: usize) -> MultivariatePolynomial<i64, u64> {
+pub fn to_rational_polynomial(
+    e: &Element,
+    num_vars: usize,
+) -> Result<MultivariatePolynomial<i64, u64>, String> {
     match *e {
         Element::SubExpr(_, ref args) => {
             let mut a = MultivariatePolynomial::with_nvars(num_vars);
             for x in args {
                 let mut exp = vec![0; num_vars];
-                let c = to_monomial(x, &mut exp);
+                let c = to_monomial(x, &mut exp)?;
                 a.append_monomial(c, exp);
             }
-            a
+            Ok(a)
         }
         Element::Var(ref x) => {
             let mut exp = vec![0; num_vars];
             exp[*x as usize] = 1;
-            MultivariatePolynomial::from_monomial(1, exp)
+            Ok(MultivariatePolynomial::from_monomial(1, exp))
         }
-        Element::Num(_, pos, num, 1) => MultivariatePolynomial::from_constant_with_nvars(
-            if pos { num as i64 } else { -(num as i64) }, num_vars)
+        Element::Num(_, pos, num, 1) => Ok(MultivariatePolynomial::from_constant_with_nvars(
+            if pos { num as i64 } else { -(num as i64) }, num_vars))
         , // TODO: fraction should be split
         Element::Term(..) => {
             let mut exp = vec![0; num_vars];
-            let c = to_monomial(e, &mut exp);
-            MultivariatePolynomial::from_monomial(c, exp)
+            let c = to_monomial(e, &mut exp)?;
+            Ok(MultivariatePolynomial::from_monomial(c, exp))
         }
         Element::Pow(..) => {
             let mut exp = vec![0; num_vars];
-            to_monomial(e, &mut exp);
-            MultivariatePolynomial::from_monomial(1, exp)
+            to_monomial(e, &mut exp)?;
+            Ok(MultivariatePolynomial::from_monomial(1, exp))
         }
-        _ => panic!("{} not allowed in polynomial", e),
+        _ => Err(format!("{} not allowed in polynomial", e)),
     }
 }
 

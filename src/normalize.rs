@@ -68,7 +68,7 @@ impl Element {
                             Element::RationalPolynomialCoefficient(
                                 false,
                                 Box::new((
-                                    to_rational_polynomial(&a[0], var_info.num_vars()),
+                                    to_rational_polynomial(&a[0], var_info.num_vars()).unwrap(),
                                     MultivariatePolynomial::from_constant_with_nvars(
                                         1,
                                         var_info.num_vars(),
@@ -79,25 +79,30 @@ impl Element {
                             Element::RationalPolynomialCoefficient(
                                 false,
                                 Box::new((
-                                    to_rational_polynomial(&a[0], var_info.num_vars()),
-                                    to_rational_polynomial(&a[1], var_info.num_vars()),
+                                    to_rational_polynomial(&a[0], var_info.num_vars()).unwrap(),
+                                    to_rational_polynomial(&a[1], var_info.num_vars()).unwrap(),
                                 )),
                             )
                         }
                     }
                     FUNCTION_GCD => {
                         if a.len() != 2 {
-                            panic!("The GCD function requires two arguments");
+                            return false;
                         }
-                        let gcd = MultivariatePolynomial::gcd(
-                            &to_rational_polynomial(&a[0], var_info.num_vars()),
-                            &to_rational_polynomial(&a[1], var_info.num_vars()),
-                        );
 
-                        // TODO: convert back to a subexpression
-                        let mut res = to_expression(gcd);
-                        res.normalize_inplace(var_info);
-                        res
+                        let ar = to_rational_polynomial(&a[0], var_info.num_vars());
+                        let br = to_rational_polynomial(&a[1], var_info.num_vars());
+
+                        if let (Ok(a1), Ok(a2)) = (ar, br) {
+                            let gcd = MultivariatePolynomial::gcd(&a1, &a2);
+
+                            // TODO: convert back to a subexpression
+                            let mut res = to_expression(gcd);
+                            res.normalize_inplace(var_info);
+                            res
+                        } else {
+                            return false;
+                        }
                     }
                     _ => {
                         return false;
@@ -247,6 +252,8 @@ impl Element {
                         return true;
                     }
                 }
+
+                // TODO: only call when the function does not contain wildcards
                 changed |= self.apply_builtin_functions(var_info, false);
             }
             Element::Term(dirty, _) => {
