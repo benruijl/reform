@@ -152,13 +152,34 @@ impl Element {
                                 // x^1 = x
                                 break mem::replace(b, DUMMY_ELEM!());
                             }
-                            Element::Num(_, true, n, 1) => {
+                            Element::Num(_, true, ref mut n, 1) => {
                                 // exponent is a positive integer
                                 // check if some simplification can be made
                                 if let Element::Num(_, mut pos, mut num, mut den) = *b {
                                     // base is a rational number: (p/q)^n = p^n/q^n
-                                    exp_fraction(&mut pos, &mut num, &mut den, n);
+                                    exp_fraction(&mut pos, &mut num, &mut den, *n);
                                     break Element::Num(false, pos, num, den);
+                                }
+
+                                // simplify x^a^b = x^(a*b) where x is a variable
+                                // and a and b are positive integers
+                                // In general, this may be mathematically wrong, e.g.,
+                                //   for x = (-1+i), a = 2, b = 3/2,
+                                //   (x^a)^b = - x^(a*b).
+                                // We need to add more detailed conditions for such a reduction.
+                                let mut newbase = DUMMY_ELEM!();
+                                if let Element::Pow(_, ref mut be1) = *b {
+                                    if let Element::Var(_) = be1.0 {
+                                        if let Element::Num(_, true, n1, 1) = be1.1 {
+                                            newbase = be1.0.clone();
+                                            *n *= n1;
+                                            changed = true;
+                                        }
+                                    }
+                                }
+
+                                if newbase != DUMMY_ELEM!() {
+                                    *b = newbase;
                                 }
                             }
                             Element::Num(_, false, n, 1) => {
@@ -171,11 +192,6 @@ impl Element {
                             }
                             _ => {}
                         };
-                        // TODO: The old code contained reduction of (x^a)^b = x^(a*b).
-                        // This may be mathematically wrong, e.g.,
-                        //   for x = (-1+i), a = 2, b = 3/2,
-                        //   (x^a)^b = - x^(a*b).
-                        // We need more detailed conditions for such a reduction.
                         return changed;
                     }
                 } else {
@@ -444,12 +460,13 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
     // x*x => x^2
     if first == sec {
         *first = Element::Pow(
-            false,
+            true,
             Box::new((
                 mem::replace(first, DUMMY_ELEM!()),
                 Element::Num(false, true, 2, 1),
             )),
         );
+        first.normalize_inplace(var_info);
         return true;
     }
 
