@@ -127,9 +127,8 @@ fn construct_new_image<E: Exponent>(
 
             let mut found = false;
             for t in 0..g1.nterms {
-                // g1 is univariate, so we can compare the maximum degree
-                if g1.exponents(t).iter().max().unwrap().as_() == *d {
-                    scale_factor = coeff / g1.coefficients[0];
+                if g1.exponents(t)[var].as_() == *d {
+                    scale_factor = coeff / g1.coefficients[t];
                     println!("Single scale factor: {}", scale_factor);
                     found = true;
                     break;
