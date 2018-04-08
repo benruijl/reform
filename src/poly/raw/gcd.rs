@@ -494,7 +494,6 @@ where
         MultivariatePolynomial<R, E>: PolynomialGCD,
     {
         assert!(f.len() > 0);
-        println!("Multiple gcds of {:?}", f);
 
         if f.len() == 1 {
             return f[0].clone();
@@ -507,6 +506,7 @@ where
             let a = f[0].clone(); // TODO: take the smallest?
             let mut b = MultivariatePolynomial::with_nvars(a.nvars);
 
+            // TODO: this could cause an overflow in the coefficient
             for p in f.iter().skip(1) {
                 for v in p.into_iter() {
                     b.append_monomial(v.coefficient.mul_num(k), v.exponents.to_vec());

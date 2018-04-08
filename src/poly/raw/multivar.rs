@@ -510,6 +510,16 @@ impl<R: Ring, E: Exponent> Mul for MultivariatePolynomial<R, E> {
     type Output = Self;
 
     fn mul(self, other: Self) -> Self::Output {
+        self * &other
+    }
+}
+
+impl<'a, R: Ring, E: Exponent> Mul<&'a MultivariatePolynomial<R, E>>
+    for MultivariatePolynomial<R, E>
+{
+    type Output = Self;
+
+    fn mul(self, other: &'a MultivariatePolynomial<R, E>) -> Self::Output {
         if self.is_zero() {
             return Self::with_nvars(other.nvars);
         }
@@ -521,7 +531,7 @@ impl<R: Ring, E: Exponent> Mul for MultivariatePolynomial<R, E> {
         }
         // TODO: this is a quick implementation. To be improved.
         let mut new_poly = Self::with_nvars(self.nvars);
-        for m in &other {
+        for m in other {
             let p = self.clone().mul_monomial(m.coefficient, m.exponents);
             new_poly = new_poly.add(p);
         }
@@ -535,7 +545,7 @@ impl<R: Ring, E: Exponent> Mul<R> for MultivariatePolynomial<R, E> {
     fn mul(self, other: R) -> Self::Output {
         let mut res = self.clone();
         for c in &mut res.coefficients {
-            *c = c.clone() * other.clone();
+            *c = c.clone() * other;
         }
         res
     }
@@ -779,12 +789,6 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             {
                 // long division failed!
                 // return the term as the rest
-                println!(
-                    "Long divison failed: {} {}",
-                    r.coefficients.last().unwrap().clone(),
-                    div.coefficients.last().unwrap().clone()
-                );
-
                 return (q, r);
             }
 
