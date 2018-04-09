@@ -367,12 +367,15 @@ impl PartialEq for Element {
 //    }
 //}
 
-// implement a custom partial order that puts
-// x and x*2 next to each other for term sorting
-// and x and x^2 next to each other for
-// coefficients are partially ignored and sorted at the back
 impl Element {
-    pub fn partial_cmp(&self, other: &Element, var_info: &GlobalVarInfo) -> Option<Ordering> {
+    /// A custom partial order that ignores coefficients for
+    /// the ground level, i.e., x and x*2 are considered equal.
+    pub fn partial_cmp(
+        &self,
+        other: &Element,
+        var_info: &GlobalVarInfo,
+        ground_level: bool,
+    ) -> Option<Ordering> {
         match (self, other) {
             (&Element::Fn(_, ref namea, ref argsa), &Element::Fn(_, ref nameb, ref argsb)) => {
                 let k = namea.partial_cmp(nameb);
@@ -393,7 +396,7 @@ impl Element {
                 }
 
                 for (argsaa, argsbb) in argsa.iter().zip(argsb) {
-                    let k = argsaa.partial_cmp(argsbb, var_info);
+                    let k = argsaa.partial_cmp(argsbb, var_info, false);
                     match k {
                         Some(Ordering::Equal) => {}
                         _ => return k,
@@ -413,15 +416,15 @@ impl Element {
             (&Element::Pow(_, ref be1), &Element::Pow(_, ref be2)) => {
                 let (ref b1, ref e1) = **be1;
                 let (ref b2, ref e2) = **be2;
-                let c = b1.partial_cmp(b2, var_info);
+                let c = b1.partial_cmp(b2, var_info, false);
                 match c {
-                    Some(Ordering::Equal) => e1.partial_cmp(e2, var_info),
+                    Some(Ordering::Equal) => e1.partial_cmp(e2, var_info, false),
                     _ => c,
                 }
             }
             (&Element::Pow(_, ref be), _) => {
                 let (ref b, _) = **be;
-                let c = b.partial_cmp(other, var_info);
+                let c = b.partial_cmp(other, var_info, false);
                 match c {
                     Some(Ordering::Equal) => Some(Ordering::Less),
                     _ => c,
@@ -429,7 +432,7 @@ impl Element {
             }
             (_, &Element::Pow(_, ref be)) => {
                 let (ref b, _) = **be;
-                let c = self.partial_cmp(b, var_info);
+                let c = self.partial_cmp(b, var_info, false);
                 match c {
                     Some(Ordering::Equal) => Some(Ordering::Greater),
                     _ => c,
@@ -454,11 +457,13 @@ impl Element {
                 for (taa, tbb) in ta.iter().zip(tb) {
                     if let &Element::Num(..) = taa {
                         if let &Element::Num(..) = tbb {
-                            //continue; // TODO: don't compare numbers on ground level
+                            if ground_level {
+                                continue; // don't compare numbers on ground level
+                            }
                         }
                     }
 
-                    let k = taa.partial_cmp(tbb, var_info);
+                    let k = taa.partial_cmp(tbb, var_info, false);
                     match k {
                         Some(Ordering::Equal) => {}
                         _ => return k,
@@ -469,7 +474,7 @@ impl Element {
             (_, &Element::Term(_, ref t)) => {
                 if t.len() == 2 {
                     if let Element::Num(..) = t[1] {
-                        return self.partial_cmp(&t[0], var_info);
+                        return self.partial_cmp(&t[0], var_info, ground_level);
                     }
                 }
                 Some(Ordering::Less)
@@ -477,7 +482,7 @@ impl Element {
             (&Element::Term(_, ref t), _) => {
                 if t.len() == 2 {
                     if let Element::Num(..) = t[1] {
-                        return t[0].partial_cmp(other, var_info);
+                        return t[0].partial_cmp(other, var_info, ground_level);
                     }
                 }
                 Some(Ordering::Greater)
@@ -490,7 +495,7 @@ impl Element {
                 }
 
                 for (taa, tbb) in ta.iter().zip(tb) {
-                    let k = taa.partial_cmp(tbb, var_info);
+                    let k = taa.partial_cmp(tbb, var_info, false);
                     match k {
                         Some(Ordering::Equal) => {}
                         _ => return k,

@@ -265,7 +265,7 @@ impl Statement {
                 let subs = |n: &VarName, a: &Vec<Element>| {
                     Element::Fn(false, n.clone(), {
                         let mut b = a.clone();
-                        b.sort_by(|a, b| a.partial_cmp(b, &var_info.global_info).unwrap());
+                        b.sort_by(|a, b| a.partial_cmp(b, &var_info.global_info, false).unwrap());
                         b
                     })
                 };
@@ -596,7 +596,9 @@ fn do_module_rec(
                 if let Some(x) = local_var_info.variables.get(d) {
                     match local_var_info.global_variables.entry(d.clone()) {
                         Entry::Occupied(mut y) => {
-                            if let Some(Ordering::Less) = y.get().partial_cmp(x, global_var_info) {
+                            if let Some(Ordering::Less) =
+                                y.get().partial_cmp(x, global_var_info, false)
+                            {
                                 *y.get_mut() = x.clone();
                             }
                         }

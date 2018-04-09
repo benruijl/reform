@@ -1,15 +1,15 @@
-use std::io::prelude::*;
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
+use std::collections::VecDeque;
 use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
+use std::io::prelude::*;
 use std::io::{BufReader, BufWriter, SeekFrom};
-use std::collections::BinaryHeap;
-use std::cmp::Ordering;
 use std::mem;
-use std::collections::VecDeque;
 
-use structure::{Element, ElementPrinter, GlobalVarInfo, Statement, VarInfo};
 use normalize::merge_terms;
+use structure::{Element, ElementPrinter, GlobalVarInfo, Statement, VarInfo};
 
 pub const MAXTERMMEM: usize = 10_000_000; // maximum number of terms allowed in memory
 pub const SMALL_BUFFER: u64 = 100_000; // number of terms before sorting
@@ -20,7 +20,7 @@ struct ElementStreamTuple<'a>(Element, &'a GlobalVarInfo, usize);
 impl<'a> Ord for ElementStreamTuple<'a> {
     fn cmp(&self, other: &ElementStreamTuple) -> Ordering {
         // min order
-        other.0.partial_cmp(&self.0, self.1).unwrap()
+        other.0.partial_cmp(&self.0, self.1, true).unwrap()
     }
 }
 
@@ -272,7 +272,7 @@ impl OutputTermStreamer {
             }
 
             self.mem_buffer
-                .sort_unstable_by(|l, r| l.partial_cmp(r, &var_info.global_info).unwrap());
+                .sort_unstable_by(|l, r| l.partial_cmp(r, &var_info.global_info, true).unwrap());
 
             // write back
             self.sortfiles[x].set_len(0).unwrap(); // delete the contents

@@ -1,9 +1,9 @@
+use std::cmp::Ordering;
 use std::mem;
+use std::ptr;
 use structure::{Element, FunctionAttributes, GlobalVarInfo, FUNCTION_DELTA, FUNCTION_MUL,
                 FUNCTION_NARGS, FUNCTION_SUM};
 use tools::{add_fractions, add_one, exp_fraction, mul_fractions, normalize_fraction};
-use std::cmp::Ordering;
-use std::ptr;
 
 impl Element {
     // TODO: return iterator over Elements for ground level?
@@ -182,7 +182,7 @@ impl Element {
 
                                 if attribs.contains(&FunctionAttributes::Symmetric) {
                                     args.sort_unstable_by(|l, r| {
-                                        l.partial_cmp(r, var_info).unwrap()
+                                        l.partial_cmp(r, var_info, false).unwrap()
                                     });
                                 }
                             }
@@ -233,12 +233,12 @@ impl Element {
                     // sort and merge the terms at the same time
                     if false {
                         if ts.len() > 1 {
-                            changed |= expr_sort(ts, merge_factors, var_info);
+                            changed |= expr_sort(ts, merge_factors, var_info, false);
                         }
                     } else {
                         // TODO: this is faster than expr_sort. presumable because there are fewer
                         // merge_factor calls
-                        ts.sort_unstable_by(|l, r| l.partial_cmp(r, var_info).unwrap());
+                        ts.sort_unstable_by(|l, r| l.partial_cmp(r, var_info, false).unwrap());
 
                         // now merge pows: x^a*x^b = x^(a*b)
                         // x*x^a and x*x, all should be side by side now
@@ -307,12 +307,12 @@ impl Element {
                     }
 
                     // sort and merge the terms at the same time
-                    if false {
-                        changed |= expr_sort(ts, merge_terms, var_info);
+                    if true {
+                        changed |= expr_sort(ts, merge_terms, var_info, true);
                     } else {
                         changed = true; // TODO: tell if changed?
-                        ts.sort_unstable_by(|l, r| l.partial_cmp(r, var_info).unwrap()); // TODO: slow!
-                                                                                         // merge coefficients of similar terms
+                        ts.sort_unstable_by(|l, r| l.partial_cmp(r, var_info, true).unwrap()); // TODO: slow!
+                                                                                               // merge coefficients of similar terms
                         let mut lastindex = 0;
 
                         for i in 1..ts.len() {
@@ -580,7 +580,12 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
 /// Sorts a vector `a`, using the `merger` function to merge identical terms.
 /// This function can be used to sort subexpressions and terms.
 /// Returns true if the vector has been changed.
-pub fn expr_sort<F>(a: &mut Vec<Element>, merger: F, var_info: &GlobalVarInfo) -> bool
+pub fn expr_sort<F>(
+    a: &mut Vec<Element>,
+    merger: F,
+    var_info: &GlobalVarInfo,
+    ground_level: bool,
+) -> bool
 where
     F: Fn(&mut Element, &mut Element, &GlobalVarInfo) -> bool,
 {
@@ -609,7 +614,7 @@ where
         a.swap(writepos, x);
         writepos += 1;
 
-        match a[writepos - 2].partial_cmp(&a[writepos - 1], var_info) {
+        match a[writepos - 2].partial_cmp(&a[writepos - 1], var_info, ground_level) {
             Some(Ordering::Greater) => {
                 if ascenddescendmode == 1 {
                     grouplen.push(groupcount);
@@ -679,6 +684,7 @@ where
                         writepos,
                         &merger,
                         var_info,
+                        ground_level,
                     );
                 } else {
                     newsize = sub_merge_sort(
@@ -690,6 +696,7 @@ where
                         writepos,
                         &merger,
                         var_info,
+                        ground_level,
                     );
                     startpos += grouplen[groupindex * 2] + grouplen[groupindex * 2 + 1];
                 }
@@ -719,6 +726,7 @@ unsafe fn sub_merge_sort<F>(
     mut writepos: *mut Element,
     merger: &F,
     var_info: &GlobalVarInfo,
+    ground_level: bool,
 ) -> usize
 where
     F: Fn(&mut Element, &mut Element, &GlobalVarInfo) -> bool,
@@ -736,7 +744,7 @@ where
 
     while i < right || j < end {
         if i < right && j < end {
-            match (*leftp).partial_cmp(&*rightp, var_info) {
+            match (*leftp).partial_cmp(&*rightp, var_info, ground_level) {
                 Some(Ordering::Greater) => {
                     if lastsource != 1 || !merger(&mut *writepos.offset(-1), &mut *rightp, var_info)
                     {
