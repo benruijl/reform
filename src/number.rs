@@ -3,7 +3,7 @@ use rug::{Integer, Rational};
 use std::fmt;
 use std::ops::{Add, Mul, Sub};
 
-const DOWNGRADE_LIMIT: usize = 4294967296; // if a bigint is smaller than this number, we downgrade
+const DOWNGRADE_LIMIT: Integer = Integer::from(4294967296); // if a bigint is smaller than this number, we downgrade
 
 /// A number is either a small number consisting of machine sized
 /// integers or a big number, using GMP.
@@ -16,6 +16,33 @@ pub enum Number {
     BigInt(Integer),
     SmallRat(isize, isize),
     BigRat(Box<Rational>),
+}
+
+impl Number {
+    fn normalize_inplace(&mut self) -> bool {
+        *self = match *self {
+            Number::SmallInt(i) => return false,
+            Number::SmallRat(ref mut n, ref mut d) => {
+                if *d == 1 {
+                    Number::SmallInt(*n)
+                } else if *d < 0 {
+                    *d = -*d;
+                    *n = -*n;
+                }
+                return false;
+            },
+            Number::BigInt(ref i) => {
+                if i < DOWNGRADE_LIMIT {
+                    Number::SmallInt(i)
+                }
+                return false;
+            },
+            Number::BigRat(ref r) => {
+                unimplemented!();
+            },
+        };
+        true
+    }
 }
 
 impl fmt::Display for Number {
