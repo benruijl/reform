@@ -1,8 +1,8 @@
-use std::mem;
-use std::fmt;
-use streaming::InputTermStreamer;
-use std::collections::HashMap;
 use std::cmp::Ordering;
+use std::collections::HashMap;
+use std::fmt;
+use std::mem;
+use streaming::InputTermStreamer;
 use tools::num_cmp;
 
 pub const BUILTIN_FUNCTIONS: &'static [&'static str] = &["delta_", "nargs_", "sum_", "mul_"];
@@ -300,7 +300,11 @@ impl<ID: Id> Default for Element<ID> {
 }
 
 #[macro_export]
-macro_rules! DUMMY_ELEM { () => (Element::Num(false, true, 1, 1)) }
+macro_rules! DUMMY_ELEM {
+    () => {
+        Element::Num(false, true, 1, 1)
+    };
+}
 
 #[derive(Debug, Clone)]
 pub enum Statement<ID: Id = VarName> {
@@ -309,6 +313,7 @@ pub enum Statement<ID: Id = VarName> {
     SplitArg(ID),
     Repeat(Vec<Statement<ID>>),
     Argument(Element<ID>, Vec<Statement<ID>>),
+    Inside(Element<ID>, Vec<Statement<ID>>),
     IfElse(Element<ID>, Vec<Statement<ID>>, Vec<Statement<ID>>),
     ForIn(Element<ID>, Vec<Element<ID>>, Vec<Statement<ID>>),
     ForInRange(Element<ID>, Element<ID>, Element<ID>, Vec<Statement<ID>>),
@@ -599,6 +604,15 @@ impl fmt::Display for Statement {
                 }
 
                 writeln!(f, "endargument;")
+            }
+            Statement::Inside(ref ff, ref ss) => {
+                writeln!(f, "inside {};", ff)?;
+
+                for s in ss {
+                    write!(f, "\t{}", s)?;
+                }
+
+                writeln!(f, "endinside;")
             }
             Statement::IfElse(ref cond, ref m, ref nm) => if nm.len() == 0 && m.len() == 1 {
                 write!(f, "if (match({})) {};", cond, m[0])
@@ -1014,6 +1028,10 @@ impl Statement<String> {
                 f.to_element(var_info),
                 ss.iter_mut().map(|s| s.to_statement(var_info)).collect(),
             ),
+            Statement::Inside(ref mut f, ref mut ss) => Statement::Inside(
+                f.to_element(var_info),
+                ss.iter_mut().map(|s| s.to_statement(var_info)).collect(),
+            ),
             Statement::IfElse(ref mut e, ref mut ss, ref mut sse) => Statement::IfElse(
                 e.to_element(var_info),
                 ss.iter_mut().map(|s| s.to_statement(var_info)).collect(),
@@ -1101,7 +1119,17 @@ impl Statement {
             Statement::Assign(ref _d, ref mut e) => {
                 // TODO: also change dollar variable?
                 changed |= e.replace_vars(map, dollar_only);
-            },
+            }
+            Statement::Argument(ref _d, ref mut ss) => {
+                for s in ss {
+                    changed |= s.replace_vars(map, dollar_only);
+                }
+            }
+            Statement::Inside(ref _d, ref mut ss) => {
+                for s in ss {
+                    changed |= s.replace_vars(map, dollar_only);
+                }
+            }
             Statement::ForIn(_, ref mut l, ref mut ss) => {
                 for e in l {
                     changed |= e.replace_vars(map, dollar_only);
@@ -1138,6 +1166,9 @@ impl Statement {
                 e.normalize_inplace(var_info);
             }
             Statement::Argument(_, ref mut ss) => for s in ss {
+                s.normalize(var_info);
+            },
+            Statement::Inside(_, ref mut ss) => for s in ss {
                 s.normalize(var_info);
             },
             Statement::Call(_, ref mut ss) => for s in ss {

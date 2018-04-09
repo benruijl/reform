@@ -1,13 +1,13 @@
-use std::io::prelude::*;
 use std::fs::File;
+use std::io::prelude::*;
 use std::str::FromStr;
 use structure::{Element, FunctionAttributes, IdentityStatement, IdentityStatementMode, Module,
                 NumOrder, Procedure, Program, Statement};
 
-use combine::char::*;
-use combine::*;
-use combine::primitives::Stream;
 use combine::State;
+use combine::char::*;
+use combine::primitives::Stream;
+use combine::*;
 
 // parse a reform file
 pub fn parse_file(filename: &str) -> Program {
@@ -200,11 +200,18 @@ parser!{
                          keyword("noncommutative").map(|_| FunctionAttributes::NonCommutative),
                          keyword("nonlocal").map(|_| FunctionAttributes::NonLocal));
 
+    let inside = (keyword("inside").with(factor()),
+        statementend()
+            .with(many(statement()))
+            .skip(keyword("endinside"))
+            .skip(statementend()))
+            .map(|(f, ss)| Statement::Inside(f, ss));
+
     let attrib = (keyword("attrib").with(factor()), lex_char('=').with(
             sep_by(attribs, lex_char('+')).skip(statementend())))
                  .map(|(d,e)| Statement::Attrib(d, e));
 
-    choice!(newexpr,assign, collect, attrib)
+    choice!(newexpr, assign, inside, collect, attrib)
 }
 }
 
@@ -275,6 +282,13 @@ parser!{
             .skip(statementend()))
             .map(|(f, ss)| Statement::Argument(f, ss));
 
+    let inside = (keyword("inside").with(factor()),
+        statementend()
+            .with(many(statement()))
+            .skip(keyword("endinside"))
+            .skip(statementend()))
+            .map(|(f, ss)| Statement::Inside(f, ss));
+
     let forinrange = (keyword("for").with(factor()),
         keyword("in").with(expr()),
         string("..").with(expr()),
@@ -319,6 +333,7 @@ parser!{
         multiply,
         repeat,
         argument,
+        inside,
         idstatement,
         splitarg,
         symmetrize

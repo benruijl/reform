@@ -1,7 +1,7 @@
-use std::mem;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::mem;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time;
@@ -9,10 +9,10 @@ use std::time;
 use crossbeam;
 use crossbeam::sync::MsQueue;
 
-use structure::*;
 use id::{MatchIterator, MatchKind};
 use streaming::MAXTERMMEM;
 use streaming::{InputTermStreamer, OutputTermStreamer};
+use structure::*;
 use tools::exponentiate;
 
 /*
@@ -290,7 +290,7 @@ impl Statement {
                     _ => StatementIter::Simple(mem::replace(input, Element::default()), false),
                 }
             }
-            _ => unreachable!(),
+            _ => panic!("Unexpected statement '{}' at this stage", self),
         }
     }
 }
@@ -420,15 +420,16 @@ fn do_module_rec(
         Statement::Argument(ref func, ref sts) => {
             if let Element::Var(name) = *func {
                 match input {
-                    Element::Fn(_, name1, ref args) => {
+                    Element::Fn(_, name1, ref mut args) => {
                         if name == name1 {
                             // execute the statements
                             let mut newfuncarg = Vec::with_capacity(args.len());
+                            let old_args = mem::replace(args, vec![]);
 
-                            for x in args {
+                            for x in old_args {
                                 let mut tsr = TermStreamWrapper::Owned(vec![]);
                                 do_module_rec(
-                                    x.clone(), // TODO: prevent clone
+                                    x,
                                     sts,
                                     local_var_info,
                                     global_var_info,
@@ -477,7 +478,7 @@ fn do_module_rec(
                                     for x in args {
                                         let mut tsr = TermStreamWrapper::Owned(vec![]);
                                         do_module_rec(
-                                            x.clone(), // TODO: prevent clone
+                                            x,
                                             sts,
                                             local_var_info,
                                             global_var_info,
@@ -543,6 +544,52 @@ fn do_module_rec(
             } else {
                 panic!("Specify the function name as argument to argument.")
             }
+        }
+        // this will create a subrecursion
+        Statement::Inside(ref d, ref sts) => {
+            if let Element::Dollar(name, _) = *d {
+                let mut dollar = mem::replace(
+                    local_var_info
+                        .variables
+                        .get_mut(&name)
+                        .expect("Dollar variable is uninitialized"),
+                    DUMMY_ELEM!(),
+                );
+                let mut tsr = TermStreamWrapper::Owned(vec![]);
+                do_module_rec(
+                    dollar,
+                    sts,
+                    local_var_info,
+                    global_var_info,
+                    0,
+                    &mut vec![false],
+                    &mut tsr,
+                );
+
+                if let TermStreamWrapper::Owned(mut nfa) = tsr {
+                    local_var_info.variables.insert(
+                        name,
+                        match nfa.len() {
+                            0 => Element::Num(false, true, 0, 1),
+                            1 => nfa.swap_remove(0),
+                            _ => {
+                                let mut sub = Element::SubExpr(true, nfa);
+                                sub.normalize_inplace(global_var_info);
+                                sub
+                            }
+                        },
+                    );
+                }
+            }
+            return do_module_rec(
+                input,
+                statements,
+                local_var_info,
+                global_var_info,
+                current_index + 1,
+                term_affected,
+                output,
+            );
         }
         Statement::Maximum(ref dollar) => {
             if let Element::Dollar(ref d, ..) = *dollar {
@@ -686,6 +733,12 @@ impl Module {
                     let mut linarg = vec![];
                     Module::statements_to_control_flow_stat(ss, var_info, procedures, &mut linarg);
                     output.push(Statement::Argument(f.clone(), linarg));
+                }
+                Statement::Inside(ref f, ref mut ss) => {
+                    // keep the substructure
+                    let mut linarg = vec![];
+                    Module::statements_to_control_flow_stat(ss, var_info, procedures, &mut linarg);
+                    output.push(Statement::Inside(f.clone(), linarg));
                 }
                 Statement::IfElse(ref prod, ref mut m, ref mut nm) => {
                     let pos = output.len();
@@ -858,6 +911,58 @@ impl Module {
                     ee.normalize_inplace(&var_info.global_info);
                     if let Element::Dollar(ref d, ..) = *dollar {
                         var_info.local_info.add_dollar(d.clone(), ee);
+                    }
+                }
+                // this will create a subrecursion
+                Statement::Inside(ref d, ref mut sts) => {
+                    if let Element::Dollar(name, _) = *d {
+                        let mut dollar = mem::replace(
+                            var_info
+                                .local_info
+                                .variables
+                                .get_mut(&name)
+                                .expect("Dollar variable is uninitialized"),
+                            DUMMY_ELEM!(),
+                        );
+
+                        // normalize the statements
+                        let mut old_statements = mem::replace(sts, vec![]);
+                        Module::statements_to_control_flow_stat(
+                            &mut old_statements,
+                            var_info,
+                            procedures,
+                            sts,
+                        );
+
+                        for x in sts.iter_mut() {
+                            x.normalize(&var_info.global_info);
+                        }
+
+                        let mut tsr = TermStreamWrapper::Owned(vec![]);
+                        do_module_rec(
+                            dollar,
+                            sts,
+                            &mut var_info.local_info,
+                            &var_info.global_info,
+                            0,
+                            &mut vec![false],
+                            &mut tsr,
+                        );
+
+                        if let TermStreamWrapper::Owned(mut nfa) = tsr {
+                            var_info.local_info.variables.insert(
+                                name,
+                                match nfa.len() {
+                                    0 => Element::Num(false, true, 0, 1),
+                                    1 => nfa.swap_remove(0),
+                                    _ => {
+                                        let mut sub = Element::SubExpr(true, nfa);
+                                        sub.normalize_inplace(&var_info.global_info);
+                                        sub
+                                    }
+                                },
+                            );
+                        }
                     }
                 }
                 Statement::Attrib(ref f, ref attribs) => match *f {
