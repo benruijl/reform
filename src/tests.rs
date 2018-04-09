@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use module;
+    use number::Number;
     use parser;
 
     #[test]
@@ -31,4 +32,12 @@ mod tests {
         module::do_program(&mut program, false, 0, 1);
         assert_eq!(program.get_result("F"), "720");
     }
+
+    #[test]
+    fn bigint() {
+        let a = Number::SmallInt(300000000000);
+        let b = Number::SmallInt(500000000000);
+        println!("{:?}", a * b);
+    }
+
 }

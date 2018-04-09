@@ -5,6 +5,8 @@ use std::mem;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time;
+use num_traits::{Zero, One};
+use number::Number;
 
 use crossbeam;
 use crossbeam::sync::MsQueue;
@@ -101,28 +103,30 @@ impl Element {
 
                 let (eb, ee) = (b.expand(var_info), e.expand(var_info));
 
-                if let Element::Num(_, true, n, 1) = ee {
-                    if let Element::SubExpr(_, ref t) = eb {
-                        let mut e = exponentiate(t, n);
-                        e.normalize_inplace(var_info);
-                        return e.expand(var_info);
-                    }
+                if let Element::Num(_, Number::SmallInt(n)) = ee {
+                    if n > 0 {
+                        if let Element::SubExpr(_, ref t) = eb {
+                            let mut e = exponentiate(t, n as u64);
+                            e.normalize_inplace(var_info);
+                            return e.expand(var_info);
+                        }
 
-                    //  (x*y)^z -> x^z*y^z
-                    if let Element::Term(_, t) = eb {
-                        let mut e = Element::Term(
-                            true,
-                            t.iter()
-                                .map(|x| {
-                                    Element::Pow(
-                                        true,
-                                        Box::new((x.clone(), Element::Num(false, true, n, 1))),
-                                    )
-                                })
-                                .collect(),
-                        );
-                        e.normalize_inplace(var_info);
-                        return e.expand(var_info);
+                        //  (x*y)^z -> x^z*y^z
+                        if let Element::Term(_, t) = eb {
+                            let mut e = Element::Term(
+                                true,
+                                t.iter()
+                                    .map(|x| {
+                                        Element::Pow(
+                                            true,
+                                            Box::new((x.clone(), Element::Num(false, Number::SmallInt(n)))),
+                                        )
+                                    })
+                                    .collect(),
+                            );
+                            e.normalize_inplace(var_info);
+                            return e.expand(var_info);
+                        }
                     }
                 }
 
@@ -304,8 +308,10 @@ fn do_module_rec(
     term_affected: &mut Vec<bool>,
     output: &mut TermStreamWrapper,
 ) {
-    if let Element::Num(_, true, 0, 1) = input {
-        return; // drop 0
+    if let Element::Num(_, ref n) = input {
+        if n.is_zero() {
+            return; // drop 0
+        }
     }
     if current_index == statements.len() {
         output.add_term(input, global_var_info);
@@ -440,7 +446,7 @@ fn do_module_rec(
 
                                 if let TermStreamWrapper::Owned(mut nfa) = tsr {
                                     match nfa.len() {
-                                        0 => newfuncarg.push(Element::Num(false, true, 0, 1)),
+                                        0 => newfuncarg.push(Element::Num(false, Number::zero())),
                                         1 => newfuncarg.push(nfa.swap_remove(0)),
                                         _ => {
                                             let mut sub = Element::SubExpr(true, nfa);
@@ -490,7 +496,7 @@ fn do_module_rec(
                                         if let TermStreamWrapper::Owned(mut nfa) = tsr {
                                             match nfa.len() {
                                                 0 => {
-                                                    newfuncarg.push(Element::Num(false, true, 0, 1))
+                                                    newfuncarg.push(Element::Num(false, Number::zero()))
                                                 }
                                                 1 => newfuncarg.push(nfa.swap_remove(0)),
                                                 _ => {
@@ -570,7 +576,7 @@ fn do_module_rec(
                     local_var_info.variables.insert(
                         name,
                         match nfa.len() {
-                            0 => Element::Num(false, true, 0, 1),
+                            0 => Element::Num(false, Number::zero()),
                             1 => nfa.swap_remove(0),
                             _ => {
                                 let mut sub = Element::SubExpr(true, nfa);
@@ -760,27 +766,15 @@ impl Module {
                 }
                 Statement::ForInRange(ref d, ref mut l, ref mut u, ref mut s) => {
                     if let Element::Dollar(dd, _) = *d {
-                        let mut replace_map = HashMap::new();
-
                         l.normalize_inplace(&var_info.global_info);
                         u.normalize_inplace(&var_info.global_info);
 
-                        if let Element::Num(_, pos, num, 1) = *l {
-                            if let Element::Num(_, pos2, num2, 1) = *u {
-                                let li: isize = if pos { num as isize } else { -(num as isize) };
-                                let ui: isize = if pos2 {
-                                    num2 as isize
-                                } else {
-                                    -(num2 as isize)
-                                };
-
+                        let mut replace_map = HashMap::new();
+                        if let Element::Num(_, Number::SmallInt(li)) = *l {
+                            if let Element::Num(_, Number::SmallInt(ui)) = *u {
                                 // unroll the loop
                                 for ll in li..ui {
-                                    let lle = if ll < 0 {
-                                        Element::Num(false, false, -ll as u64, 1)
-                                    } else {
-                                        Element::Num(false, true, ll as u64, 1)
-                                    };
+                                    let lle = Element::Num(false, Number::SmallInt(ll));
                                     replace_map.insert(dd, lle);
                                     for ss in s.iter() {
                                         let mut news = ss.clone();
@@ -955,7 +949,7 @@ impl Module {
                             var_info.local_info.variables.insert(
                                 name,
                                 match nfa.len() {
-                                    0 => Element::Num(false, true, 0, 1),
+                                    0 => Element::Num(false, Number::zero()),
                                     1 => nfa.swap_remove(0),
                                     _ => {
                                         let mut sub = Element::SubExpr(true, nfa);

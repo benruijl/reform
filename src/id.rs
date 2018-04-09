@@ -1,7 +1,7 @@
-use structure::{BorrowedVarInfo, Element, FunctionAttributes, IdentityStatement,
-                IdentityStatementMode, StatementResult, VarName};
 use std::fmt;
 use std::mem;
+use structure::{BorrowedVarInfo, Element, FunctionAttributes, IdentityStatement,
+                IdentityStatementMode, StatementResult, VarName};
 use tools::{is_number_in_range, Heap, SliceRef};
 
 pub const MAXMATCH: usize = 1_000_000; // maximum number of matches
@@ -323,23 +323,19 @@ impl Element {
                 }
             }
             (&Element::Var(ref i1), &Element::Var(ref i2)) if i1 == i2 => ElementIterSingle::Once,
-            (
-                &Element::Num(_, ref pos1, ref num1, ref den1),
-                &Element::Num(_, ref pos2, ref num2, ref den2),
-            ) if pos1 == pos2 && num1 == num2 && den1 == den2 =>
-            {
+            (&Element::Num(_, ref n1), &Element::Num(_, ref n2)) if n1 == n2 => {
                 ElementIterSingle::Once
             }
-            (&Element::Num(_, ref pos, ref num, ref den), &Element::Wildcard(ref i2, ref rest)) => {
+            (&Element::Num(_, ref n), &Element::Wildcard(ref i2, ref rest)) => {
                 if rest.is_empty() {
                     return ElementIterSingle::OnceMatch(i2, target);
                 }
 
                 for restriction in rest {
                     match restriction {
-                        &Element::NumberRange(ref pos1, ref num1, ref den1, ref rel) => {
+                        &Element::NumberRange(ref num1, ref rel) => {
                             // see if the number is in the range
-                            if is_number_in_range(*pos, *num, *den, *pos1, *num1, *den1, rel) {
+                            if is_number_in_range(n, num1, rel) {
                                 return ElementIterSingle::OnceMatch(i2, target);
                             }
                         }

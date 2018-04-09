@@ -3,6 +3,7 @@ use std::io::prelude::*;
 use std::str::FromStr;
 use structure::{Element, FunctionAttributes, IdentityStatement, IdentityStatementMode, Module,
                 NumOrder, Procedure, Program, Statement};
+use number::Number;
 
 use combine::State;
 use combine::char::*;
@@ -347,10 +348,10 @@ parser!{
 {
     (
         optional(char('-')).map(|x| x.is_none()),
-        many1(digit()).map(|d: String| d.parse::<u64>().unwrap()),
+        many1(digit()).map(|d: String| d.parse::<isize>().unwrap()),
         optional(char('/').with(many1(digit())))
-            .map(|x| x.map(|y: String| y.parse::<u64>().unwrap()).unwrap_or(1)),
-    ).map(|(sign, num, den): (bool, u64, u64)| Element::Num(true, sign, num, den))
+            .map(|x| x.map(|y: String| y.parse::<isize>().unwrap()).unwrap_or(1)),
+    ).map(|(sign, num, den): (bool, isize, isize)| Element::Num(true, Number::SmallRat(if sign { num } else { -num }, den)))
         .skip(skipnocode())
 }
 }
@@ -369,7 +370,7 @@ parser!{
         string("<").map(|_| NumOrder::Smaller)
     ).skip(spaces());
     let numrange = (numorder, number()).map(|(r, b)| match b {
-        Element::Num(_, pos, num, den) => Element::NumberRange(pos, num, den, r),
+        Element::Num(_, num) => Element::NumberRange(num, r),
         _ => unreachable!(),
     });
     let set = between(
@@ -447,8 +448,8 @@ parser!{
         .with(choice!(parenexpr(), terms()))
         .map(|mut x| {
             match x {
-                Element::Term(_, ref mut f) => f.push(Element::Num(false, false, 1, 1)),
-                _ => x = Element::Term(true, vec![x, Element::Num(false, false, 1, 1)]),
+                Element::Term(_, ref mut f) => f.push(Element::Num(false, Number::SmallInt(-1))),
+                _ => x = Element::Term(true, vec![x, Element::Num(false, Number::SmallInt(-1))]),
             };
             x
         })

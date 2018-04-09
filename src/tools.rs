@@ -1,3 +1,6 @@
+use num_traits::One;
+use number::Number;
+use std::cmp::Ordering;
 use structure::{Element, NumOrder};
 
 // a SliceRef has either a borrowed slice,
@@ -94,8 +97,22 @@ pub fn gcd(mut a: u64, mut b: u64) -> u64 {
     b
 }
 
+pub fn gcdi(mut a: isize, mut b: isize) -> isize {
+    let mut c;
+    while a != 0 {
+        c = a;
+        a = b % a;
+        b = c;
+    }
+    b.abs()
+}
+
 pub fn lcm(a: u64, b: u64) -> u64 {
     (a / gcd(a, b)) * b
+}
+
+pub fn lcmi(a: isize, b: isize) -> isize {
+    (a / gcdi(a, b)) * b
 }
 
 pub fn normalize_fraction(pos: &mut bool, num: &mut u64, den: &mut u64) {
@@ -234,24 +251,16 @@ pub fn num_cmp(
     NumOrder::Greater
 }
 
-pub fn is_number_in_range(
-    pos: bool,
-    num: u64,
-    den: u64,
-    pos1: bool,
-    num1: u64,
-    den1: u64,
-    rel: &NumOrder,
-) -> bool {
-    let rel1 = num_cmp(pos, num, den, pos1, num1, den1);
+pub fn is_number_in_range(num: &Number, num1: &Number, rel: &NumOrder) -> bool {
+    let rel1 = num.partial_cmp(num1).unwrap();
     match (rel, rel1) {
-        (&NumOrder::Greater, NumOrder::Greater)
-        | (&NumOrder::GreaterEqual, NumOrder::Greater)
-        | (&NumOrder::GreaterEqual, NumOrder::Equal)
-        | (&NumOrder::Smaller, NumOrder::Smaller)
-        | (&NumOrder::SmallerEqual, NumOrder::Smaller)
-        | (&NumOrder::SmallerEqual, NumOrder::Equal)
-        | (&NumOrder::Equal, NumOrder::Equal) => true,
+        (&NumOrder::Greater, Ordering::Greater)
+        | (&NumOrder::GreaterEqual, Ordering::Greater)
+        | (&NumOrder::GreaterEqual, Ordering::Equal)
+        | (&NumOrder::Smaller, Ordering::Less)
+        | (&NumOrder::SmallerEqual, Ordering::Less)
+        | (&NumOrder::SmallerEqual, Ordering::Equal)
+        | (&NumOrder::Equal, Ordering::Equal) => true,
         _ => false,
     }
 }
@@ -276,12 +285,14 @@ pub fn exponentiate(factors: &[Element], pow: u64) -> Element {
     if factors.is_empty() {
         return Element::SubExpr(
             true,
-            vec![Element::Term(true, vec![Element::Num(false, true, 1, 1)])],
+            vec![
+                Element::Term(true, vec![Element::Num(false, Number::one())]),
+            ],
         );
     }
 
-    let exp = |i, res: &mut Vec<_>| {
-        let cmb = ncr(pow, i as u64);
+    let exp = |i: u64, res: &mut Vec<_>| {
+        let cmb = ncr(pow, i);
         match exponentiate(&factors[1..], pow - i) {
             Element::SubExpr(_, ts) => for x in ts {
                 match x {
@@ -289,9 +300,12 @@ pub fn exponentiate(factors: &[Element], pow: u64) -> Element {
                         if i > 0 {
                             fs.push(Element::Pow(
                                 true,
-                                Box::new((factors[0].clone(), Element::Num(false, true, i, 1))),
+                                Box::new((
+                                    factors[0].clone(),
+                                    Element::Num(false, Number::SmallInt(i as isize)),
+                                )),
                             ));
-                            fs.push(Element::Num(false, true, cmb, 1));
+                            fs.push(Element::Num(false, Number::SmallInt(cmb as isize)));
                         }
                         res.push(Element::Term(true, fs));
                     }
@@ -307,7 +321,7 @@ pub fn exponentiate(factors: &[Element], pow: u64) -> Element {
         exp(pow, &mut res);
     } else {
         for i in 0..pow + 1 {
-            exp(i, &mut res);
+            exp(i as u64, &mut res);
         }
     }
 

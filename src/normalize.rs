@@ -1,9 +1,10 @@
+use num_traits::{One, Pow, Zero};
+use number::Number;
 use std::cmp::Ordering;
 use std::mem;
 use std::ptr;
 use structure::{Element, FunctionAttributes, GlobalVarInfo, FUNCTION_DELTA, FUNCTION_MUL,
                 FUNCTION_NARGS, FUNCTION_SUM};
-use tools::{add_fractions, add_one, exp_fraction, mul_fractions, normalize_fraction};
 
 impl Element {
     // TODO: return iterator over Elements for ground level?
@@ -16,8 +17,10 @@ impl Element {
                     FUNCTION_DELTA => {
                         if a.len() == 1 {
                             match a[0] {
-                                Element::Num(_, _, 0, _) => Element::Num(false, true, 1, 1),
-                                _ => Element::Num(false, true, 0, 1),
+                                Element::Num(_, Number::SmallInt(0)) => {
+                                    Element::Num(false, Number::one())
+                                }
+                                _ => Element::Num(false, Number::zero()),
                             }
                         } else {
                             return false;
@@ -25,16 +28,22 @@ impl Element {
                     }
                     FUNCTION_NARGS => {
                         // get the number of arguments
-                        Element::Num(false, true, a.len() as u64, 1)
+                        Element::Num(false, Number::SmallInt(a.len() as isize))
                     }
                     FUNCTION_SUM | FUNCTION_MUL => {
                         if a.len() == 4 {
                             match (&a[1], &a[2]) {
-                                (&Element::Num(_, true, n1, 1), &Element::Num(_, true, n2, 1)) => {
+                                (
+                                    &Element::Num(_, Number::SmallInt(n1)),
+                                    &Element::Num(_, Number::SmallInt(n2)),
+                                ) => {
                                     let mut terms = vec![];
                                     for i in n1..n2 {
                                         let mut ne = a[3].clone();
-                                        ne.replace(&a[0], &Element::Num(false, true, i, 1));
+                                        ne.replace(
+                                            &a[0],
+                                            &Element::Num(false, Number::SmallInt(i)),
+                                        );
                                         terms.push(ne);
                                     }
                                     if *n == FUNCTION_SUM {
@@ -63,16 +72,18 @@ impl Element {
     pub fn normalize_inplace(&mut self, var_info: &GlobalVarInfo) -> bool {
         let mut changed = false;
         match *self {
-            Element::Num(ref mut dirty, ref mut pos, ref mut num, ref mut den) => {
+            Element::Num(ref mut dirty, ref mut num) => {
                 if *dirty {
-                    normalize_fraction(pos, num, den);
                     *dirty = false;
-                    changed = true;
+                    changed |= num.normalize_inplace()
                 }
             }
             Element::Wildcard(_, ref mut restriction) => for x in restriction {
                 changed |= x.normalize_inplace(var_info);
             },
+            Element::NumberRange(ref mut n1, ..) => {
+                changed |= n1.normalize_inplace();
+            }
             Element::Pow(dirty, ..) => {
                 if !dirty {
                     return false;
@@ -89,31 +100,31 @@ impl Element {
                     // for now. (See also rust-lang/rfcs#2046.)
                     loop {
                         match *e {
-                            Element::Num(_, _, 0, _) => {
+                            Element::Num(_, Number::SmallInt(0)) => {
                                 // x^0 = 1
-                                break Element::Num(false, true, 1, 1);
+                                break Element::Num(false, Number::one());
                             }
-                            Element::Num(_, true, 1, 1) => {
+                            Element::Num(_, Number::SmallInt(1)) => {
                                 // x^1 = x
                                 break mem::replace(b, DUMMY_ELEM!());
                             }
-                            Element::Num(_, true, n, 1) => {
+                            Element::Num(_, Number::SmallInt(n)) if n > 0 => {
                                 // exponent is a positive integer
                                 // check if some simplification can be made
-                                if let Element::Num(_, mut pos, mut num, mut den) = *b {
+
+                                if let Element::Num(_, ref mut num) = *b {
                                     // base is a rational number: (p/q)^n = p^n/q^n
-                                    exp_fraction(&mut pos, &mut num, &mut den, n);
-                                    break Element::Num(false, pos, num, den);
+                                    break Element::Num(false, num.clone().pow(n as u32));
                                 }
                             }
-                            Element::Num(_, false, n, 1) => {
+                            Element::Num(_, Number::SmallInt(n)) if n < 0 => {
+                                unimplemented!();
                                 // exponent is a negative integer
-                                if let Element::Num(_, mut pos, mut num, mut den) = *b {
+                                /*if let Element::Num(_, mut pos, mut num, mut den) = *b {
                                     // base is a rational number: (p/q)^(-n) = q^n/p^n
                                     exp_fraction(&mut pos, &mut num, &mut den, n);
                                     break Element::Num(false, pos, den, num);
-                                }
-                            }
+                                }*/                            }
                             _ => {}
                         };
                         // TODO: The old code contained reduction of (x^a)^b = x^(a*b).
@@ -255,10 +266,10 @@ impl Element {
                         }
                         ts.truncate(lastindex + 1);
 
-                        if let Some(&Element::Num(_, pos, num, den)) = ts.last() {
-                            match (pos, num, den) {
-                                (_, 0, _) => ts.clear(),
-                                (true, 1, 1) if ts.len() > 1 => {
+                        if let Some(Element::Num(_, num)) = ts.last().cloned() {
+                            match num {
+                                Number::SmallInt(0) => ts.clear(),
+                                Number::SmallInt(1) if ts.len() > 1 => {
                                     ts.pop();
                                 } // don't add a factor
                                 _ => {}
@@ -269,7 +280,7 @@ impl Element {
                     //ts.shrink_to_fit(); // make sure we keep memory in check
 
                     match ts.len() {
-                        0 => Element::Num(false, true, 0, 1),
+                        0 => Element::Num(false, Number::zero()),
                         1 => ts.swap_remove(0), // downgrade
                         _ => return changed,
                     }
@@ -328,7 +339,7 @@ impl Element {
                     }
 
                     match ts.len() {
-                        0 => Element::Num(false, true, 0, 1),
+                        0 => Element::Num(false, Number::zero()),
                         1 => ts.swap_remove(0),
                         _ => return changed,
                     }
@@ -346,9 +357,9 @@ impl Element {
 pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVarInfo) -> bool {
     let mut changed = false;
 
-    if let Element::Num(_, ref mut pos, ref mut num, ref mut den) = *first {
-        if let Element::Num(_, pos1, num1, den1) = *sec {
-            mul_fractions(pos, num, den, pos1, num1, den1);
+    if let Element::Num(_, ref mut num) = *first {
+        if let Element::Num(_, ref mut num1) = *sec {
+            *num *= mem::replace(num1, DUMMY_NUM!());
             return true;
         }
         return false;
@@ -364,7 +375,7 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
             false,
             Box::new((
                 mem::replace(first, DUMMY_ELEM!()),
-                Element::Num(false, true, 2, 1),
+                Element::Num(false, Number::SmallInt(2)),
             )),
         );
         return true;
@@ -406,8 +417,8 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
             // e2 should become e2 + 1
             // avoid borrow checker error
             let mut addone = true;
-            if let Element::Num(_, ref mut pos, ref mut num, ref mut den) = *e2 {
-                add_one(pos, num, den);
+            if let Element::Num(_, ref mut num) = *e2 {
+                *num += Number::one();
                 addone = false;
             }
             if addone {
@@ -415,7 +426,7 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
                     true,
                     vec![
                         mem::replace(e2, DUMMY_ELEM!()),
-                        Element::Num(false, true, 1, 1),
+                        Element::Num(false, Number::one()),
                     ],
                 );
             }
@@ -431,11 +442,11 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
 // returns true if merged
 pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &GlobalVarInfo) -> bool {
     // filter +0
-    if let Element::Num(_, _, 0, _) = *sec {
+    if let Element::Num(_, Number::SmallInt(0)) = *sec {
         return true;
     }
 
-    if let Element::Num(_, _, 0, _) = *first {
+    if let Element::Num(_, Number::SmallInt(0)) = *first {
         mem::swap(first, sec);
         return true;
     }
@@ -447,23 +458,13 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
             // treat the case where the term doesn't have a coefficient
             assert!(!t1.is_empty() && !t2.is_empty());
 
-            let mut pos1;
-            let mut num1;
-            let mut den1;
+            let mut num1 = Number::one();
             {
                 let (mut l1, l11) = t1.split_at(t1.len() - 1);
-                match l11[0] {
-                    Element::Num(_, pos, num, den) => {
-                        pos1 = pos;
-                        num1 = num;
-                        den1 = den;
-                    }
-                    _ => {
-                        l1 = t1;
-                        pos1 = true;
-                        num1 = 1;
-                        den1 = 1;
-                    }
+                if let Element::Num(_, ref num) = l11[0] {
+                    num1 = num.clone();
+                } else {
+                    l1 = t1;
                 }
 
                 {
@@ -480,26 +481,24 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
             t1.clear(); // remove the old data
             *d2 = false;
             // should we add the terms?
-            if let Some(&mut Element::Num(_, ref mut pos, ref mut num, ref mut den)) = t2.last_mut()
-            {
-                add_fractions(pos, num, den, pos1, num1, den1);
+            if let Some(&mut Element::Num(_, ref mut num)) = t2.last_mut() {
+                *num += num1.clone(); // FIXME: avoid a borrow checker error
 
                 // if 0, we return an empty term
-                if *num == 0 {
+                if num.is_zero() {
                     is_zero = true;
                 } else {
                     return true;
                 }
             }
 
-            // add 1
             if !is_zero {
-                add_one(&mut pos1, &mut num1, &mut den1);
-                t2.push(Element::Num(false, pos1, num1, den1));
-
-                if num1 == 0 {
+                // add one
+                num1 += Number::one();
+                if num1.is_zero() {
                     is_zero = true;
                 }
+                t2.push(Element::Num(false, num1));
             }
         }
         // x + x/2
@@ -508,16 +507,13 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
             assert!(!t2.is_empty());
 
             if **a == t2[0] && t2.len() == 2 {
-                match t2[1] {
-                    Element::Num(_, ref mut pos, ref mut num, ref mut den) => {
-                        add_one(pos, num, den);
-                        if *num == 0 {
-                            is_zero = true;
-                        }
+                if let Element::Num(_, ref mut num) = t2[1] {
+                    *num += Number::one();
+                    if num.is_zero() {
+                        is_zero = true;
                     }
-                    _ => {
-                        return false;
-                    }
+                } else {
+                    return false;
                 }
             } else {
                 return false;
@@ -527,34 +523,25 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
             assert!(!t2.is_empty());
 
             if ***a == t2[0] && t2.len() == 2 {
-                match t2[1] {
-                    Element::Num(_, mut pos, mut num, mut den) => {
-                        add_one(&mut pos, &mut num, &mut den);
-                        if num == 0 {
-                            is_zero = true;
-                        }
-                        ***a = Element::Term(
-                            false,
-                            vec![
-                                mem::replace(a, DUMMY_ELEM!()),
-                                Element::Num(false, pos, num, den),
-                            ],
-                        );
+                if let Element::Num(_, ref num) = t2[1] {
+                    let nn = num.clone() + Number::one();
+                    if nn.is_zero() {
+                        is_zero = true;
                     }
-                    _ => {
-                        return false;
-                    }
+                    ***a = Element::Term(
+                        false,
+                        vec![mem::replace(a, DUMMY_ELEM!()), Element::Num(false, nn)],
+                    );
+                } else {
+                    return false;
                 }
             } else {
                 return false;
             }
         }
-        (
-            &mut Element::Num(_, pos1, num1, den1),
-            &mut &mut Element::Num(_, ref mut pos, ref mut num, ref mut den),
-        ) => {
-            add_fractions(pos, num, den, pos1, num1, den1);
-            if *num == 0 {
+        (&mut Element::Num(_, ref mut num1), &mut &mut Element::Num(_, ref mut num)) => {
+            *num += mem::replace(num1, DUMMY_NUM!());
+            if num.is_zero() {
                 is_zero = true;
             }
         }
@@ -563,7 +550,7 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
                 false,
                 vec![
                     mem::replace(a2, DUMMY_ELEM!()),
-                    Element::Num(false, true, 2, 1),
+                    Element::Num(false, Number::SmallInt(2)),
                 ],
             )
         }
@@ -571,7 +558,7 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
     }
 
     if is_zero {
-        *first = Element::Num(false, true, 0, 1);
+        *first = Element::Num(false, Number::zero());
     }
 
     true
