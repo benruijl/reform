@@ -15,7 +15,7 @@ pub enum Number {
     SmallInt(isize),
     BigInt(Integer),
     SmallRat(isize, isize),
-    BigRat(Rational),
+    BigRat(Box<Rational>),
 }
 
 impl fmt::Display for Number {
