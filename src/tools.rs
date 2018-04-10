@@ -97,6 +97,16 @@ pub fn gcd(mut a: u64, mut b: u64) -> u64 {
     b
 }
 
+pub fn gcdi(mut a: isize, mut b: isize) -> isize {
+    let mut c;
+    while a != 0 {
+        c = a;
+        a = b % a;
+        b = c;
+    }
+    b.abs()
+}
+
 pub fn lcm(a: u64, b: u64) -> u64 {
     (a / gcd(a, b)) * b
 }

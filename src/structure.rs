@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::fmt;
 use std::mem;
 use streaming::InputTermStreamer;
-use tools::num_cmp;
 
 pub const BUILTIN_FUNCTIONS: &'static [&'static str] = &["delta_", "nargs_", "sum_", "mul_"];
 pub const FUNCTION_DELTA: VarName = 0;
@@ -288,7 +287,7 @@ pub enum Element<ID: Id = VarName> {
     Dollar(ID, Option<Box<Element<ID>>>),       // $x[y]
     Var(ID),                                    // x
     Pow(bool, Box<(Element<ID>, Element<ID>)>), // (1+x)^3; dirty, base, exponent
-    NumberRange(Number, NumOrder),      // >0, <=-5/2
+    NumberRange(Number, NumOrder),              // >0, <=-5/2
     Fn(bool, ID, Vec<Element<ID>>),             // f(...)
     Term(bool, Vec<Element<ID>>),
     SubExpr(bool, Vec<Element<ID>>),
@@ -768,9 +767,7 @@ impl Element {
                 fmt_varname(name, f, var_info)
             }
             &Element::Num(_, ref n) => write!(f, "{}", n),
-            &Element::NumberRange(ref num, ref rel) => {
-                write!(f, "{}{}", num, rel)
-            }
+            &Element::NumberRange(ref num, ref rel) => write!(f, "{}{}", num, rel),
             &Element::Pow(_, ref be) => {
                 let (ref b, ref e) = **be;
                 match *b {

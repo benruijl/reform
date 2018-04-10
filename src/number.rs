@@ -1,11 +1,10 @@
 use num_traits;
-use num_traits::{One, Zero};
+use num_traits::{checked_pow, One, Zero};
 use rug::{Integer, Rational};
 use std::cmp::Ordering;
 use std::fmt;
 use std::ops::{Add, AddAssign, Mul, MulAssign, Sub};
-
-use tools::{add_fractions, add_one, exp_fraction, mul_fractions, normalize_fraction};
+use tools::gcdi;
 
 #[macro_export]
 macro_rules! DUMMY_NUM {
@@ -32,7 +31,7 @@ pub enum Number {
 impl Number {
     pub fn normalize_inplace(&mut self) -> bool {
         *self = match *self {
-            Number::SmallInt(i) => return false,
+            Number::SmallInt(_) => return false,
             Number::SmallRat(ref mut n, ref mut d) => {
                 if *d == 1 {
                     Number::SmallInt(*n)
@@ -45,14 +44,17 @@ impl Number {
                 }
             }
             Number::BigInt(ref i) => {
-                if *i < DOWNGRADE_LIMIT && *i > -DOWNGRADE_LIMIT  {
+                if *i < DOWNGRADE_LIMIT && *i > -DOWNGRADE_LIMIT {
                     Number::SmallInt(i.to_isize().expect("Number too large to downgrade"))
                 } else {
                     return false;
                 }
             }
-            Number::BigRat(ref r) => {
-                unimplemented!();
+            Number::BigRat(ref mut r) => {
+                if *r.denom() != 1 {
+                    return false;
+                }
+                Number::BigInt(r.numer().clone()) // FIXME: prevent clone
             }
         };
         true
@@ -106,20 +108,31 @@ impl PartialOrd for Number {
         match (self, rhs) {
             (&SmallInt(ref i1), SmallInt(ref i2)) => i1.partial_cmp(i2),
             (&SmallInt(ref i1), BigInt(ref i2)) => Integer::from(i1.clone()).partial_cmp(i2),
-            (&SmallInt(ref i1), SmallRat(n2, d2)) => unimplemented!(),
+            (&SmallInt(ref i1), SmallRat(n2, d2)) => (i1 * d2).partial_cmp(n2), // TODO: check for overflow
             (&SmallInt(ref i1), BigRat(ref f2)) => unimplemented!(),
-            (&BigInt(ref i1), SmallInt(i2)) => unimplemented!(),
+            (&BigInt(ref i1), SmallInt(i2)) => i1.partial_cmp(&Integer::from(*i2)),
             (&BigInt(ref i1), BigInt(ref i2)) => i1.partial_cmp(i2),
             (&BigInt(ref i1), SmallRat(n2, d2)) => unimplemented!(),
-            (&BigInt(ref i1), BigRat(ref f2)) => unimplemented!(),
-            (&SmallRat(n1, d1), SmallInt(i2)) => unimplemented!(),
+            (&BigInt(ref i1), BigRat(ref f2)) => i1.partial_cmp(&**f2),
+            (&SmallRat(n1, d1), SmallInt(i2)) => n1.partial_cmp(&(i2 * d1)), // TODO: check for overflow
             (&SmallRat(n1, d1), BigInt(ref i2)) => unimplemented!(),
-            (&SmallRat(n1, d1), SmallRat(n2, d2)) => unimplemented!(),
+            (&SmallRat(n1, d1), SmallRat(n2, d2)) => {
+                // TODO: improve
+                if n1 < 0 && *n2 > 0 {
+                    return Some(Ordering::Less);
+                }
+                if n1 > 0 && *n2 < 0 {
+                    return Some(Ordering::Greater);
+                }
+
+                (Number::SmallInt(n1) * Number::SmallInt(*d2))
+                    .partial_cmp(&(Number::SmallInt(*n2) * Number::SmallInt(d1)))
+            }
             (&SmallRat(n1, d1), BigRat(ref f2)) => unimplemented!(),
             (&BigRat(ref f1), SmallInt(i2)) => unimplemented!(),
             (&BigRat(ref f1), BigInt(ref i2)) => unimplemented!(),
             (&BigRat(ref f1), SmallRat(n2, d2)) => unimplemented!(),
-            (&BigRat(ref f1), BigRat(ref f2)) => unimplemented!(),
+            (&BigRat(ref f1), BigRat(ref f2)) => f1.partial_cmp(f2),
         }
     }
 }
@@ -148,7 +161,7 @@ impl Add for Number {
             (BigRat(f1), SmallInt(i2)) => unimplemented!(),
             (BigRat(f1), BigInt(i2)) => unimplemented!(),
             (BigRat(f1), SmallRat(n2, d2)) => unimplemented!(),
-            (BigRat(f1), BigRat(f2)) => unimplemented!(),
+            (BigRat(f1), BigRat(f2)) => BigRat(Box::new(*f1 + *f2)),
         }
     }
 }
@@ -177,7 +190,7 @@ impl Sub for Number {
             (BigRat(f1), SmallInt(i2)) => unimplemented!(),
             (BigRat(f1), BigInt(i2)) => unimplemented!(),
             (BigRat(f1), SmallRat(n2, d2)) => unimplemented!(),
-            (BigRat(f1), BigRat(f2)) => unimplemented!(),
+            (BigRat(f1), BigRat(f2)) => BigRat(Box::new(*f1 - *f2)),
         }
     }
 }
@@ -192,21 +205,61 @@ impl Mul for Number {
                 Some(x) => SmallInt(x),
                 None => BigInt(Integer::from(i1) * Integer::from(i2)),
             },
-            (SmallInt(i1), BigInt(i2)) => BigInt(Integer::from(i1) * i2),
-            (SmallInt(i1), SmallRat(n2, d2)) => unimplemented!(),
-            (SmallInt(i1), BigRat(f2)) => unimplemented!(),
-            (BigInt(i1), SmallInt(i2)) => unimplemented!(),
+            (SmallInt(i1), BigInt(i2)) | (BigInt(i2), SmallInt(i1)) => {
+                BigInt(Integer::from(i1) * i2)
+            }
+            (SmallInt(i1), SmallRat(n2, mut d2)) | (SmallRat(n2, mut d2), SmallInt(i1)) => {
+                let gcd = gcdi(i1, d2);
+                d2 /= gcd;
+
+                match n2.checked_mul(i1 / gcd) {
+                    Some(x) => if d2 == 1 {
+                        Number::SmallInt(x)
+                    } else {
+                        Number::SmallRat(x, d2)
+                    },
+                    None => if d2 == 1 {
+                        Number::BigInt(Integer::from(n2) * Integer::from(i1 / gcd))
+                    } else {
+                        Number::BigRat(Box::new(Rational::from((
+                            Integer::from(n2) * Integer::from(i1 / gcd),
+                            d2,
+                        ))))
+                    },
+                }
+            }
+            (SmallRat(n1, d1), SmallRat(n2, d2)) => {
+                let gcd1 = gcdi(n1, d2);
+                let gcd2 = gcdi(n2, d1);
+
+                match (n2 / gcd2).checked_mul(n1 / gcd1) {
+                    Some(nn) => match (d1 / gcd2).checked_mul(d2 / gcd1) {
+                        Some(nd) => Number::SmallRat(nn, nd),
+                        None => Number::BigRat(Box::new(Rational::from((
+                            nn,
+                            Integer::from(d1 / gcd2) * Integer::from(d2 / gcd1),
+                        )))),
+                    },
+                    None => Number::BigRat(Box::new(Rational::from((
+                        Integer::from(n1 / gcd1) * Integer::from(n2 / gcd2),
+                        Integer::from(d1 / gcd2) * Integer::from(d2 / gcd1),
+                    )))),
+                }
+            }
+            (SmallInt(i1), BigRat(f2)) | (BigRat(f2), SmallInt(i1)) => {
+                Number::BigRat(Box::new(*f2 * Rational::from(i1)))
+            }
             (BigInt(i1), BigInt(i2)) => BigInt(i1 * i2),
-            (BigInt(i1), SmallRat(n2, d2)) => unimplemented!(),
-            (BigInt(i1), BigRat(f2)) => unimplemented!(),
-            (SmallRat(n1, d1), SmallInt(i2)) => unimplemented!(),
-            (SmallRat(n1, d1), BigInt(i2)) => unimplemented!(),
-            (SmallRat(n1, d1), SmallRat(n2, d2)) => unimplemented!(),
-            (SmallRat(n1, d1), BigRat(f2)) => unimplemented!(),
-            (BigRat(f1), SmallInt(i2)) => unimplemented!(),
-            (BigRat(f1), BigInt(i2)) => unimplemented!(),
-            (BigRat(f1), SmallRat(n2, d2)) => unimplemented!(),
-            (BigRat(f1), BigRat(f2)) => unimplemented!(),
+            (BigInt(i1), SmallRat(n2, d2)) | (SmallRat(n2, d2), BigInt(i1)) => {
+                Number::BigRat(Box::new(Rational::from(i1) * Rational::from((n2, d2))))
+            }
+            (BigInt(i1), BigRat(f2)) | (BigRat(f2), BigInt(i1)) => {
+                Number::BigRat(Box::new(*f2 * Rational::from(i1)))
+            }
+            (BigRat(f1), SmallRat(n2, d2)) | (SmallRat(n2, d2), BigRat(f1)) => {
+                Number::BigRat(Box::new(*f1 * Rational::from((n2, d2))))
+            }
+            (BigRat(f1), BigRat(f2)) => BigRat(Box::new(*f1 * *f2)),
         }
     }
 }
@@ -218,7 +271,10 @@ impl num_traits::Pow<u32> for Number {
         use self::Number::*;
         use rug::ops::Pow;
         match self {
-            SmallInt(i) => SmallInt(i.pow(rhs)),
+            SmallInt(i) => match checked_pow(i, rhs as usize) {
+                Some(x) => SmallInt(x),
+                None => BigInt(Integer::from(i).pow(rhs)),
+            },
             BigInt(i) => BigInt(i.pow(rhs)),
             SmallRat(n, d) => unimplemented!(),
             BigRat(f) => BigRat(Box::new(f.pow(rhs))),
@@ -254,8 +310,7 @@ impl MulAssign for Number {
             (BigRat(ref mut f1), BigInt(i2)) => unimplemented!(),
             (BigRat(ref mut f1), SmallRat(n2, d2)) => unimplemented!(),
             (BigRat(ref mut f1), BigRat(f2)) => unimplemented!(),
-        };*/
-    }
+        };*/    }
 }
 
 impl AddAssign for Number {
@@ -285,6 +340,5 @@ impl AddAssign for Number {
             (BigRat(f1), BigInt(i2)) => unimplemented!(),
             (BigRat(f1), SmallRat(n2, d2)) => unimplemented!(),
             (BigRat(f1), BigRat(f2)) => unimplemented!(),
-        };*/
-    }
+        };*/    }
 }
