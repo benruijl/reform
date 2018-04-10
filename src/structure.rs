@@ -288,7 +288,7 @@ pub enum Element<ID: Id = VarName> {
     Dollar(ID, Option<Box<Element<ID>>>),       // $x[y]
     Var(ID),                                    // x
     Pow(bool, Box<(Element<ID>, Element<ID>)>), // (1+x)^3; dirty, base, exponent
-    NumberRange(bool, u64, u64, NumOrder),      // >0, <=-5/2
+    NumberRange(Number, NumOrder),      // >0, <=-5/2
     Fn(bool, ID, Vec<Element<ID>>),             // f(...)
     Term(bool, Vec<Element<ID>>),
     SubExpr(bool, Vec<Element<ID>>),
@@ -768,13 +768,8 @@ impl Element {
                 fmt_varname(name, f, var_info)
             }
             &Element::Num(_, ref n) => write!(f, "{}", n),
-            &Element::NumberRange(ref pos, ref num, ref den, ref rel) => {
-                write!(f, "{}", rel)?;
-                if *den == 1 {
-                    write!(f, "{}{}", if *pos { "" } else { "-" }, num)
-                } else {
-                    write!(f, "{}{}/{}", if *pos { "" } else { "-" }, num, den)
-                }
+            &Element::NumberRange(ref num, ref rel) => {
+                write!(f, "{}{}", num, rel)
             }
             &Element::Pow(_, ref be) => {
                 let (ref b, ref e) = **be;
@@ -863,7 +858,7 @@ impl Element<String> {
     /// Replaces string names by numerical IDs.
     pub fn to_element(&mut self, var_info: &mut VarInfo) -> Element {
         match *self {
-            Element::NumberRange(s, n, d, ref c) => Element::NumberRange(s, n, d, c.clone()),
+            Element::NumberRange(ref n, ref c) => Element::NumberRange(n.clone(), c.clone()),
             Element::Num(_, ref n) => Element::Num(true, n.clone()),
             Element::Dollar(ref mut name, ref mut inds) => {
                 Element::Dollar(var_info.get_name(name), {

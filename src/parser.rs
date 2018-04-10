@@ -370,7 +370,7 @@ parser!{
         string("<").map(|_| NumOrder::Smaller)
     ).skip(spaces());
     let numrange = (numorder, number()).map(|(r, b)| match b {
-        Element::Num(_, num) => unimplemented!(),// Element::NumberRange(pos, num, den, r),
+        Element::Num(_, num) => Element::NumberRange(num, r),
         _ => unreachable!(),
     });
     let set = between(

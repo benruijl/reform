@@ -1,6 +1,7 @@
 use structure::{Element, NumOrder};
 use number::Number;
 use num_traits::One;
+use std::cmp::Ordering;
 
 // a SliceRef has either a borrowed slice,
 // or a vector of borrowed arguments.
@@ -237,23 +238,19 @@ pub fn num_cmp(
 }
 
 pub fn is_number_in_range(
-    pos: bool,
-    num: u64,
-    den: u64,
-    pos1: bool,
-    num1: u64,
-    den1: u64,
+    num: &Number,
+    num1: &Number,
     rel: &NumOrder,
 ) -> bool {
-    let rel1 = num_cmp(pos, num, den, pos1, num1, den1);
+    let rel1 = num.partial_cmp(num1).unwrap();
     match (rel, rel1) {
-        (&NumOrder::Greater, NumOrder::Greater)
-        | (&NumOrder::GreaterEqual, NumOrder::Greater)
-        | (&NumOrder::GreaterEqual, NumOrder::Equal)
-        | (&NumOrder::Smaller, NumOrder::Smaller)
-        | (&NumOrder::SmallerEqual, NumOrder::Smaller)
-        | (&NumOrder::SmallerEqual, NumOrder::Equal)
-        | (&NumOrder::Equal, NumOrder::Equal) => true,
+        (&NumOrder::Greater, Ordering::Greater)
+        | (&NumOrder::GreaterEqual, Ordering::Greater)
+        | (&NumOrder::GreaterEqual, Ordering::Equal)
+        | (&NumOrder::Smaller, Ordering::Less)
+        | (&NumOrder::SmallerEqual, Ordering::Less)
+        | (&NumOrder::SmallerEqual, Ordering::Equal)
+        | (&NumOrder::Equal, Ordering::Equal) => true,
         _ => false,
     }
 }

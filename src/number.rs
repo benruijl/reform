@@ -11,7 +11,7 @@ macro_rules! DUMMY_NUM {
     };
 }
 
-const DOWNGRADE_LIMIT: usize = 4294967296; // if a bigint is smaller than this number, we downgrade
+const DOWNGRADE_LIMIT: isize = 4294967296; // if a bigint is smaller than this number, we downgrade
 
 /// A number is either a small number consisting of machine sized
 /// integers or a big number, using GMP.
@@ -42,7 +42,7 @@ impl Number {
                 }
             }
             Number::BigInt(ref i) => {
-                if *i < DOWNGRADE_LIMIT {
+                if *i < DOWNGRADE_LIMIT && *i > -DOWNGRADE_LIMIT  {
                     Number::SmallInt(i.to_isize().expect("Number too large to downgrade"))
                 } else {
                     return false;
@@ -210,37 +210,40 @@ impl Mul for Number {
 
 impl MulAssign for Number {
     fn mul_assign(&mut self, rhs: Number) {
+        *self = self.clone() * rhs; // FIXME
+        /*
         use self::Number::*;
-        *self = match &mut (self, &rhs) {
-            (&mut SmallInt(i1), SmallInt(i2)) => match i1.checked_mul(*i2) {
+        *self = match (&*self, rhs) {
+            (SmallInt(i1), SmallInt(i2)) => match i1.checked_mul(i2) {
                 Some(x) => SmallInt(x),
-                None => BigInt(Integer::from(i1) * Integer::from(*i2)),
+                None => BigInt(Integer::from(*i1) * Integer::from(i2)),
             },
-            (&mut SmallInt(i1), BigInt(ref mut i2)) => BigInt(Integer::from(i1) * *i2),
-            (&mut SmallInt(i1), SmallRat(n2, d2)) => unimplemented!(),
-            (&mut SmallInt(i1), BigRat(f2)) => unimplemented!(),
-            (&mut BigInt(ref mut i1), SmallInt(i2)) => unimplemented!(),
-            (&mut BigInt(ref mut i1), BigInt(i2)) => {
-                *i1 *= *i2;
+            (SmallInt(i1), BigInt(i2)) => BigInt(Integer::from(*i1) * i2),
+            (SmallInt(i1), SmallRat(n2, d2)) => unimplemented!(),
+            (SmallInt(i1), BigRat(f2)) => unimplemented!(),
+            (BigInt(ref mut i1), SmallInt(i2)) => unimplemented!(),
+            (BigInt(ref mut i1), BigInt(i2)) => {
+                *i1 *= i2;
                 return;
             }
-            (&mut BigInt(ref mut i1), SmallRat(n2, d2)) => unimplemented!(),
-            (&mut BigInt(ref mut i1), BigRat(f2)) => unimplemented!(),
-            (&mut SmallRat(n1, d1), SmallInt(i2)) => unimplemented!(),
-            (&mut SmallRat(n1, d1), BigInt(i2)) => unimplemented!(),
-            (&mut SmallRat(n1, d1), SmallRat(n2, d2)) => unimplemented!(),
-            (&mut SmallRat(n1, d1), BigRat(f2)) => unimplemented!(),
-            (&mut BigRat(ref mut f1), SmallInt(i2)) => unimplemented!(),
-            (&mut BigRat(ref mut f1), BigInt(i2)) => unimplemented!(),
-            (&mut BigRat(ref mut f1), SmallRat(n2, d2)) => unimplemented!(),
-            (&mut BigRat(ref mut f1), BigRat(f2)) => unimplemented!(),
-        };
+            (BigInt(ref mut i1), SmallRat(n2, d2)) => unimplemented!(),
+            (BigInt(ref mut i1), BigRat(f2)) => unimplemented!(),
+            (SmallRat(n1, d1), SmallInt(i2)) => unimplemented!(),
+            (SmallRat(n1, d1), BigInt(i2)) => unimplemented!(),
+            (SmallRat(n1, d1), SmallRat(n2, d2)) => unimplemented!(),
+            (SmallRat(n1, d1), BigRat(f2)) => unimplemented!(),
+            (BigRat(ref mut f1), SmallInt(i2)) => unimplemented!(),
+            (BigRat(ref mut f1), BigInt(i2)) => unimplemented!(),
+            (BigRat(ref mut f1), SmallRat(n2, d2)) => unimplemented!(),
+            (BigRat(ref mut f1), BigRat(f2)) => unimplemented!(),
+        };*/
     }
 }
 
 impl AddAssign for Number {
     fn add_assign(&mut self, rhs: Number) {
-        use self::Number::*;
+        *self = self.clone() + rhs; // FIXME
+        /*use self::Number::*;
         *self = match (&mut self, &rhs) {
             (SmallInt(i1), SmallInt(i2)) => match i1.checked_add(*i2) {
                 Some(x) => SmallInt(x),
@@ -264,6 +267,6 @@ impl AddAssign for Number {
             (BigRat(f1), BigInt(i2)) => unimplemented!(),
             (BigRat(f1), SmallRat(n2, d2)) => unimplemented!(),
             (BigRat(f1), BigRat(f2)) => unimplemented!(),
-        };
+        };*/
     }
 }

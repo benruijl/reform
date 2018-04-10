@@ -333,12 +333,11 @@ impl Element {
 
                 for restriction in rest {
                     match restriction {
-                        &Element::NumberRange(ref pos1, ref num1, ref den1, ref rel) => {
-                            unimplemented!();
+                        &Element::NumberRange(ref num1, ref rel) => {
                             // see if the number is in the range
-                            /*if is_number_in_range(*pos, *num, *den, *pos1, *num1, *den1, rel) {
+                            if is_number_in_range(n, num1, rel) {
                                 return ElementIterSingle::OnceMatch(i2, target);
-                            }*/
+                            }
                         }
                         _ if restriction == target => {
                             return ElementIterSingle::OnceMatch(i2, target)

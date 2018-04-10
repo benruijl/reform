@@ -81,6 +81,9 @@ impl Element {
             Element::Wildcard(_, ref mut restriction) => for x in restriction {
                 changed |= x.normalize_inplace(var_info);
             },
+            Element::NumberRange(ref mut n1, ..) => {
+                changed |= n1.normalize_inplace();
+            }
             Element::Pow(dirty, ..) => {
                 if !dirty {
                     return false;
@@ -265,8 +268,8 @@ impl Element {
                         }
                         ts.truncate(lastindex + 1);
 
-                        if let Some(&Element::Num(_, ref num)) = ts.last() {
-                            match *num {
+                        if let Some(Element::Num(_, num)) = ts.last().cloned() {
+                            match num {
                                 Number::SmallInt(0) => ts.clear(),
                                 Number::SmallInt(1) if ts.len() > 1 => {
                                     ts.pop();
