@@ -74,6 +74,7 @@ impl Element {
         match *self {
             Element::Num(ref mut dirty, ref mut num) => {
                 if *dirty {
+                    *dirty = false;
                     changed |= num.normalize_inplace()
                 }
             }

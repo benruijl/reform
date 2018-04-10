@@ -1,9 +1,9 @@
-use structure::*;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Error, Read, Write};
+use structure::*;
 
 // TODO: replace by mem::discriminant when it stabilizes
-const NUM_ID: u8 = 1;
+const _NUM_ID: u8 = 1;
 const VAR_ID: u8 = 2;
 const FN_ID: u8 = 3;
 const TERM_ID: u8 = 4;
@@ -32,15 +32,14 @@ impl Element {
     // convert a normalized Element to a linear representation
     pub fn serialize(&self, buffer: &mut Write) -> usize {
         match *self {
-            Element::Num(false, ref num) => {
-                unimplemented!();
+            Element::Num(false, ref _num) => {
+                unimplemented!("Serialization not implemented for generic number");
                 // TODO: use varint for compression?
                 /*buffer.write_u8(NUM_ID).unwrap();
                 buffer.write_u8(pos as u8).unwrap();
                 buffer.write_u64::<LittleEndian>(num).unwrap();
                 buffer.write_u64::<LittleEndian>(den).unwrap();
-                18*/
-            }
+                18*/            }
             Element::Fn(false, ref name, ref args) => {
                 buffer.write_u8(FN_ID).unwrap();
                 buffer.write_u32::<LittleEndian>(*name).unwrap();

@@ -1,7 +1,7 @@
-use structure::{Element, NumOrder};
-use number::Number;
 use num_traits::One;
+use number::Number;
 use std::cmp::Ordering;
+use structure::{Element, NumOrder};
 
 // a SliceRef has either a borrowed slice,
 // or a vector of borrowed arguments.
@@ -109,6 +109,10 @@ pub fn gcdi(mut a: isize, mut b: isize) -> isize {
 
 pub fn lcm(a: u64, b: u64) -> u64 {
     (a / gcd(a, b)) * b
+}
+
+pub fn lcmi(a: isize, b: isize) -> isize {
+    (a / gcdi(a, b)) * b
 }
 
 pub fn normalize_fraction(pos: &mut bool, num: &mut u64, den: &mut u64) {
@@ -247,11 +251,7 @@ pub fn num_cmp(
     NumOrder::Greater
 }
 
-pub fn is_number_in_range(
-    num: &Number,
-    num1: &Number,
-    rel: &NumOrder,
-) -> bool {
+pub fn is_number_in_range(num: &Number, num1: &Number, rel: &NumOrder) -> bool {
     let rel1 = num.partial_cmp(num1).unwrap();
     match (rel, rel1) {
         (&NumOrder::Greater, Ordering::Greater)
@@ -285,7 +285,9 @@ pub fn exponentiate(factors: &[Element], pow: u64) -> Element {
     if factors.is_empty() {
         return Element::SubExpr(
             true,
-            vec![Element::Term(true, vec![Element::Num(false, Number::one())])],
+            vec![
+                Element::Term(true, vec![Element::Num(false, Number::one())]),
+            ],
         );
     }
 
@@ -298,7 +300,10 @@ pub fn exponentiate(factors: &[Element], pow: u64) -> Element {
                         if i > 0 {
                             fs.push(Element::Pow(
                                 true,
-                                Box::new((factors[0].clone(), Element::Num(false, Number::SmallInt(i as isize)))),
+                                Box::new((
+                                    factors[0].clone(),
+                                    Element::Num(false, Number::SmallInt(i as isize)),
+                                )),
                             ));
                             fs.push(Element::Num(false, Number::SmallInt(cmb as isize)));
                         }

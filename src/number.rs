@@ -3,7 +3,7 @@ use num_traits::{checked_pow, One, Zero};
 use rug::{Integer, Rational};
 use std::cmp::Ordering;
 use std::fmt;
-use std::ops::{Add, AddAssign, Mul, MulAssign, Sub};
+use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub};
 use tools::gcdi;
 
 #[macro_export]
@@ -81,7 +81,7 @@ impl Zero for Number {
         match *self {
             Number::SmallInt(i) => i == 0,
             Number::BigInt(ref i) => *i == 0, // TODO: is this fast?
-            Number::SmallRat(n, d) => n == 0,
+            Number::SmallRat(n, _d) => n == 0,
             Number::BigRat(ref f) => *f.numer() == 0 && *f.denom() == 1,
         }
     }
@@ -96,8 +96,21 @@ impl One for Number {
         match *self {
             Number::SmallInt(i) => i == 1,
             Number::BigInt(ref i) => *i == 1,
-            Number::SmallRat(n, d) => n == 1,
+            Number::SmallRat(n, _d) => n == 1,
             Number::BigRat(ref f) => *f.numer() == 1 && *f.denom() == 1,
+        }
+    }
+}
+
+impl Neg for Number {
+    type Output = Number;
+
+    fn neg(self) -> Self::Output {
+        match self {
+            Number::SmallInt(i) => Number::SmallInt(-i),
+            Number::BigInt(i) => Number::BigInt(-i),
+            Number::SmallRat(n, d) => Number::SmallRat(-n, d),
+            Number::BigRat(f) => Number::BigRat(Box::new(-*f)),
         }
     }
 }
@@ -109,13 +122,13 @@ impl PartialOrd for Number {
             (&SmallInt(ref i1), SmallInt(ref i2)) => i1.partial_cmp(i2),
             (&SmallInt(ref i1), BigInt(ref i2)) => Integer::from(i1.clone()).partial_cmp(i2),
             (&SmallInt(ref i1), SmallRat(n2, d2)) => (i1 * d2).partial_cmp(n2), // TODO: check for overflow
-            (&SmallInt(ref i1), BigRat(ref f2)) => unimplemented!(),
+            (&SmallInt(ref i1), BigRat(ref f2)) => Rational::from(*i1).partial_cmp(&**f2),
             (&BigInt(ref i1), SmallInt(i2)) => i1.partial_cmp(&Integer::from(*i2)),
             (&BigInt(ref i1), BigInt(ref i2)) => i1.partial_cmp(i2),
-            (&BigInt(ref i1), SmallRat(n2, d2)) => unimplemented!(),
+            (&BigInt(ref i1), SmallRat(n2, d2)) => (i1 * Integer::from(*d2)).partial_cmp(n2),
             (&BigInt(ref i1), BigRat(ref f2)) => i1.partial_cmp(&**f2),
             (&SmallRat(n1, d1), SmallInt(i2)) => n1.partial_cmp(&(i2 * d1)), // TODO: check for overflow
-            (&SmallRat(n1, d1), BigInt(ref i2)) => unimplemented!(),
+            (&SmallRat(n1, d1), BigInt(ref i2)) => n1.partial_cmp(&(i2 * Integer::from(d1))),
             (&SmallRat(n1, d1), SmallRat(n2, d2)) => {
                 // TODO: improve
                 if n1 < 0 && *n2 > 0 {
@@ -128,10 +141,10 @@ impl PartialOrd for Number {
                 (Number::SmallInt(n1) * Number::SmallInt(*d2))
                     .partial_cmp(&(Number::SmallInt(*n2) * Number::SmallInt(d1)))
             }
-            (&SmallRat(n1, d1), BigRat(ref f2)) => unimplemented!(),
-            (&BigRat(ref f1), SmallInt(i2)) => unimplemented!(),
-            (&BigRat(ref f1), BigInt(ref i2)) => unimplemented!(),
-            (&BigRat(ref f1), SmallRat(n2, d2)) => unimplemented!(),
+            (&SmallRat(n1, d1), BigRat(ref f2)) => Rational::from((n1, d1)).partial_cmp(&**f2),
+            (&BigRat(ref f1), SmallInt(i2)) => (**f1).partial_cmp(&Rational::from(*i2)),
+            (&BigRat(ref f1), BigInt(ref i2)) => (**f1).partial_cmp(&Rational::from(i2)),
+            (&BigRat(ref f1), SmallRat(n2, d2)) => (**f1).partial_cmp(&Rational::from((*n2, *d2))),
             (&BigRat(ref f1), BigRat(ref f2)) => f1.partial_cmp(f2),
         }
     }
@@ -147,20 +160,60 @@ impl Add for Number {
                 Some(x) => SmallInt(x),
                 None => BigInt(Integer::from(i1) + Integer::from(i2)),
             },
-            (SmallInt(i1), BigInt(i2)) => BigInt(Integer::from(i1) + i2),
-            (SmallInt(i1), SmallRat(n2, d2)) => unimplemented!(),
-            (SmallInt(i1), BigRat(f2)) => unimplemented!(),
-            (BigInt(i1), SmallInt(i2)) => unimplemented!(),
-            (BigInt(i1), BigInt(i2)) => BigInt(i1 + i2),
-            (BigInt(i1), SmallRat(n2, d2)) => unimplemented!(),
-            (BigInt(i1), BigRat(f2)) => unimplemented!(),
-            (SmallRat(n1, d1), SmallInt(i2)) => unimplemented!(),
-            (SmallRat(n1, d1), BigInt(i2)) => unimplemented!(),
-            (SmallRat(n1, d1), SmallRat(n2, d2)) => unimplemented!(),
-            (SmallRat(n1, d1), BigRat(f2)) => unimplemented!(),
-            (BigRat(f1), SmallInt(i2)) => unimplemented!(),
-            (BigRat(f1), BigInt(i2)) => unimplemented!(),
-            (BigRat(f1), SmallRat(n2, d2)) => unimplemented!(),
+            (SmallInt(i1), BigInt(i2)) | (BigInt(i2), SmallInt(i1)) => {
+                BigInt(Integer::from(i1) + i2)
+            }
+            (SmallInt(i1), SmallRat(n2, d2)) | (SmallRat(n2, d2), SmallInt(i1)) => {
+                match i1.checked_mul(d2) {
+                    Some(num1) => match n2.checked_add(num1) {
+                        Some(num) => Number::SmallRat(num, d2),
+                        None => {
+                            Number::BigRat(Box::new(Rational::from(i1) + Rational::from((n2, d2))))
+                        }
+                    },
+                    None => Number::BigRat(Box::new(Rational::from(i1) + Rational::from((n2, d2)))),
+                }
+            }
+            (SmallRat(n1, d1), SmallRat(n2, d2)) => match d2.checked_mul(d1 / gcdi(d1, d2)) {
+                Some(lcm) => match n2.checked_mul(lcm / d2) {
+                    Some(num2) => match n1.checked_mul(lcm / d1) {
+                        Some(num1) => match num1.checked_add(num2) {
+                            Some(num) => {
+                                if num % lcm == 0 {
+                                    Number::SmallInt(num / lcm)
+                                } else {
+                                    Number::SmallRat(num, lcm)
+                                }
+                            }
+                            None => Number::BigRat(Box::new(
+                                Rational::from((n1, d1)) + Rational::from((n2, d2)),
+                            )),
+                        },
+                        None => Number::BigRat(Box::new(
+                            Rational::from((n1, d1)) + Rational::from((n2, d2)),
+                        )),
+                    },
+                    None => Number::BigRat(Box::new(
+                        Rational::from((n1, d1)) + Rational::from((n2, d2)),
+                    )),
+                },
+                None => Number::BigRat(Box::new(
+                    Rational::from((n1, d1)) + Rational::from((n2, d2)),
+                )),
+            },
+            (SmallInt(i1), BigRat(f2)) | (BigRat(f2), SmallInt(i1)) => {
+                Number::BigRat(Box::new(*f2 + Rational::from(i1)))
+            }
+            (BigInt(i1), BigInt(i2)) => BigInt(i1 * i2),
+            (BigInt(i1), SmallRat(n2, d2)) | (SmallRat(n2, d2), BigInt(i1)) => {
+                Number::BigRat(Box::new(Rational::from(i1) + Rational::from((n2, d2))))
+            }
+            (BigInt(i1), BigRat(f2)) | (BigRat(f2), BigInt(i1)) => {
+                Number::BigRat(Box::new(*f2 + Rational::from(i1)))
+            }
+            (BigRat(f1), SmallRat(n2, d2)) | (SmallRat(n2, d2), BigRat(f1)) => {
+                Number::BigRat(Box::new(*f1 + Rational::from((n2, d2))))
+            }
             (BigRat(f1), BigRat(f2)) => BigRat(Box::new(*f1 + *f2)),
         }
     }
@@ -170,28 +223,7 @@ impl Sub for Number {
     type Output = Self;
 
     fn sub(self, rhs: Number) -> Number {
-        use self::Number::*;
-        match (self, rhs) {
-            (SmallInt(i1), SmallInt(i2)) => match i1.checked_sub(i2) {
-                Some(x) => SmallInt(x),
-                None => BigInt(Integer::from(i1) - Integer::from(i2)),
-            },
-            (SmallInt(i1), BigInt(i2)) => BigInt(Integer::from(i1) - i2),
-            (SmallInt(i1), SmallRat(n2, d2)) => unimplemented!(),
-            (SmallInt(i1), BigRat(f2)) => unimplemented!(),
-            (BigInt(i1), SmallInt(i2)) => unimplemented!(),
-            (BigInt(i1), BigInt(i2)) => BigInt(i1 + i2),
-            (BigInt(i1), SmallRat(n2, d2)) => unimplemented!(),
-            (BigInt(i1), BigRat(f2)) => unimplemented!(),
-            (SmallRat(n1, d1), SmallInt(i2)) => unimplemented!(),
-            (SmallRat(n1, d1), BigInt(i2)) => unimplemented!(),
-            (SmallRat(n1, d1), SmallRat(n2, d2)) => unimplemented!(),
-            (SmallRat(n1, d1), BigRat(f2)) => unimplemented!(),
-            (BigRat(f1), SmallInt(i2)) => unimplemented!(),
-            (BigRat(f1), BigInt(i2)) => unimplemented!(),
-            (BigRat(f1), SmallRat(n2, d2)) => unimplemented!(),
-            (BigRat(f1), BigRat(f2)) => BigRat(Box::new(*f1 - *f2)),
-        }
+        self + (-rhs)
     }
 }
 
@@ -276,7 +308,13 @@ impl num_traits::Pow<u32> for Number {
                 None => BigInt(Integer::from(i).pow(rhs)),
             },
             BigInt(i) => BigInt(i.pow(rhs)),
-            SmallRat(n, d) => unimplemented!(),
+            SmallRat(n, d) => match checked_pow(n, rhs as usize) {
+                Some(n1) => match checked_pow(d, rhs as usize) {
+                    Some(d1) => SmallRat(n1, d1),
+                    None => BigRat(Box::new(Rational::from((n1, Integer::from(d).pow(rhs))))),
+                },
+                None => BigRat(Box::new(Rational::from((n, d)).pow(rhs))),
+            },
             BigRat(f) => BigRat(Box::new(f.pow(rhs))),
         }
     }
@@ -285,60 +323,11 @@ impl num_traits::Pow<u32> for Number {
 impl MulAssign for Number {
     fn mul_assign(&mut self, rhs: Number) {
         *self = self.clone() * rhs; // FIXME
-        /*
-        use self::Number::*;
-        *self = match (&*self, rhs) {
-            (SmallInt(i1), SmallInt(i2)) => match i1.checked_mul(i2) {
-                Some(x) => SmallInt(x),
-                None => BigInt(Integer::from(*i1) * Integer::from(i2)),
-            },
-            (SmallInt(i1), BigInt(i2)) => BigInt(Integer::from(*i1) * i2),
-            (SmallInt(i1), SmallRat(n2, d2)) => unimplemented!(),
-            (SmallInt(i1), BigRat(f2)) => unimplemented!(),
-            (BigInt(ref mut i1), SmallInt(i2)) => unimplemented!(),
-            (BigInt(ref mut i1), BigInt(i2)) => {
-                *i1 *= i2;
-                return;
-            }
-            (BigInt(ref mut i1), SmallRat(n2, d2)) => unimplemented!(),
-            (BigInt(ref mut i1), BigRat(f2)) => unimplemented!(),
-            (SmallRat(n1, d1), SmallInt(i2)) => unimplemented!(),
-            (SmallRat(n1, d1), BigInt(i2)) => unimplemented!(),
-            (SmallRat(n1, d1), SmallRat(n2, d2)) => unimplemented!(),
-            (SmallRat(n1, d1), BigRat(f2)) => unimplemented!(),
-            (BigRat(ref mut f1), SmallInt(i2)) => unimplemented!(),
-            (BigRat(ref mut f1), BigInt(i2)) => unimplemented!(),
-            (BigRat(ref mut f1), SmallRat(n2, d2)) => unimplemented!(),
-            (BigRat(ref mut f1), BigRat(f2)) => unimplemented!(),
-        };*/    }
+    }
 }
 
 impl AddAssign for Number {
     fn add_assign(&mut self, rhs: Number) {
         *self = self.clone() + rhs; // FIXME
-        /*use self::Number::*;
-        *self = match (&mut self, &rhs) {
-            (SmallInt(i1), SmallInt(i2)) => match i1.checked_add(*i2) {
-                Some(x) => SmallInt(x),
-                None => BigInt(Integer::from(*i1) + Integer::from(*i2)),
-            },
-            (SmallInt(i1), BigInt(i2)) => BigInt(Integer::from(*i1) + *i2),
-            (SmallInt(i1), SmallRat(n2, d2)) => unimplemented!(),
-            (SmallInt(i1), BigRat(f2)) => unimplemented!(),
-            (BigInt(i1), SmallInt(i2)) => unimplemented!(),
-            (BigInt(i1), BigInt(i2)) => {
-                *i1 += *i2;
-                return;
-            }
-            (BigInt(i1), SmallRat(n2, d2)) => unimplemented!(),
-            (BigInt(i1), BigRat(f2)) => unimplemented!(),
-            (SmallRat(n1, d1), SmallInt(i2)) => unimplemented!(),
-            (SmallRat(n1, d1), BigInt(i2)) => unimplemented!(),
-            (SmallRat(n1, d1), SmallRat(n2, d2)) => unimplemented!(),
-            (SmallRat(n1, d1), BigRat(f2)) => unimplemented!(),
-            (BigRat(f1), SmallInt(i2)) => unimplemented!(),
-            (BigRat(f1), BigInt(i2)) => unimplemented!(),
-            (BigRat(f1), SmallRat(n2, d2)) => unimplemented!(),
-            (BigRat(f1), BigRat(f2)) => unimplemented!(),
-        };*/    }
+    }
 }
