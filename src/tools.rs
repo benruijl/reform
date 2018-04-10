@@ -1,4 +1,6 @@
 use structure::{Element, NumOrder};
+use number::Number;
+use num_traits::One;
 
 // a SliceRef has either a borrowed slice,
 // or a vector of borrowed arguments.
@@ -276,12 +278,12 @@ pub fn exponentiate(factors: &[Element], pow: u64) -> Element {
     if factors.is_empty() {
         return Element::SubExpr(
             true,
-            vec![Element::Term(true, vec![Element::Num(false, true, 1, 1)])],
+            vec![Element::Term(true, vec![Element::Num(false, Number::one())])],
         );
     }
 
-    let exp = |i, res: &mut Vec<_>| {
-        let cmb = ncr(pow, i as u64);
+    let exp = |i: u64, res: &mut Vec<_>| {
+        let cmb = ncr(pow, i);
         match exponentiate(&factors[1..], pow - i) {
             Element::SubExpr(_, ts) => for x in ts {
                 match x {
@@ -289,9 +291,9 @@ pub fn exponentiate(factors: &[Element], pow: u64) -> Element {
                         if i > 0 {
                             fs.push(Element::Pow(
                                 true,
-                                Box::new((factors[0].clone(), Element::Num(false, true, i, 1))),
+                                Box::new((factors[0].clone(), Element::Num(false, Number::SmallInt(i as isize)))),
                             ));
-                            fs.push(Element::Num(false, true, cmb, 1));
+                            fs.push(Element::Num(false, Number::SmallInt(cmb as isize)));
                         }
                         res.push(Element::Term(true, fs));
                     }
@@ -307,7 +309,7 @@ pub fn exponentiate(factors: &[Element], pow: u64) -> Element {
         exp(pow, &mut res);
     } else {
         for i in 0..pow + 1 {
-            exp(i, &mut res);
+            exp(i as u64, &mut res);
         }
     }
 

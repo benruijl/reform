@@ -1,9 +1,17 @@
 use num_traits::{One, Zero};
 use rug::{Integer, Rational};
+use std::cmp::Ordering;
 use std::fmt;
-use std::ops::{Add, Mul, Sub};
+use std::ops::{Add, AddAssign, Mul, MulAssign, Sub};
 
-const DOWNGRADE_LIMIT: Integer = Integer::from(4294967296); // if a bigint is smaller than this number, we downgrade
+#[macro_export]
+macro_rules! DUMMY_NUM {
+    () => {
+        Number::zero()
+    };
+}
+
+const DOWNGRADE_LIMIT: usize = 4294967296; // if a bigint is smaller than this number, we downgrade
 
 /// A number is either a small number consisting of machine sized
 /// integers or a big number, using GMP.
@@ -19,7 +27,7 @@ pub enum Number {
 }
 
 impl Number {
-    fn normalize_inplace(&mut self) -> bool {
+    pub fn normalize_inplace(&mut self) -> bool {
         *self = match *self {
             Number::SmallInt(i) => return false,
             Number::SmallRat(ref mut n, ref mut d) => {
@@ -28,18 +36,21 @@ impl Number {
                 } else if *d < 0 {
                     *d = -*d;
                     *n = -*n;
+                    return true;
+                } else {
+                    return false;
                 }
-                return false;
-            },
+            }
             Number::BigInt(ref i) => {
-                if i < DOWNGRADE_LIMIT {
-                    Number::SmallInt(i)
+                if *i < DOWNGRADE_LIMIT {
+                    Number::SmallInt(i.to_isize().expect("Number too large to downgrade"))
+                } else {
+                    return false;
                 }
-                return false;
-            },
+            }
             Number::BigRat(ref r) => {
                 unimplemented!();
-            },
+            }
         };
         true
     }
@@ -82,6 +93,30 @@ impl One for Number {
             Number::BigInt(ref i) => *i == 1,
             Number::SmallRat(n, d) => n == 1,
             Number::BigRat(ref f) => *f.numer() == 1 && *f.denom() == 1,
+        }
+    }
+}
+
+impl PartialOrd for Number {
+    fn partial_cmp(&self, rhs: &Number) -> Option<Ordering> {
+        use self::Number::*;
+        match (self, rhs) {
+            (&SmallInt(ref i1), SmallInt(ref i2)) => i1.partial_cmp(i2),
+            (&SmallInt(ref i1), BigInt(ref i2)) => Integer::from(i1.clone()).partial_cmp(i2),
+            (&SmallInt(ref i1), SmallRat(n2, d2)) => unimplemented!(),
+            (&SmallInt(ref i1), BigRat(ref f2)) => unimplemented!(),
+            (&BigInt(ref i1), SmallInt(i2)) => unimplemented!(),
+            (&BigInt(ref i1), BigInt(ref i2)) => i1.partial_cmp(i2),
+            (&BigInt(ref i1), SmallRat(n2, d2)) => unimplemented!(),
+            (&BigInt(ref i1), BigRat(ref f2)) => unimplemented!(),
+            (&SmallRat(n1, d1), SmallInt(i2)) => unimplemented!(),
+            (&SmallRat(n1, d1), BigInt(ref i2)) => unimplemented!(),
+            (&SmallRat(n1, d1), SmallRat(n2, d2)) => unimplemented!(),
+            (&SmallRat(n1, d1), BigRat(ref f2)) => unimplemented!(),
+            (&BigRat(ref f1), SmallInt(i2)) => unimplemented!(),
+            (&BigRat(ref f1), BigInt(ref i2)) => unimplemented!(),
+            (&BigRat(ref f1), SmallRat(n2, d2)) => unimplemented!(),
+            (&BigRat(ref f1), BigRat(ref f2)) => unimplemented!(),
         }
     }
 }
@@ -170,5 +205,65 @@ impl Mul for Number {
             (BigRat(f1), SmallRat(n2, d2)) => unimplemented!(),
             (BigRat(f1), BigRat(f2)) => unimplemented!(),
         }
+    }
+}
+
+impl MulAssign for Number {
+    fn mul_assign(&mut self, rhs: Number) {
+        use self::Number::*;
+        *self = match &mut (self, &rhs) {
+            (&mut SmallInt(i1), SmallInt(i2)) => match i1.checked_mul(*i2) {
+                Some(x) => SmallInt(x),
+                None => BigInt(Integer::from(i1) * Integer::from(*i2)),
+            },
+            (&mut SmallInt(i1), BigInt(ref mut i2)) => BigInt(Integer::from(i1) * *i2),
+            (&mut SmallInt(i1), SmallRat(n2, d2)) => unimplemented!(),
+            (&mut SmallInt(i1), BigRat(f2)) => unimplemented!(),
+            (&mut BigInt(ref mut i1), SmallInt(i2)) => unimplemented!(),
+            (&mut BigInt(ref mut i1), BigInt(i2)) => {
+                *i1 *= *i2;
+                return;
+            }
+            (&mut BigInt(ref mut i1), SmallRat(n2, d2)) => unimplemented!(),
+            (&mut BigInt(ref mut i1), BigRat(f2)) => unimplemented!(),
+            (&mut SmallRat(n1, d1), SmallInt(i2)) => unimplemented!(),
+            (&mut SmallRat(n1, d1), BigInt(i2)) => unimplemented!(),
+            (&mut SmallRat(n1, d1), SmallRat(n2, d2)) => unimplemented!(),
+            (&mut SmallRat(n1, d1), BigRat(f2)) => unimplemented!(),
+            (&mut BigRat(ref mut f1), SmallInt(i2)) => unimplemented!(),
+            (&mut BigRat(ref mut f1), BigInt(i2)) => unimplemented!(),
+            (&mut BigRat(ref mut f1), SmallRat(n2, d2)) => unimplemented!(),
+            (&mut BigRat(ref mut f1), BigRat(f2)) => unimplemented!(),
+        };
+    }
+}
+
+impl AddAssign for Number {
+    fn add_assign(&mut self, rhs: Number) {
+        use self::Number::*;
+        *self = match (&mut self, &rhs) {
+            (SmallInt(i1), SmallInt(i2)) => match i1.checked_add(*i2) {
+                Some(x) => SmallInt(x),
+                None => BigInt(Integer::from(*i1) + Integer::from(*i2)),
+            },
+            (SmallInt(i1), BigInt(i2)) => BigInt(Integer::from(*i1) + *i2),
+            (SmallInt(i1), SmallRat(n2, d2)) => unimplemented!(),
+            (SmallInt(i1), BigRat(f2)) => unimplemented!(),
+            (BigInt(i1), SmallInt(i2)) => unimplemented!(),
+            (BigInt(i1), BigInt(i2)) => {
+                *i1 += *i2;
+                return;
+            }
+            (BigInt(i1), SmallRat(n2, d2)) => unimplemented!(),
+            (BigInt(i1), BigRat(f2)) => unimplemented!(),
+            (SmallRat(n1, d1), SmallInt(i2)) => unimplemented!(),
+            (SmallRat(n1, d1), BigInt(i2)) => unimplemented!(),
+            (SmallRat(n1, d1), SmallRat(n2, d2)) => unimplemented!(),
+            (SmallRat(n1, d1), BigRat(f2)) => unimplemented!(),
+            (BigRat(f1), SmallInt(i2)) => unimplemented!(),
+            (BigRat(f1), BigInt(i2)) => unimplemented!(),
+            (BigRat(f1), SmallRat(n2, d2)) => unimplemented!(),
+            (BigRat(f1), BigRat(f2)) => unimplemented!(),
+        };
     }
 }

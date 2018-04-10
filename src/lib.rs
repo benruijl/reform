@@ -11,11 +11,13 @@ extern crate rug; // for gmp and bigint support
 extern crate log;
 
 #[macro_use]
+pub mod number;
+
+#[macro_use]
 pub mod structure;
 pub mod id;
 pub mod module;
 pub mod normalize;
-pub mod number;
 pub mod parser;
 pub mod serialize;
 pub mod streaming;

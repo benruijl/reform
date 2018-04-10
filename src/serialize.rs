@@ -32,13 +32,14 @@ impl Element {
     // convert a normalized Element to a linear representation
     pub fn serialize(&self, buffer: &mut Write) -> usize {
         match *self {
-            Element::Num(false, pos, num, den) => {
+            Element::Num(false, ref num) => {
+                unimplemented!();
                 // TODO: use varint for compression?
-                buffer.write_u8(NUM_ID).unwrap();
+                /*buffer.write_u8(NUM_ID).unwrap();
                 buffer.write_u8(pos as u8).unwrap();
                 buffer.write_u64::<LittleEndian>(num).unwrap();
                 buffer.write_u64::<LittleEndian>(den).unwrap();
-                18
+                18*/
             }
             Element::Fn(false, ref name, ref args) => {
                 buffer.write_u8(FN_ID).unwrap();
@@ -70,12 +71,12 @@ impl Element {
 
     pub fn deserialize(buffer: &mut Read) -> Result<Element, Error> {
         Ok(match buffer.read_u8()? {
-            NUM_ID => Element::Num(
+            /*NUM_ID => Element::Num(
                 false,
                 buffer.read_u8().unwrap() != 0u8,
                 buffer.read_u64::<LittleEndian>().unwrap(),
                 buffer.read_u64::<LittleEndian>().unwrap(),
-            ),
+            ),*/
             FN_ID => Element::Fn(
                 false,
                 buffer.read_u32::<LittleEndian>().unwrap(),

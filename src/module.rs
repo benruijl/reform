@@ -5,6 +5,8 @@ use std::mem;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time;
+use num_traits::{Zero, One};
+use number::Number;
 
 use crossbeam;
 use crossbeam::sync::MsQueue;
@@ -101,6 +103,8 @@ impl Element {
 
                 let (eb, ee) = (b.expand(var_info), e.expand(var_info));
 
+                unimplemented!();
+                /*
                 if let Element::Num(_, true, n, 1) = ee {
                     if let Element::SubExpr(_, ref t) = eb {
                         let mut e = exponentiate(t, n);
@@ -124,7 +128,7 @@ impl Element {
                         e.normalize_inplace(var_info);
                         return e.expand(var_info);
                     }
-                }
+                }*/
 
                 let mut e = Element::Pow(true, Box::new((eb, ee)));
                 e.normalize_inplace(var_info);
@@ -304,8 +308,10 @@ fn do_module_rec(
     term_affected: &mut Vec<bool>,
     output: &mut TermStreamWrapper,
 ) {
-    if let Element::Num(_, true, 0, 1) = input {
-        return; // drop 0
+    if let Element::Num(_, ref n) = input {
+        if n.is_zero() {
+            return; // drop 0
+        }
     }
     if current_index == statements.len() {
         output.add_term(input, global_var_info);
@@ -440,7 +446,7 @@ fn do_module_rec(
 
                                 if let TermStreamWrapper::Owned(mut nfa) = tsr {
                                     match nfa.len() {
-                                        0 => newfuncarg.push(Element::Num(false, true, 0, 1)),
+                                        0 => newfuncarg.push(Element::Num(false, Number::zero())),
                                         1 => newfuncarg.push(nfa.swap_remove(0)),
                                         _ => {
                                             let mut sub = Element::SubExpr(true, nfa);
@@ -490,7 +496,7 @@ fn do_module_rec(
                                         if let TermStreamWrapper::Owned(mut nfa) = tsr {
                                             match nfa.len() {
                                                 0 => {
-                                                    newfuncarg.push(Element::Num(false, true, 0, 1))
+                                                    newfuncarg.push(Element::Num(false, Number::zero()))
                                                 }
                                                 1 => newfuncarg.push(nfa.swap_remove(0)),
                                                 _ => {
@@ -570,7 +576,7 @@ fn do_module_rec(
                     local_var_info.variables.insert(
                         name,
                         match nfa.len() {
-                            0 => Element::Num(false, true, 0, 1),
+                            0 => Element::Num(false, Number::zero()),
                             1 => nfa.swap_remove(0),
                             _ => {
                                 let mut sub = Element::SubExpr(true, nfa);
@@ -760,11 +766,12 @@ impl Module {
                 }
                 Statement::ForInRange(ref d, ref mut l, ref mut u, ref mut s) => {
                     if let Element::Dollar(dd, _) = *d {
-                        let mut replace_map = HashMap::new();
-
                         l.normalize_inplace(&var_info.global_info);
                         u.normalize_inplace(&var_info.global_info);
 
+                        unimplemented!();
+                        /*
+                        let mut replace_map = HashMap::new();
                         if let Element::Num(_, pos, num, 1) = *l {
                             if let Element::Num(_, pos2, num2, 1) = *u {
                                 let li: isize = if pos { num as isize } else { -(num as isize) };
@@ -795,7 +802,7 @@ impl Module {
                             }
                         } else {
                             panic!("Lower range index is not an integer");
-                        }
+                        }*/
                     } else {
                         panic!("Loop counter should be a dollar variable");
                     }
@@ -955,7 +962,7 @@ impl Module {
                             var_info.local_info.variables.insert(
                                 name,
                                 match nfa.len() {
-                                    0 => Element::Num(false, true, 0, 1),
+                                    0 => Element::Num(false, Number::zero()),
                                     1 => nfa.swap_remove(0),
                                     _ => {
                                         let mut sub = Element::SubExpr(true, nfa);
