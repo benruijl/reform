@@ -103,32 +103,32 @@ impl Element {
 
                 let (eb, ee) = (b.expand(var_info), e.expand(var_info));
 
-                unimplemented!();
-                /*
-                if let Element::Num(_, true, n, 1) = ee {
-                    if let Element::SubExpr(_, ref t) = eb {
-                        let mut e = exponentiate(t, n);
-                        e.normalize_inplace(var_info);
-                        return e.expand(var_info);
-                    }
+                if let Element::Num(_, Number::SmallInt(n)) = ee {
+                    if n > 0 {
+                        if let Element::SubExpr(_, ref t) = eb {
+                            let mut e = exponentiate(t, n as u64);
+                            e.normalize_inplace(var_info);
+                            return e.expand(var_info);
+                        }
 
-                    //  (x*y)^z -> x^z*y^z
-                    if let Element::Term(_, t) = eb {
-                        let mut e = Element::Term(
-                            true,
-                            t.iter()
-                                .map(|x| {
-                                    Element::Pow(
-                                        true,
-                                        Box::new((x.clone(), Element::Num(false, true, n, 1))),
-                                    )
-                                })
-                                .collect(),
-                        );
-                        e.normalize_inplace(var_info);
-                        return e.expand(var_info);
+                        //  (x*y)^z -> x^z*y^z
+                        if let Element::Term(_, t) = eb {
+                            let mut e = Element::Term(
+                                true,
+                                t.iter()
+                                    .map(|x| {
+                                        Element::Pow(
+                                            true,
+                                            Box::new((x.clone(), Element::Num(false, Number::SmallInt(n)))),
+                                        )
+                                    })
+                                    .collect(),
+                            );
+                            e.normalize_inplace(var_info);
+                            return e.expand(var_info);
+                        }
                     }
-                }*/
+                }
 
                 let mut e = Element::Pow(true, Box::new((eb, ee)));
                 e.normalize_inplace(var_info);
@@ -769,25 +769,12 @@ impl Module {
                         l.normalize_inplace(&var_info.global_info);
                         u.normalize_inplace(&var_info.global_info);
 
-                        unimplemented!();
-                        /*
                         let mut replace_map = HashMap::new();
-                        if let Element::Num(_, pos, num, 1) = *l {
-                            if let Element::Num(_, pos2, num2, 1) = *u {
-                                let li: isize = if pos { num as isize } else { -(num as isize) };
-                                let ui: isize = if pos2 {
-                                    num2 as isize
-                                } else {
-                                    -(num2 as isize)
-                                };
-
+                        if let Element::Num(_, Number::SmallInt(li)) = *l {
+                            if let Element::Num(_, Number::SmallInt(ui)) = *u {
                                 // unroll the loop
                                 for ll in li..ui {
-                                    let lle = if ll < 0 {
-                                        Element::Num(false, false, -ll as u64, 1)
-                                    } else {
-                                        Element::Num(false, true, ll as u64, 1)
-                                    };
+                                    let lle = Element::Num(false, Number::SmallInt(ll));
                                     replace_map.insert(dd, lle);
                                     for ss in s.iter() {
                                         let mut news = ss.clone();
@@ -802,7 +789,7 @@ impl Module {
                             }
                         } else {
                             panic!("Lower range index is not an integer");
-                        }*/
+                        }
                     } else {
                         panic!("Loop counter should be a dollar variable");
                     }

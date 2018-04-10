@@ -1,11 +1,10 @@
-use num_traits::{One, Zero};
+use num_traits::{One, Pow, Zero};
 use number::Number;
 use std::cmp::Ordering;
 use std::mem;
 use std::ptr;
 use structure::{Element, FunctionAttributes, GlobalVarInfo, FUNCTION_DELTA, FUNCTION_MUL,
                 FUNCTION_NARGS, FUNCTION_SUM};
-use tools::{add_fractions, add_one, exp_fraction, mul_fractions, normalize_fraction};
 
 impl Element {
     // TODO: return iterator over Elements for ground level?
@@ -112,12 +111,10 @@ impl Element {
                                 // exponent is a positive integer
                                 // check if some simplification can be made
 
-                                unimplemented!();
-                                /*if let Element::Num(_, mut pos, mut num, mut den) = *b {
+                                if let Element::Num(_, ref mut num) = *b {
                                     // base is a rational number: (p/q)^n = p^n/q^n
-                                    exp_fraction(&mut pos, &mut num, &mut den, n);
-                                    break Element::Num(false, pos, num, den);
-                                }*/
+                                    break Element::Num(false, num.clone().pow(n as u32));
+                                }
                             }
                             Element::Num(_, Number::SmallInt(n)) if n < 0 => {
                                 unimplemented!();

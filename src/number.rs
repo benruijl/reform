@@ -1,8 +1,11 @@
+use num_traits;
 use num_traits::{One, Zero};
 use rug::{Integer, Rational};
 use std::cmp::Ordering;
 use std::fmt;
 use std::ops::{Add, AddAssign, Mul, MulAssign, Sub};
+
+use tools::{add_fractions, add_one, exp_fraction, mul_fractions, normalize_fraction};
 
 #[macro_export]
 macro_rules! DUMMY_NUM {
@@ -204,6 +207,21 @@ impl Mul for Number {
             (BigRat(f1), BigInt(i2)) => unimplemented!(),
             (BigRat(f1), SmallRat(n2, d2)) => unimplemented!(),
             (BigRat(f1), BigRat(f2)) => unimplemented!(),
+        }
+    }
+}
+
+impl num_traits::Pow<u32> for Number {
+    type Output = Self;
+
+    fn pow(self, rhs: u32) -> Number {
+        use self::Number::*;
+        use rug::ops::Pow;
+        match self {
+            SmallInt(i) => SmallInt(i.pow(rhs)),
+            BigInt(i) => BigInt(i.pow(rhs)),
+            SmallRat(n, d) => unimplemented!(),
+            BigRat(f) => BigRat(Box::new(f.pow(rhs))),
         }
     }
 }
