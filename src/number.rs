@@ -54,7 +54,11 @@ impl Number {
                 if *r.denom() != 1 {
                     return false;
                 }
-                Number::BigInt(r.numer().clone()) // FIXME: prevent clone
+                if *r.numer() < DOWNGRADE_LIMIT && *r.numer() > -DOWNGRADE_LIMIT {
+                    Number::SmallInt(r.numer().to_isize().expect("Number too large to downgrade"))
+                } else {
+                    Number::BigInt(r.numer().clone()) // TODO: move instead of clone
+                }
             }
         };
         true

@@ -859,7 +859,6 @@ impl<E: Exponent> PolynomialGCD for MultivariatePolynomial<Number, E> {
         vars: &[usize],
         dx: &mut [u32],
     ) -> MultivariatePolynomial<Number, E> {
-        println!("GCD IN {:?} {:?}", a, b);
         MultivariatePolynomial::gcd_zippel(&a, &b, vars, dx)
     }
 }

@@ -16,9 +16,9 @@ fn to_monomial(e: &Element, exp: &mut [u32]) -> Result<Number, String> {
             Ok(nn.clone())
         }
         Element::Pow(_, ref p) => {
-            let (ref b, ref e) = **p;
+            let (ref b, ref ex) = **p;
             if let Element::Var(ref x) = *b {
-                if let Element::Num(_, Number::SmallInt(n)) = *e {
+                if let Element::Num(_, Number::SmallInt(n)) = *ex {
                     if n > 0 {
                         exp[*x as usize] = n as u32;
                         return Ok(Number::one());
