@@ -168,7 +168,7 @@ impl Element {
 
                                 if let Element::Num(_, ref mut num) = *b {
                                     // base is a rational number: (p/q)^n = p^n/q^n
-                                    break Element::Num(false, num.clone().pow(*n as u32));
+                                    break Element::Num(false, num.clone().pow(*n as usize));
                                 }
 
                                 // simplify x^a^b = x^(a*b) where x is a variable

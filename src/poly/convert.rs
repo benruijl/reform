@@ -6,14 +6,14 @@ use std::fmt;
 use structure::{fmt_varname, Element, GlobalVarInfo, VarName};
 use number::Number;
 
-fn to_monomial(e: &Element, exp: &mut [u64]) -> Result<i64, String> {
+fn to_monomial(e: &Element, exp: &mut [u64]) -> Result<Number, String> {
     match *e {
         Element::Var(ref x) => {
             exp[*x as usize] = 1;
             Ok(1)
         }
-        Element::Num(_, Number::SmallInt(n)) => {
-            Ok(n as i64)
+        Element::Num(_, nn@Number::SmallInt(_)) | Element::Num(_, nn@Number::BigInt(_)) => {
+            Ok(nn)
         }
         Element::Pow(_, ref p) => {
             let (ref b, ref e) = **p;
@@ -41,7 +41,7 @@ fn to_monomial(e: &Element, exp: &mut [u64]) -> Result<i64, String> {
 pub fn to_rational_polynomial(
     e: &Element,
     num_vars: usize,
-) -> Result<MultivariatePolynomial<i64, u64>, String> {
+) -> Result<MultivariatePolynomial<Number, u64>, String> {
     match *e {
         Element::SubExpr(_, ref args) => {
             let mut a = MultivariatePolynomial::with_nvars(num_vars);
@@ -74,7 +74,7 @@ pub fn to_rational_polynomial(
     }
 }
 
-pub fn to_expression(p: MultivariatePolynomial<i64, u64>) -> Element {
+pub fn to_expression(p: MultivariatePolynomial<Number, u64>) -> Element {
     let mut terms = vec![];
     for v in p.into_iter() {
         let mut factors = vec![];
@@ -100,12 +100,12 @@ pub fn to_expression(p: MultivariatePolynomial<i64, u64>) -> Element {
     Element::SubExpr(true, terms)
 }
 
-pub struct PolyPrinter<'a, R: Ring, E: Exponent> {
+pub struct PolyPrinter<'a, R: 'a + Ring, E: Exponent> {
     pub poly: &'a MultivariatePolynomial<R, E>,
     pub var_info: &'a GlobalVarInfo,
 }
 
-impl<'a, R: Ring + fmt::Display, E: Exponent + One + fmt::Display> fmt::Display
+impl<'a, R: 'a + Ring + fmt::Display, E: Exponent + One + fmt::Display> fmt::Display
     for PolyPrinter<'a, R, E>
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

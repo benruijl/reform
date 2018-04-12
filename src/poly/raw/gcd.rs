@@ -4,6 +4,7 @@ use std::mem;
 use poly::exponent::Exponent;
 use poly::ring::Ring;
 
+use number::Number;
 use poly::raw::MultivariatePolynomial;
 use poly::raw::finitefield::FiniteField;
 use poly::ring::MulModNum;
@@ -658,15 +659,15 @@ where
     }
 }
 
-impl<E: Exponent> MultivariatePolynomial<i64, E> {
+impl<E: Exponent> MultivariatePolynomial<Number, E> {
     /// Compute the gcd of two multivariate polynomials using Zippel's algorithm.
     /// TODO: provide a parallel implementation?
     fn gcd_zippel(
-        a: &MultivariatePolynomial<i64, E>,
-        b: &MultivariatePolynomial<i64, E>,
+        a: &MultivariatePolynomial<Number, E>,
+        b: &MultivariatePolynomial<Number, E>,
         vars: &[usize], // variables
         bounds: &mut [usize],
-    ) -> MultivariatePolynomial<i64, E> {
+    ) -> MultivariatePolynomial<Number, E> {
         println!("Compute modular gcd({},{})", a, b);
 
         // compute scaling factor in Z
@@ -843,13 +844,13 @@ pub trait PolynomialGCD: Sized {
     fn gcd(a: &Self, b: &Self, vars: &[usize], dx: &mut [usize]) -> Self;
 }
 
-impl<E: Exponent> PolynomialGCD for MultivariatePolynomial<i64, E> {
+impl<E: Exponent> PolynomialGCD for MultivariatePolynomial<Number, E> {
     fn gcd(
-        a: &MultivariatePolynomial<i64, E>,
-        b: &MultivariatePolynomial<i64, E>,
+        a: &MultivariatePolynomial<Number, E>,
+        b: &MultivariatePolynomial<Number, E>,
         vars: &[usize],
         dx: &mut [usize],
-    ) -> MultivariatePolynomial<i64, E> {
+    ) -> MultivariatePolynomial<Number, E> {
         MultivariatePolynomial::gcd_zippel(&a, &b, vars, dx)
     }
 }
@@ -862,5 +863,39 @@ impl<E: Exponent> PolynomialGCD for MultivariatePolynomial<FiniteField, E> {
         dx: &mut [usize],
     ) -> MultivariatePolynomial<FiniteField, E> {
         MultivariatePolynomial::gcd_shape_modular(&a, &b, vars, dx).unwrap()
+    }
+}
+
+impl ToFiniteField for Number {
+    fn to_finite_field(&self, p: usize) -> FiniteField {
+        let n = match *self {
+            Number::SmallInt(i) => i % p,
+            Number::BigInt(ref i) => (i.clone() % p).as_isize(),
+            _ => unreachable!()
+        };
+
+        if n < 0 {
+            FiniteField::new(((-n / p as i64 + 1) * p as i64 + n) as usize, p)
+        } else {
+            FiniteField::new(n as usize, p)
+        }
+    }
+
+    fn from_finite_field(ff: &FiniteField) -> Number {
+        Number::SmallInt(if ff.n > ff.p / 2 {
+            ff.n as isize - ff.p as isize
+        } else {
+            ff.n as isize
+        })
+    }
+}
+
+impl MulModNum for Number {
+    fn mul_num(&self, n: usize) -> Number {
+        self.clone() * Number::SmallInt(n as isize) // FIXME: usize to isize!
+    }
+
+    fn mod_num(&self, n: usize) -> Number {
+        self.clone() % Number::SmallInt(n as isize) // FIXME: usize to isize!
     }
 }

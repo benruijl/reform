@@ -17,14 +17,14 @@ pub trait ToFiniteField {
 
 /// Trait for rings.
 pub trait Ring:
-    Copy
-    + Zero
+   // Copy
+    Zero
     + One
     + Debug
     + Display
     + MulModNum
     + GCD
-    + AsPrimitive<usize>
+    //+ AsPrimitive<usize>
     + Pow<usize, Output = Self>
     + Neg<Output = Self>
     + Div<Output = Self>
@@ -36,14 +36,15 @@ pub trait Ring:
 }
 
 impl<
-        T: Copy
-            + Zero
+        T: 
+        //Copy
+            Zero
             + One
             + Debug
             + Display
             + MulModNum
             + GCD
-            + AsPrimitive<usize>
+           // + AsPrimitive<usize>
             + Pow<usize, Output = Self>
             + Neg<Output = Self>
             + Div<Output = Self>

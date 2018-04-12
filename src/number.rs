@@ -1,9 +1,9 @@
 use num_traits;
-use num_traits::{checked_pow, One, Zero};
+use num_traits::{checked_pow, One, Zero, Inv};
 use rug::{Integer, Rational};
 use std::cmp::Ordering;
 use std::fmt;
-use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub};
+use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, Div, Rem};
 use tools::GCD;
 
 #[macro_export]
@@ -87,6 +87,24 @@ impl Zero for Number {
     }
 }
 
+impl GCD for Number {
+    fn gcd(a: Number, b: Number) -> Number {
+        use self::Number::*;
+        match (a, b) {
+            (SmallInt(i1), SmallInt(i2)) => SmallInt(GCD::gcd(i1, i2)),
+            (SmallInt(i1), BigInt(i2)) | (BigInt(i2), SmallInt(i1)) => BigInt(i2.gcd(&i1)),
+            (SmallInt(i1), SmallRat(n2, d2)) | (SmallRat(n2, d2), SmallInt(i1)) => unreachable!(),
+            (SmallRat(n1, d1), SmallRat(n2, d2)) => unreachable!(),
+            (SmallInt(i1), BigRat(f2)) | (BigRat(f2), SmallInt(i1)) => unreachable!(),
+            (BigInt(i1), BigInt(i2)) => BigInt(i1.gcd(i2)),
+            (BigInt(i1), SmallRat(n2, d2)) | (SmallRat(n2, d2), BigInt(i1)) => unreachable!(),
+            (BigInt(i1), BigRat(f2)) | (BigRat(f2), BigInt(i1)) => unreachable!(),
+            (BigRat(f1), SmallRat(n2, d2)) | (SmallRat(n2, d2), BigRat(f1)) => unreachable!(),
+            (BigRat(f1), BigRat(f2)) => unreachable!(),
+        }
+    }
+}
+
 impl One for Number {
     fn one() -> Number {
         Number::SmallInt(1)
@@ -111,6 +129,19 @@ impl Neg for Number {
             Number::BigInt(i) => Number::BigInt(-i),
             Number::SmallRat(n, d) => Number::SmallRat(-n, d),
             Number::BigRat(f) => Number::BigRat(Box::new(-*f)),
+        }
+    }
+}
+
+impl Inv for Number {
+    type Output = Number;
+
+    fn inv(self) -> Self::Output {
+        match self {
+            Number::SmallInt(i) => Number::SmallRat(1, i),
+            Number::BigInt(i) => Number::BigRat(Box::new((1, i))),
+            Number::SmallRat(n, d) => Number::SmallRat(d, n),
+            Number::BigRat(f) => Number::BigRat(Box::new((*f).inverse())),
         }
     }
 }
@@ -296,20 +327,43 @@ impl Mul for Number {
     }
 }
 
-impl num_traits::Pow<u32> for Number {
+impl Div for Number {
     type Output = Self;
 
-    fn pow(self, rhs: u32) -> Number {
+    fn div(self, rhs: Number) -> Number {
+        self * rhs.inv() // TODO: optimize
+    }
+}
+
+impl Rem for Number {
+    type Output = Self;
+
+    fn rem(self, rhs: Number) -> Number {
+        use self::Number::*;
+        match (self, rhs) {
+            (SmallInt(i1), SmallInt(i2)) => SmallInt(i1 % i2), // TODO: make positive?
+            (SmallInt(i1), BigInt(i2)) => BigInt(Integer::from(i1.clone()) % i2),
+            (BigInt(i1), SmallInt(i2)) => BigInt(i1 % i2),
+            (BigInt(i1), BigInt(i2)) => BigInt(i1 % i2),
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl num_traits::Pow<usize> for Number {
+    type Output = Self;
+
+    fn pow(self, rhs: usize) -> Number {
         use self::Number::*;
         use rug::ops::Pow;
         match self {
-            SmallInt(i) => match checked_pow(i, rhs as usize) {
+            SmallInt(i) => match checked_pow(i, rhs) {
                 Some(x) => SmallInt(x),
                 None => BigInt(Integer::from(i).pow(rhs)),
             },
             BigInt(i) => BigInt(i.pow(rhs)),
-            SmallRat(n, d) => match checked_pow(n, rhs as usize) {
-                Some(n1) => match checked_pow(d, rhs as usize) {
+            SmallRat(n, d) => match checked_pow(n, rhs) {
+                Some(n1) => match checked_pow(d, rhs) {
                     Some(d1) => SmallRat(n1, d1),
                     None => BigRat(Box::new(Rational::from((n1, Integer::from(d).pow(rhs))))),
                 },
