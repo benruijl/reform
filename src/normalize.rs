@@ -78,7 +78,7 @@ impl Element {
                                 Box::new((
                                     to_rational_polynomial(&a[0], var_info.num_vars()).unwrap(),
                                     MultivariatePolynomial::from_constant_with_nvars(
-                                        1,
+                                        Number::one(),
                                         var_info.num_vars(),
                                     ),
                                 )),
@@ -168,7 +168,7 @@ impl Element {
 
                                 if let Element::Num(_, ref mut num) = *b {
                                     // base is a rational number: (p/q)^n = p^n/q^n
-                                    break Element::Num(false, num.clone().pow(*n as usize));
+                                    break Element::Num(false, num.clone().pow(*n as u32));
                                 }
 
                                 // simplify x^a^b = x^(a*b) where x is a variable

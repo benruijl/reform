@@ -1,4 +1,3 @@
-use num_traits::cast::AsPrimitive;
 use num_traits::{One, Pow, Zero};
 use poly::raw::finitefield::FiniteField;
 use std::fmt::{Debug, Display};
@@ -24,8 +23,7 @@ pub trait Ring:
     + Display
     + MulModNum
     + GCD
-    //+ AsPrimitive<usize>
-    + Pow<usize, Output = Self>
+    + Pow<u32, Output = Self>
     + Neg<Output = Self>
     + Div<Output = Self>
     + Rem<Output = Self>
@@ -44,8 +42,7 @@ impl<
             + Display
             + MulModNum
             + GCD
-           // + AsPrimitive<usize>
-            + Pow<usize, Output = Self>
+            + Pow<u32, Output = Self>
             + Neg<Output = Self>
             + Div<Output = Self>
             + Rem<Output = Self>

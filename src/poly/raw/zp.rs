@@ -5,6 +5,8 @@ use std::fmt;
 
 use num_integer::Integer;
 use num_traits::Unsigned;
+use number::Number;
+use rug;
 
 use poly::raw::overflowing::Overflowing;
 
@@ -150,6 +152,50 @@ pub fn pow<T: UnsignedInteger>(x: T, n: u32, p: T) -> T {
         r = mul(r, x.clone(), p.clone());
     }
     r
+}
+
+/// Use Garner's algorithm for the Chinese remainder theorem
+/// to reconstruct an x that satisfies n1 = x % p1 and n2 = x % p2.
+/// The x will be in the range [-p1*p2/2,p1*p2/2].
+pub fn chinese_remainder(n1: Number, n2: Number, p1: Number, p2: Number) -> Number {
+    if n1 > n2 {
+        return chinese_remainder(n2, n1, p2, p1);
+    }
+
+    println!("chin {} {} {} {}", n1, n2, p1, p2);
+
+    // convert to mixed-radix notation
+    let v1 =
+    match (&p1, &p2) {
+        (Number::SmallInt(i1), Number::SmallInt(i2)) => {
+            let gamma1 = inv(*i1 as usize % *i2 as usize, *i2 as usize);
+            println!("gamma1 {}", gamma1);
+            Number::SmallInt(mul((n2.clone() - n1.clone()) as usize, gamma1, *i2 as usize) as isize)
+        }
+        (Number::BigInt(i1), Number::BigInt(i2)) => {
+            let gamma1 = i1.clone() % i2.clone();
+            Number::BigInt(((n2.clone() - n1.clone()) * gamma1) % i2.clone())
+        }
+        (Number::BigInt(i1), Number::SmallInt(i2)) => {
+            let ii2 = rug::Integer::from(i2.clone());
+            let gamma1 = i1.clone() % ii2.clone();
+            Number::BigInt(((n2.clone() - n1.clone()) * gamma1) % ii2)
+        }
+        (Number::SmallInt(i1), Number::BigInt(i2)) => {
+            let ii1 = rug::Integer::from(i1.clone());
+            let gamma1 = ii1.clone() % i2.clone();
+            Number::BigInt(((n2.clone() - n1.clone()) * gamma1) % i2.clone())
+        }
+        _ => unreachable!()
+    };
+
+    // convert to standard representation
+    let r = v1 * p1.clone() + n1;
+    if r > p1.clone() / Number::SmallInt(2) * p2.clone() {
+        r - p1 * p2
+    } else {
+        r
+    }
 }
 
 #[test]
