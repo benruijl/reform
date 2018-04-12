@@ -59,6 +59,11 @@ impl Number {
         };
         true
     }
+
+    pub fn normalized(mut self) -> Self {
+        self.normalize_inplace();
+        self
+    }
 }
 
 impl fmt::Display for Number {
@@ -93,14 +98,8 @@ impl GCD for Number {
         match (a, b) {
             (SmallInt(i1), SmallInt(i2)) => SmallInt(GCD::gcd(i1, i2)),
             (SmallInt(i1), BigInt(i2)) | (BigInt(i2), SmallInt(i1)) => BigInt(i2.gcd(&Integer::from(i1))),
-            (SmallInt(i1), SmallRat(n2, d2)) | (SmallRat(n2, d2), SmallInt(i1)) => unreachable!(),
-            (SmallRat(n1, d1), SmallRat(n2, d2)) => unreachable!(),
-            (SmallInt(i1), BigRat(f2)) | (BigRat(f2), SmallInt(i1)) => unreachable!(),
             (BigInt(i1), BigInt(i2)) => BigInt(i1.gcd(&i2)),
-            (BigInt(i1), SmallRat(n2, d2)) | (SmallRat(n2, d2), BigInt(i1)) => unreachable!(),
-            (BigInt(i1), BigRat(f2)) | (BigRat(f2), BigInt(i1)) => unreachable!(),
-            (BigRat(f1), SmallRat(n2, d2)) | (SmallRat(n2, d2), BigRat(f1)) => unreachable!(),
-            (BigRat(f1), BigRat(f2)) => unreachable!(),
+            _ => unreachable!(),
         }
     }
 }
@@ -310,19 +309,19 @@ impl Mul for Number {
                 }
             }
             (SmallInt(i1), BigRat(f2)) | (BigRat(f2), SmallInt(i1)) => {
-                Number::BigRat(Box::new(*f2 * Rational::from(i1)))
+                Number::BigRat(Box::new(*f2 * Rational::from(i1))).normalized()
             }
             (BigInt(i1), BigInt(i2)) => BigInt(i1 * i2),
             (BigInt(i1), SmallRat(n2, d2)) | (SmallRat(n2, d2), BigInt(i1)) => {
-                Number::BigRat(Box::new(Rational::from(i1) * Rational::from((n2, d2))))
+                Number::BigRat(Box::new(Rational::from(i1) * Rational::from((n2, d2)))).normalized()
             }
             (BigInt(i1), BigRat(f2)) | (BigRat(f2), BigInt(i1)) => {
-                Number::BigRat(Box::new(*f2 * Rational::from(i1)))
+                Number::BigRat(Box::new(*f2 * Rational::from(i1))).normalized()
             }
             (BigRat(f1), SmallRat(n2, d2)) | (SmallRat(n2, d2), BigRat(f1)) => {
-                Number::BigRat(Box::new(*f1 * Rational::from((n2, d2))))
+                Number::BigRat(Box::new(*f1 * Rational::from((n2, d2)))).normalized()
             }
-            (BigRat(f1), BigRat(f2)) => BigRat(Box::new(*f1 * *f2)),
+            (BigRat(f1), BigRat(f2)) => BigRat(Box::new(*f1 * *f2)).normalized(),
         }
     }
 }

@@ -18,6 +18,15 @@ use rug::Integer;
 use ndarray::{Array, arr1};
 use poly::raw::zp_solve::{solve, LinearSolverError};
 
+pub const LARGE_U32_PRIMES : [usize;48] = [
+    4254797, 4255213, 4255609, 4256009, 4254799, 4255249, 4255619, 4256029, 4254821,
+    4255301, 4255637, 4256051, 4254853, 4255313, 4255673, 4256089, 4254869, 4255351,
+    4255679, 4256101, 4254883, 4255369, 4255697, 4256117, 4254911, 4255387, 4255739,
+    4256141, 4254949, 4255399, 4255747, 4256159, 4254961, 4255403, 4255751, 4256167,
+    4254983, 4255429, 4255781, 4256191, 4255039, 4255439, 4255789, 4256227, 4255057,
+    4255451, 4255807, 4256233,
+];
+
 enum GCDError {
     BadOriginalImage,
     BadCurrentImage,
@@ -584,6 +593,7 @@ where
         // if we have two numbers, use the integer gcd
         if a.nterms == 1 && a.exponents.iter().all(|c| c.is_zero()) {
             if b.nterms == 1 && b.exponents.iter().all(|c| c.is_zero()) {
+                println!("{:?} {:?}",a.coefficients[0].clone(), b.coefficients[0].clone());
                 return MultivariatePolynomial::from_constant_with_nvars(
                     GCD::gcd(a.coefficients[0].clone(), b.coefficients[0].clone()),
                     a.nvars,
@@ -681,31 +691,22 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
         let gamma = GCD::gcd(a.lcoeff(), b.lcoeff());
         println!("gamma {}", gamma);
 
-        let primes = [
-            4254797, 4255213, 4255609, 4256009, 4254799, 4255249, 4255619, 4256029, 4254821,
-            4255301, 4255637, 4256051, 4254853, 4255313, 4255673, 4256089, 4254869, 4255351,
-            4255679, 4256101, 4254883, 4255369, 4255697, 4256117, 4254911, 4255387, 4255739,
-            4256141, 4254949, 4255399, 4255747, 4256159, 4254961, 4255403, 4255751, 4256167,
-            4254983, 4255429, 4255781, 4256191, 4255039, 4255439, 4255789, 4256227, 4255057,
-            4255451, 4255807, 4256233,
-        ];
-
         let mut pi = 0;
 
         'newfirstprime: loop {
             pi += 1;
-            for _ in pi..primes.len() {
-                if !(gamma.mod_num(primes[pi])).is_zero() {
+            for _ in pi..LARGE_U32_PRIMES.len() {
+                if !(gamma.mod_num(LARGE_U32_PRIMES[pi])).is_zero() {
                     break;
                 }
                 pi += 1;
             }
 
-            if pi == primes.len() {
+            if pi == LARGE_U32_PRIMES.len() {
                 panic!("Ran out of primes for gcd reconstruction");
             }
 
-            let mut p = primes[pi];
+            let mut p = LARGE_U32_PRIMES[pi];
 
             let mut gammap = gamma.to_finite_field(p);
             let ap = a.to_finite_field(p);
@@ -782,18 +783,18 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                 old_gm = gm.clone();
 
                 pi += 1;
-                for _ in pi..primes.len() {
-                    if !(gamma.mod_num(primes[pi])).is_zero() {
+                for _ in pi..LARGE_U32_PRIMES.len() {
+                    if !(gamma.mod_num(LARGE_U32_PRIMES[pi])).is_zero() {
                         break;
                     }
                     pi += 1;
                 }
 
-                if pi == primes.len() {
+                if pi == LARGE_U32_PRIMES.len() {
                     panic!("Ran out of primes for gcd images");
                 }
 
-                p = primes[pi];
+                p = LARGE_U32_PRIMES[pi];
 
                 gammap = gamma.to_finite_field(p);
                 let ap = a.to_finite_field(p);
@@ -858,6 +859,7 @@ impl<E: Exponent> PolynomialGCD for MultivariatePolynomial<Number, E> {
         vars: &[usize],
         dx: &mut [u32],
     ) -> MultivariatePolynomial<Number, E> {
+        println!("GCD IN {:?} {:?}", a, b);
         MultivariatePolynomial::gcd_zippel(&a, &b, vars, dx)
     }
 }
