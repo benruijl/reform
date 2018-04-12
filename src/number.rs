@@ -1,9 +1,9 @@
 use num_traits;
-use num_traits::{checked_pow, One, Zero};
+use num_traits::{checked_pow, Inv, One, Zero};
 use rug::{Integer, Rational};
 use std::cmp::Ordering;
 use std::fmt;
-use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub};
+use std::ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Rem, Sub};
 use tools::GCD;
 
 #[macro_export]
@@ -54,10 +54,19 @@ impl Number {
                 if *r.denom() != 1 {
                     return false;
                 }
-                Number::BigInt(r.numer().clone()) // FIXME: prevent clone
+                if *r.numer() < DOWNGRADE_LIMIT && *r.numer() > -DOWNGRADE_LIMIT {
+                    Number::SmallInt(r.numer().to_isize().expect("Number too large to downgrade"))
+                } else {
+                    Number::BigInt(r.numer().clone()) // TODO: move instead of clone
+                }
             }
         };
         true
+    }
+
+    pub fn normalized(mut self) -> Self {
+        self.normalize_inplace();
+        self
     }
 }
 
@@ -87,6 +96,18 @@ impl Zero for Number {
     }
 }
 
+impl GCD for Number {
+    fn gcd(a: Number, b: Number) -> Number {
+        use self::Number::*;
+        match (a, b) {
+            (SmallInt(i1), SmallInt(i2)) => SmallInt(GCD::gcd(i1, i2)),
+            (SmallInt(i1), BigInt(i2)) | (BigInt(i2), SmallInt(i1)) => BigInt(i2.gcd(&Integer::from(i1))),
+            (BigInt(i1), BigInt(i2)) => BigInt(i1.gcd(&i2)),
+            _ => unreachable!(),
+        }
+    }
+}
+
 impl One for Number {
     fn one() -> Number {
         Number::SmallInt(1)
@@ -111,6 +132,19 @@ impl Neg for Number {
             Number::BigInt(i) => Number::BigInt(-i),
             Number::SmallRat(n, d) => Number::SmallRat(-n, d),
             Number::BigRat(f) => Number::BigRat(Box::new(-*f)),
+        }
+    }
+}
+
+impl Inv for Number {
+    type Output = Number;
+
+    fn inv(self) -> Self::Output {
+        match self {
+            Number::SmallInt(i) => Number::SmallRat(1, i),
+            Number::BigInt(i) => Number::BigRat(Box::new(Rational::from((1, i)))),
+            Number::SmallRat(n, d) => Number::SmallRat(d, n),
+            Number::BigRat(f) => Number::BigRat(Box::new((*f).recip())),
         }
     }
 }
@@ -279,19 +313,42 @@ impl Mul for Number {
                 }
             }
             (SmallInt(i1), BigRat(f2)) | (BigRat(f2), SmallInt(i1)) => {
-                Number::BigRat(Box::new(*f2 * Rational::from(i1)))
+                Number::BigRat(Box::new(*f2 * Rational::from(i1))).normalized()
             }
             (BigInt(i1), BigInt(i2)) => BigInt(i1 * i2),
             (BigInt(i1), SmallRat(n2, d2)) | (SmallRat(n2, d2), BigInt(i1)) => {
-                Number::BigRat(Box::new(Rational::from(i1) * Rational::from((n2, d2))))
+                Number::BigRat(Box::new(Rational::from(i1) * Rational::from((n2, d2)))).normalized()
             }
             (BigInt(i1), BigRat(f2)) | (BigRat(f2), BigInt(i1)) => {
-                Number::BigRat(Box::new(*f2 * Rational::from(i1)))
+                Number::BigRat(Box::new(*f2 * Rational::from(i1))).normalized()
             }
             (BigRat(f1), SmallRat(n2, d2)) | (SmallRat(n2, d2), BigRat(f1)) => {
-                Number::BigRat(Box::new(*f1 * Rational::from((n2, d2))))
+                Number::BigRat(Box::new(*f1 * Rational::from((n2, d2)))).normalized()
             }
-            (BigRat(f1), BigRat(f2)) => BigRat(Box::new(*f1 * *f2)),
+            (BigRat(f1), BigRat(f2)) => BigRat(Box::new(*f1 * *f2)).normalized(),
+        }
+    }
+}
+
+impl Div for Number {
+    type Output = Self;
+
+    fn div(self, rhs: Number) -> Number {
+        self * rhs.inv() // TODO: optimize
+    }
+}
+
+impl Rem for Number {
+    type Output = Self;
+
+    fn rem(self, rhs: Number) -> Number {
+        use self::Number::*;
+        match (self, rhs) {
+            (SmallInt(i1), SmallInt(i2)) => SmallInt(i1 % i2), // TODO: make positive?
+            (SmallInt(i1), BigInt(i2)) => BigInt(Integer::from(i1.clone()) % i2),
+            (BigInt(i1), SmallInt(i2)) => BigInt(i1 % Integer::from(i2)),
+            (BigInt(i1), BigInt(i2)) => BigInt(i1 % i2),
+            _ => unreachable!(),
         }
     }
 }

@@ -1,4 +1,3 @@
-use num_traits::cast::AsPrimitive;
 use num_traits::{One, Pow, Zero};
 use poly::raw::finitefield::FiniteField;
 use std::fmt::{Debug, Display};
@@ -17,15 +16,14 @@ pub trait ToFiniteField {
 
 /// Trait for rings.
 pub trait Ring:
-    Copy
-    + Zero
+   // Copy
+    Zero
     + One
     + Debug
     + Display
     + MulModNum
     + GCD
-    + AsPrimitive<usize>
-    + Pow<usize, Output = Self>
+    + Pow<u32, Output = Self>
     + Neg<Output = Self>
     + Div<Output = Self>
     + Rem<Output = Self>
@@ -36,15 +34,15 @@ pub trait Ring:
 }
 
 impl<
-        T: Copy
-            + Zero
+        T: 
+        //Copy
+            Zero
             + One
             + Debug
             + Display
             + MulModNum
             + GCD
-            + AsPrimitive<usize>
-            + Pow<usize, Output = Self>
+            + Pow<u32, Output = Self>
             + Neg<Output = Self>
             + Div<Output = Self>
             + Rem<Output = Self>

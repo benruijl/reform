@@ -6,29 +6,29 @@ use std::fmt;
 use structure::{fmt_varname, Element, GlobalVarInfo, VarName};
 use number::Number;
 
-fn to_monomial(e: &Element, exp: &mut [u64]) -> Result<i64, String> {
+fn to_monomial(e: &Element, exp: &mut [u32]) -> Result<Number, String> {
     match *e {
         Element::Var(ref x) => {
             exp[*x as usize] = 1;
-            Ok(1)
+            Ok(Number::one())
         }
-        Element::Num(_, Number::SmallInt(n)) => {
-            Ok(n as i64)
+        Element::Num(_, ref nn@Number::SmallInt(_)) | Element::Num(_, ref nn@Number::BigInt(_)) => {
+            Ok(nn.clone())
         }
         Element::Pow(_, ref p) => {
-            let (ref b, ref e) = **p;
+            let (ref b, ref ex) = **p;
             if let Element::Var(ref x) = *b {
-                if let Element::Num(_, Number::SmallInt(n)) = *e {
+                if let Element::Num(_, Number::SmallInt(n)) = *ex {
                     if n > 0 {
-                        exp[*x as usize] = n as u64;
-                        return Ok(1);
+                        exp[*x as usize] = n as u32;
+                        return Ok(Number::one());
                     }
                 }
             }
             Err(format!("{} not allowed in monomial", e))
         }
         Element::Term(_, ref args) => {
-            let mut c = 1;
+            let mut c = Number::one();
             for x in args {
                 c *= to_monomial(x, exp)?;
             }
@@ -41,7 +41,7 @@ fn to_monomial(e: &Element, exp: &mut [u64]) -> Result<i64, String> {
 pub fn to_rational_polynomial(
     e: &Element,
     num_vars: usize,
-) -> Result<MultivariatePolynomial<i64, u64>, String> {
+) -> Result<MultivariatePolynomial<Number, u32>, String> {
     match *e {
         Element::SubExpr(_, ref args) => {
             let mut a = MultivariatePolynomial::with_nvars(num_vars);
@@ -55,11 +55,12 @@ pub fn to_rational_polynomial(
         Element::Var(ref x) => {
             let mut exp = vec![0; num_vars];
             exp[*x as usize] = 1;
-            Ok(MultivariatePolynomial::from_monomial(1, exp))
+            Ok(MultivariatePolynomial::from_monomial(Number::one(), exp))
         }
-        Element::Num(_, Number::SmallInt(n)) => Ok(MultivariatePolynomial::from_constant_with_nvars(
-            n as i64, num_vars))
-        , // TODO: fraction should be split
+        Element::Num(_, ref nn@Number::SmallInt(_)) | Element::Num(_, ref nn@Number::BigInt(_)) => {
+            Ok(MultivariatePolynomial::from_constant_with_nvars(
+            nn.clone(), num_vars))
+        }
         Element::Term(..) => {
             let mut exp = vec![0; num_vars];
             let c = to_monomial(e, &mut exp)?;
@@ -68,13 +69,13 @@ pub fn to_rational_polynomial(
         Element::Pow(..) => {
             let mut exp = vec![0; num_vars];
             to_monomial(e, &mut exp)?;
-            Ok(MultivariatePolynomial::from_monomial(1, exp))
+            Ok(MultivariatePolynomial::from_monomial(Number::one(), exp))
         }
         _ => Err(format!("{} not allowed in polynomial", e)),
     }
 }
 
-pub fn to_expression(p: MultivariatePolynomial<i64, u64>) -> Element {
+pub fn to_expression(p: MultivariatePolynomial<Number, u32>) -> Element {
     let mut terms = vec![];
     for v in p.into_iter() {
         let mut factors = vec![];
@@ -94,18 +95,18 @@ pub fn to_expression(p: MultivariatePolynomial<i64, u64>) -> Element {
             }
         }
 
-        factors.push(Element::Num(false, Number::SmallInt(*v.coefficient as isize)));
+        factors.push(Element::Num(false, v.coefficient.clone()));
         terms.push(Element::Term(true, factors));
     }
     Element::SubExpr(true, terms)
 }
 
-pub struct PolyPrinter<'a, R: Ring, E: Exponent> {
+pub struct PolyPrinter<'a, R: 'a + Ring, E: Exponent> {
     pub poly: &'a MultivariatePolynomial<R, E>,
     pub var_info: &'a GlobalVarInfo,
 }
 
-impl<'a, R: Ring + fmt::Display, E: Exponent + One + fmt::Display> fmt::Display
+impl<'a, R: 'a + Ring + fmt::Display, E: Exponent + One + fmt::Display> fmt::Display
     for PolyPrinter<'a, R, E>
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

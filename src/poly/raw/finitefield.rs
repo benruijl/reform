@@ -27,28 +27,6 @@ impl FiniteField {
     pub fn inverse(n: usize, p: usize) -> usize {
         zp::inv(n, p)
     }
-
-    /// Use Garner's algorithm for the Chinese remainder theorem
-    /// to reconstruct an x that satisfies n1 = x % p1 and n2 = x % p2.
-    /// The x will be in the range [-p1*p2/2,p1*p2/2].
-    pub fn chinese_remainder(n1: usize, n2: usize, p1: usize, p2: usize) -> isize {
-        if n1 > n2 {
-            return FiniteField::chinese_remainder(n2, n1, p2, p1);
-        }
-
-        let gamma1 = FiniteField::inverse(p1 % p2, p2);
-
-        // convert to mixed-radix notation
-        let v1 = zp::mul(n2 - n1, gamma1, p2);
-
-        // convert to standard representation
-        let r = v1 * p1 + n1;
-        if r > p1 / 2 * p2 {
-            r as isize - (p1 * p2) as isize // TODO: could overflow!
-        } else {
-            r as isize
-        }
-    }
 }
 
 impl fmt::Display for FiniteField {
@@ -131,7 +109,7 @@ impl Div for FiniteField {
     fn div(self, other: FiniteField) -> Self::Output {
         assert_eq!(self.p, other.p);
         FiniteField {
-            n: zp::mul(self.n, zp::inv(other.n, self.p), self.p),
+            n: zp::mul(self.n, zp::inv(other.n % self.p, self.p), self.p),
             p: self.p,
         }
     }
@@ -142,7 +120,7 @@ impl Div<usize> for FiniteField {
 
     fn div(self, other: usize) -> Self::Output {
         FiniteField {
-            n: zp::mul(self.n, zp::inv(other, self.p), self.p),
+            n: zp::mul(self.n, zp::inv(other % self.p, self.p), self.p),
             p: self.p,
         }
     }
@@ -153,7 +131,7 @@ impl Mul<usize> for FiniteField {
 
     fn mul(self, other: usize) -> Self::Output {
         FiniteField {
-            n: zp::mul(self.n, other, self.p),
+            n: zp::mul(self.n, other % self.p, self.p),
             p: self.p,
         }
     }
@@ -177,11 +155,11 @@ impl Rem for FiniteField {
     }
 }
 
-impl Pow<usize> for FiniteField {
+impl Pow<u32> for FiniteField {
     type Output = Self;
 
-    fn pow(self, e: usize) -> Self::Output {
-        FiniteField::new(zp::pow(self.n, e as u32, self.p), self.p)
+    fn pow(self, e: u32) -> Self::Output {
+        FiniteField::new(zp::pow(self.n, e, self.p), self.p)
     }
 }
 

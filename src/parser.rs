@@ -4,6 +4,7 @@ use std::str::FromStr;
 use structure::{Element, FunctionAttributes, IdentityStatement, IdentityStatementMode, Module,
                 NumOrder, Procedure, Program, Statement};
 use number::Number;
+use rug::{Integer, Rational};
 
 use combine::State;
 use combine::char::*;
@@ -348,10 +349,12 @@ parser!{
 {
     (
         optional(char('-')).map(|x| x.is_none()),
-        many1(digit()).map(|d: String| d.parse::<isize>().unwrap()),
+        many1(digit()).map(|d: String| Integer::from(Integer::parse(d).unwrap())),
         optional(char('/').with(many1(digit())))
-            .map(|x| x.map(|y: String| y.parse::<isize>().unwrap()).unwrap_or(1)),
-    ).map(|(sign, num, den): (bool, isize, isize)| Element::Num(true, Number::SmallRat(if sign { num } else { -num }, den)))
+            .map(|x| x.map(|y: String| Integer::from(Integer::parse(y).unwrap())).unwrap_or(Integer::from(1))),
+    ).map(|(sign, num, den): (bool, Integer, Integer)|
+        Element::Num(true,
+            Number::BigRat(Box::new(Rational::from((if sign { num } else { -num }, den))))))
         .skip(skipnocode())
 }
 }

@@ -12,7 +12,7 @@ pub trait Exponent
     + Display
     + One
     + FromPrimitive
-    + AsPrimitive<usize>
+    + AsPrimitive<u32>
     + CheckedAdd
     + Sub<Output = Self>
     + Ord
@@ -26,7 +26,7 @@ impl<
         + Display
         + One
         + FromPrimitive
-        + AsPrimitive<usize>
+        + AsPrimitive<u32>
         + CheckedAdd
         + Sub<Output = Self>
         + Ord

@@ -78,7 +78,7 @@ impl Element {
                                 Box::new((
                                     to_rational_polynomial(&a[0], var_info.num_vars()).unwrap(),
                                     MultivariatePolynomial::from_constant_with_nvars(
-                                        1,
+                                        Number::one(),
                                         var_info.num_vars(),
                                     ),
                                 )),
@@ -390,7 +390,7 @@ impl Element {
                     }
 
                     // sort and merge the terms at the same time
-                    if true {
+                    if false {
                         changed |= expr_sort(ts, merge_terms, var_info, true);
                     } else {
                         changed = true; // TODO: tell if changed?

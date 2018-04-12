@@ -304,8 +304,8 @@ pub enum Element<ID: Id = VarName> {
     RationalPolynomialCoefficient(
         bool,
         Box<(
-            MultivariatePolynomial<i64, u64>,
-            MultivariatePolynomial<i64, u64>,
+            MultivariatePolynomial<Number, u32>,
+            MultivariatePolynomial<Number, u32>,
         )>,
     ),
 }

@@ -545,7 +545,7 @@ impl<R: Ring, E: Exponent> Mul<R> for MultivariatePolynomial<R, E> {
     fn mul(self, other: R) -> Self::Output {
         let mut res = self.clone();
         for c in &mut res.coefficients {
-            *c = c.clone() * other;
+            *c = c.clone() * other.clone();
         }
         res
     }
@@ -642,7 +642,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             if (0..self.nvars - 1).all(|i| self.exponents(t)[i] == last[i]) {
                 let mut e = vec![E::zero(); self.nvars];
                 e[self.nvars - 1] = self.exponents(t)[self.nvars - 1];
-                res.append_monomial(self.coefficients[t], e);
+                res.append_monomial(self.coefficients[t].clone(), e);
             } else {
                 break;
             }
@@ -656,7 +656,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     pub fn replace(&self, n: usize, v: R) -> MultivariatePolynomial<R, E> {
         let mut res = MultivariatePolynomial::with_nvars(self.nvars);
         for t in 0..self.nterms {
-            let mut c = self.coefficients[t] * v.pow(self.exponents(t)[n].as_());
+            let mut c = self.coefficients[t].clone() * v.clone().pow(self.exponents(t)[n].as_());
             let mut e = self.exponents(t).to_vec();
             e[n] = E::zero();
 
@@ -673,8 +673,8 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         for t in 0..self.nterms {
             let mut e = self.exponents(t).to_vec();
 
-            let mut c = self.coefficients[t];
-            for &(n, v) in r {
+            let mut c = self.coefficients[t].clone();
+            for &(n, ref v) in r {
                 c = c * v.clone().pow(self.exponents(t)[n].as_());
                 e[n] = E::zero();
             }
@@ -699,7 +699,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
     /// Create a univariate polynomial out of a multivariate one.
     /// TODO: allow a MultivariatePolynomial as a coefficient
-    pub fn to_univariate_polynomial(&self, x: usize) -> Vec<(MultivariatePolynomial<R, E>, usize)> {
+    pub fn to_univariate_polynomial(&self, x: usize) -> Vec<(MultivariatePolynomial<R, E>, u32)> {
         if self.coefficients.is_empty() {
             return vec![];
         }
