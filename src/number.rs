@@ -204,7 +204,7 @@ impl Add for Number {
             (SmallInt(i1), BigRat(f2)) | (BigRat(f2), SmallInt(i1)) => {
                 Number::BigRat(Box::new(*f2 + Rational::from(i1)))
             }
-            (BigInt(i1), BigInt(i2)) => BigInt(i1 * i2),
+            (BigInt(i1), BigInt(i2)) => BigInt(i1 + i2),
             (BigInt(i1), SmallRat(n2, d2)) | (SmallRat(n2, d2), BigInt(i1)) => {
                 Number::BigRat(Box::new(Rational::from(i1) + Rational::from((n2, d2))))
             }
