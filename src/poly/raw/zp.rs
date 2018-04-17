@@ -162,35 +162,47 @@ pub fn chinese_remainder(n1: Number, n2: Number, p1: Number, p2: Number) -> Numb
         return chinese_remainder(n2, n1, p2, p1);
     }
 
-    println!("chin {} {} {} {}", n1, n2, p1, p2);
-
     // convert to mixed-radix notation
-    let gamma1 =
-    match (&p1, &p2) {
+    let gamma1 = match (&p1, &p2) {
         (Number::SmallInt(i1), Number::SmallInt(i2)) => {
             Number::SmallInt(inv((*i1 as usize) % (*i2 as usize), *i2 as usize) as isize)
         }
-        (Number::BigInt(i1), Number::BigInt(i2)) => {
-            Number::BigInt(i1.clone() % i2.clone())
-        }
+        (Number::BigInt(i1), Number::BigInt(i2)) => Number::BigInt(
+            (i1.clone() % i2.clone())
+                .invert(i2)
+                .expect(&format!("Could not invert {} in {}", i1, i2)),
+        ),
         (Number::BigInt(i1), Number::SmallInt(i2)) => {
             let ii2 = rug::Integer::from(i2.clone());
-            Number::BigInt(i1.clone() % ii2.clone())
+            Number::BigInt(
+                (i1.clone() % ii2.clone())
+                    .invert(&ii2)
+                    .expect(&format!("Could not invert {} in {}", i1, i2)),
+            )
         }
         (Number::SmallInt(i1), Number::BigInt(i2)) => {
             let ii1 = rug::Integer::from(i1.clone());
-            Number::BigInt(ii1.clone() % i2.clone()) // FIXME: should be small int
+            Number::BigInt(
+                (ii1.clone() % i2.clone())
+                    .invert(i2)
+                    .expect(&format!("Could not invert {} in {}", i1, i2)),
+            ) // TODO: convert back to small int
         }
-        _ => unreachable!()
+        _ => unreachable!(),
     };
 
     let v1 = match (&n1, &n2, &gamma1, &p2) {
-        (Number::SmallInt(nn1), Number::SmallInt(nn2), Number::SmallInt(ngamma1), Number::SmallInt(np2)) => {
-            Number::SmallInt(mul((nn2.clone() - nn1.clone()) as usize, ngamma1.clone() as usize, np2.clone() as usize) as isize)
-        }
-        _ => {
-            ((n2.clone() - n1.clone()) * gamma1) % p2.clone()
-        }
+        (
+            Number::SmallInt(nn1),
+            Number::SmallInt(nn2),
+            Number::SmallInt(ngamma1),
+            Number::SmallInt(np2),
+        ) => Number::SmallInt(mul(
+            (nn2.clone() - nn1.clone()) as usize,
+            ngamma1.clone() as usize,
+            np2.clone() as usize,
+        ) as isize),
+        _ => ((n2.clone() - n1.clone()) * gamma1.clone()) % p2.clone(),
     };
 
     // convert to standard representation

@@ -5,26 +5,25 @@ use poly::exponent::Exponent;
 use poly::ring::Ring;
 
 use number::Number;
-use poly::raw::MultivariatePolynomial;
 use poly::raw::finitefield::FiniteField;
+use poly::raw::zp;
+use poly::raw::MultivariatePolynomial;
 use poly::ring::MulModNum;
 use poly::ring::ToFiniteField;
 use rand;
 use rand::distributions::{Range, Sample};
-use tools::GCD;
-use poly::raw::zp;
 use rug::Integer;
+use tools::GCD;
 
-use ndarray::{Array, arr1};
+use ndarray::{arr1, Array};
 use poly::raw::zp_solve::{solve, LinearSolverError};
 
-pub const LARGE_U32_PRIMES : [usize;48] = [
-    4254797, 4255213, 4255609, 4256009, 4254799, 4255249, 4255619, 4256029, 4254821,
-    4255301, 4255637, 4256051, 4254853, 4255313, 4255673, 4256089, 4254869, 4255351,
-    4255679, 4256101, 4254883, 4255369, 4255697, 4256117, 4254911, 4255387, 4255739,
-    4256141, 4254949, 4255399, 4255747, 4256159, 4254961, 4255403, 4255751, 4256167,
-    4254983, 4255429, 4255781, 4256191, 4255039, 4255439, 4255789, 4256227, 4255057,
-    4255451, 4255807, 4256233,
+pub const LARGE_U32_PRIMES: [usize; 48] = [
+    4254797, 4255213, 4255609, 4256009, 4254799, 4255249, 4255619, 4256029, 4254821, 4255301,
+    4255637, 4256051, 4254853, 4255313, 4255673, 4256089, 4254869, 4255351, 4255679, 4256101,
+    4254883, 4255369, 4255697, 4256117, 4254911, 4255387, 4255739, 4256141, 4254949, 4255399,
+    4255747, 4256159, 4254961, 4255403, 4255751, 4256167, 4254983, 4255429, 4255781, 4256191,
+    4255039, 4255439, 4255789, 4256227, 4255057, 4255451, 4255807, 4256233,
 ];
 
 enum GCDError {
@@ -108,7 +107,7 @@ fn construct_new_image<E: Exponent>(
         };
 
         let g1 = MultivariatePolynomial::univariate_gcd(&a1, &b1);
-        println!("GCD of sample at point {:?}: {}", r, g1);
+        //println!("GCD of sample at point {:?}: {}", r, g1);
 
         if g1.ldegree().as_() < bounds[0] {
             // original image and form and degree bounds are unlucky
@@ -141,7 +140,6 @@ fn construct_new_image<E: Exponent>(
             for t in 0..g1.nterms {
                 if g1.exponents(t)[var].as_() == *d {
                     scale_factor = coeff / g1.coefficients[t];
-                    println!("Single scale factor: {}", scale_factor);
                     found = true;
                     break;
                 }
@@ -160,8 +158,6 @@ fn construct_new_image<E: Exponent>(
         if ni < nx {
             continue 'newimage;
         }
-
-        println!("GFU {:?}", gfu);
 
         // construct the linear system
         let mut gfm = vec![];
@@ -204,7 +200,6 @@ fn construct_new_image<E: Exponent>(
                     }
                 }
 
-                println!("{:?} {}", row, c);
                 gfm.extend(row);
             }
         }
@@ -223,8 +218,6 @@ fn construct_new_image<E: Exponent>(
             system.len()
         };
 
-        println!("gfm {:?} {:?} {} {}", gfm, system, rows, cols);
-
         let mut rhs = vec![0; newrows];
         for i in 0..onecount {
             let mut con = vec![0; cols];
@@ -235,8 +228,6 @@ fn construct_new_image<E: Exponent>(
         }
 
         let m = Array::from_shape_vec((newrows, cols), gfm).unwrap();
-
-        println!("Solve matrix {:?}={:?}", m, rhs);
 
         match solve(&m, &arr1(&rhs), p) {
             Ok(x) => {
@@ -318,7 +309,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
     fn gcd_shape_modular(
         a: &MultivariatePolynomial<FiniteField, E>,
         b: &MultivariatePolynomial<FiniteField, E>,
-        vars: &[usize],   // variables
+        vars: &[usize], // variables
         dx: &mut [u32], // degree bounds
     ) -> Option<MultivariatePolynomial<FiniteField, E>> {
         let lastvar = vars.last().unwrap().clone();
@@ -400,9 +391,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             }
 
             let mut lc = gv.lcoeff();
-            let mut gseq = vec![
-                gv * (gamma.replace(lastvar, v).coefficients[0].clone() / lc),
-            ];
+            let mut gseq = vec![gv * (gamma.replace(lastvar, v).coefficients[0].clone() / lc)];
             let mut vseq = vec![v];
 
             // sparse reconstruction
@@ -413,8 +402,6 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                         break v;
                     }
                 };
-
-                println!("Choose sample point {}", v);
 
                 let av = a.replace(lastvar, v);
                 let bv = b.replace(lastvar, v);
@@ -449,7 +436,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
 
             // use interpolation to construct x_n dependence
             let mut gc = newton_interpolation(&vseq, &gseq, p, lastvar);
-            println!("Interpolated: {} from {:?} -- {:?}", gc, vseq, gseq);
+            println!("Interpolated: {}", gc);
 
             // remove content in x_n
             let cont = gc.univariate_content(lastvar);
@@ -593,7 +580,6 @@ where
         // if we have two numbers, use the integer gcd
         if a.nterms == 1 && a.exponents.iter().all(|c| c.is_zero()) {
             if b.nterms == 1 && b.exponents.iter().all(|c| c.is_zero()) {
-                println!("{:?} {:?}",a.coefficients[0].clone(), b.coefficients[0].clone());
                 return MultivariatePolynomial::from_constant_with_nvars(
                     GCD::gcd(a.coefficients[0].clone(), b.coefficients[0].clone()),
                     a.nvars,
@@ -642,6 +628,7 @@ where
             .collect();
 
         // remove the gcd of the content in the first variable
+        // TODO: don't do for univariate poly
         let c = MultivariatePolynomial::univariate_content_gcd(a, b, vars[0]);
         println!("GCD of content: {}", c);
 
@@ -687,7 +674,6 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
         println!("Compute modular gcd({},{})", a, b);
 
         // compute scaling factor in Z
-        println!("gamma comp {} {}", a.lcoeff(), b.lcoeff());
         let gamma = GCD::gcd(a.lcoeff(), b.lcoeff());
         println!("gamma {}", gamma);
 
@@ -770,7 +756,10 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                     // divide by integer content
                     let gmc = gm.content();
                     let mut gc = gm.clone();
-                    gc.coefficients = gc.coefficients.iter().map(|x| x.clone() / gmc.clone()).collect();
+                    gc.coefficients = gc.coefficients
+                        .iter()
+                        .map(|x| x.clone() / gmc.clone())
+                        .collect();
 
                     println!("Final suggested gcd: {}", gc);
                     if a.long_division(&gc).1.is_zero() && b.long_division(&gc).1.is_zero() {
@@ -828,7 +817,7 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                 // scale the new image
                 let gpc = gp.lcoeff();
                 gp = gp * (gammap / gpc);
-                println!("gp: {}", gp);
+                println!("gp: {} mod {}", gp, gpc.p);
 
                 // use chinese remainder theorem to merge coefficients and map back to Z
                 for (gmc, gpc) in gm.coefficients.iter_mut().zip(gp.coefficients) {
@@ -837,8 +826,13 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                     } else {
                         gmc.clone()
                     };
-                    // FIXME: prevent overflow
-                    *gmc = zp::chinese_remainder(coeff, Number::SmallInt(gpc.n as isize), m.clone(), Number::SmallInt(gpc.p as isize));
+
+                    *gmc = zp::chinese_remainder(
+                        coeff,
+                        Number::SmallInt(gpc.n as isize),
+                        m.clone(),
+                        Number::SmallInt(gpc.p as isize),
+                    );
                 }
 
                 m *= Number::SmallInt(p as isize);
@@ -880,7 +874,7 @@ impl ToFiniteField for Number {
         let n = match *self {
             Number::SmallInt(i) => i % (p as isize),
             Number::BigInt(ref i) => (i.clone() % Integer::from(p)).to_isize().unwrap(),
-            _ => unreachable!()
+            _ => unreachable!(),
         };
 
         if n < 0 {
