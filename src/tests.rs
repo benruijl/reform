@@ -1,10 +1,11 @@
 #[cfg(test)]
 mod tests {
     use module;
-    use number::Number;
+    use number::Number::*;
     use parser;
-    use poly::raw::MultivariatePolynomial;
     use poly::raw::finitefield::FiniteField;
+    use poly::raw::zp;
+    use poly::raw::MultivariatePolynomial;
     use tools;
 
     #[test]
@@ -38,8 +39,8 @@ mod tests {
 
     #[test]
     fn bigint() {
-        let a = Number::SmallInt(300000000000);
-        let b = Number::SmallInt(500000000000);
+        let a = SmallInt(300000000000);
+        let b = SmallInt(500000000000);
         println!("{:?}", a * b);
     }
 
@@ -62,19 +63,19 @@ mod tests {
         assert_eq!(a.long_division(&b), (q, r));
     }
 
-    /*#[test]
+    #[test]
     fn univariate_gcd() {
         // gcd(x^3-2x^2-4,x-3) = 1
-        let mut a = MultivariatePolynomial::from_monomial(1, vec![3]);
-        a.append_monomial(-2, vec![2]);
-        a.append_monomial(-4, vec![0]);
+        let mut a = MultivariatePolynomial::from_monomial(SmallInt(1), vec![3]);
+        a.append_monomial(SmallInt(-2), vec![2]);
+        a.append_monomial(SmallInt(-4), vec![0]);
 
-        let mut b = MultivariatePolynomial::from_monomial(1, vec![1]);
-        b.append_monomial(-3, vec![0]);
+        let mut b = MultivariatePolynomial::from_monomial(SmallInt(1), vec![1]);
+        b.append_monomial(SmallInt(-3), vec![0]);
 
         assert_eq!(
             MultivariatePolynomial::gcd(&a, &b),
-            MultivariatePolynomial::from_monomial(1, vec![0])
+            MultivariatePolynomial::from_monomial(SmallInt(1), vec![0])
         );
     }
 
@@ -92,7 +93,7 @@ mod tests {
         let mut res = MultivariatePolynomial::from_monomial(FiniteField::new(1, 2), vec![2]);
         res.append_monomial(FiniteField::new(1, 2), vec![0]);
 
-        assert_eq!(MultivariatePolynomial::univariate_gcd(&a, &b), res);
+        assert_eq!(MultivariatePolynomial::gcd(&a, &b), res);
     }
 
     #[test]
@@ -103,7 +104,7 @@ mod tests {
         a.append_monomial(6, vec![0]);
 
         assert_eq!(MultivariatePolynomial::content(&a), 3);
-    }*/
+    }
 
     #[test]
     fn replace() {
@@ -123,7 +124,10 @@ mod tests {
 
     #[test]
     fn chinese_remainder() {
-        assert_eq!(FiniteField::chinese_remainder(5, 30, 11, 31), -94);
+        assert_eq!(
+            zp::chinese_remainder(SmallInt(5), SmallInt(30), SmallInt(11), SmallInt(31)),
+            SmallInt(-94)
+        );
     }
 
     #[test]
@@ -134,85 +138,85 @@ mod tests {
     #[test]
     fn gcd() {
         // gcd(1+2*x+x^2,1+x)=1+x
-        let mut a = MultivariatePolynomial::from_monomial(1, vec![2]);
-        a.append_monomial(2, vec![1]);
-        a.append_monomial(1, vec![0]);
+        let mut a = MultivariatePolynomial::from_monomial(SmallInt(1), vec![2]);
+        a.append_monomial(SmallInt(2), vec![1]);
+        a.append_monomial(SmallInt(1), vec![0]);
 
-        let mut b = MultivariatePolynomial::from_monomial(1, vec![1]);
-        b.append_monomial(1, vec![0]);
+        let mut b = MultivariatePolynomial::from_monomial(SmallInt(1), vec![1]);
+        b.append_monomial(SmallInt(1), vec![0]);
 
-        assert_eq!(MultivariatePolynomial::<i64, usize>::gcd(&a, &b), b);
+        assert_eq!(MultivariatePolynomial::gcd(&a, &b), b);
     }
 
     #[test]
     fn gcd2() {
         // gcd(2+4*x+2x^2,2+2x)=2+2x
-        let mut a = MultivariatePolynomial::from_monomial(2, vec![2]);
-        a.append_monomial(4, vec![1]);
-        a.append_monomial(2, vec![0]);
+        let mut a = MultivariatePolynomial::from_monomial(SmallInt(2), vec![2]);
+        a.append_monomial(SmallInt(4), vec![1]);
+        a.append_monomial(SmallInt(2), vec![0]);
 
-        let mut b = MultivariatePolynomial::from_monomial(2, vec![1]);
-        b.append_monomial(2, vec![0]);
+        let mut b = MultivariatePolynomial::from_monomial(SmallInt(2), vec![1]);
+        b.append_monomial(SmallInt(2), vec![0]);
 
-        assert_eq!(MultivariatePolynomial::<i64, usize>::gcd(&a, &b), b);
+        assert_eq!(MultivariatePolynomial::gcd(&a, &b), b);
     }
 
     #[test]
     fn gcd3() {
         // gcd(1+2*x+x^2+y+2*x*y+x^2*y,1+x+y+x*y)=1+x+y+x*y
         // note the content: (1+y)
-        let mut a = MultivariatePolynomial::from_monomial(1, vec![2, 1]);
-        a.append_monomial(1, vec![2, 0]);
-        a.append_monomial(2, vec![1, 1]);
-        a.append_monomial(2, vec![1, 0]);
-        a.append_monomial(1, vec![0, 1]);
-        a.append_monomial(1, vec![0, 0]);
+        let mut a = MultivariatePolynomial::from_monomial(SmallInt(1), vec![2, 1]);
+        a.append_monomial(SmallInt(1), vec![2, 0]);
+        a.append_monomial(SmallInt(2), vec![1, 1]);
+        a.append_monomial(SmallInt(2), vec![1, 0]);
+        a.append_monomial(SmallInt(1), vec![0, 1]);
+        a.append_monomial(SmallInt(1), vec![0, 0]);
 
-        let mut b = MultivariatePolynomial::from_monomial(1, vec![1, 1]);
-        b.append_monomial(1, vec![1, 0]);
-        b.append_monomial(1, vec![0, 1]);
-        b.append_monomial(1, vec![0, 0]);
+        let mut b = MultivariatePolynomial::from_monomial(SmallInt(1), vec![1, 1]);
+        b.append_monomial(SmallInt(1), vec![1, 0]);
+        b.append_monomial(SmallInt(1), vec![0, 1]);
+        b.append_monomial(SmallInt(1), vec![0, 0]);
 
-        assert_eq!(MultivariatePolynomial::<i64, usize>::gcd(&a, &b), b);
+        assert_eq!(MultivariatePolynomial::gcd(&a, &b), b);
     }
 
     #[test]
     fn gcd4() {
         // gcd(3*x*y,x)=x
-        let a = MultivariatePolynomial::from_monomial(3, vec![1, 1]);
+        let a = MultivariatePolynomial::from_monomial(SmallInt(3), vec![1, 1]);
 
-        let b = MultivariatePolynomial::from_monomial(1, vec![1, 0]);
+        let b = MultivariatePolynomial::from_monomial(SmallInt(1), vec![1, 0]);
 
-        assert_eq!(MultivariatePolynomial::<i64, usize>::gcd(&a, &b), b);
+        assert_eq!(MultivariatePolynomial::gcd(&a, &b), b);
     }
 
     #[test]
     fn gcd5() {
         // gcd(3*x*y,x*y)=x*y
-        let a = MultivariatePolynomial::from_monomial(3, vec![1, 1]);
+        let a = MultivariatePolynomial::from_monomial(SmallInt(3), vec![1, 1]);
 
-        let b = MultivariatePolynomial::from_monomial(1, vec![1, 1]);
+        let b = MultivariatePolynomial::from_monomial(SmallInt(1), vec![1, 1]);
 
-        assert_eq!(MultivariatePolynomial::<i64, usize>::gcd(&a, &b), b);
+        assert_eq!(MultivariatePolynomial::gcd(&a, &b), b);
     }
 
     #[test]
     fn gcd6() {
         // gcd(2+x+2*x*y+x^2*y,3+x+3*x*y+x^2*y)=1+x*y
-        let mut a = MultivariatePolynomial::from_monomial(1, vec![2, 1]);
-        a.append_monomial(2, vec![1, 1]);
-        a.append_monomial(1, vec![1, 0]);
-        a.append_monomial(2, vec![0, 0]);
+        let mut a = MultivariatePolynomial::from_monomial(SmallInt(1), vec![2, 1]);
+        a.append_monomial(SmallInt(2), vec![1, 1]);
+        a.append_monomial(SmallInt(1), vec![1, 0]);
+        a.append_monomial(SmallInt(2), vec![0, 0]);
 
-        let mut b = MultivariatePolynomial::from_monomial(1, vec![2, 1]);
-        b.append_monomial(3, vec![1, 1]);
-        b.append_monomial(1, vec![1, 0]);
-        b.append_monomial(3, vec![0, 0]);
+        let mut b = MultivariatePolynomial::from_monomial(SmallInt(1), vec![2, 1]);
+        b.append_monomial(SmallInt(3), vec![1, 1]);
+        b.append_monomial(SmallInt(1), vec![1, 0]);
+        b.append_monomial(SmallInt(3), vec![0, 0]);
 
-        let mut res = MultivariatePolynomial::from_monomial(1, vec![1, 1]);
-        res.append_monomial(1, vec![0, 0]);
+        let mut res = MultivariatePolynomial::from_monomial(SmallInt(1), vec![1, 1]);
+        res.append_monomial(SmallInt(1), vec![0, 0]);
 
-        assert_eq!(MultivariatePolynomial::<i64, usize>::gcd(&a, &b), res);
+        assert_eq!(MultivariatePolynomial::gcd(&a, &b), res);
     }
 
     #[test]
@@ -221,29 +225,29 @@ mod tests {
         //gcd(50x^3+50x^4+100y+100xy-49x^3y+x^4y-100y^2-x^3y^2,
         //    50x^3+50x^4+100y+100xy+51x^3y+x^4y+100y^2+x^3y^2)
         // = 50x^3+100y+x^3y
-        let mut a = MultivariatePolynomial::from_monomial(50, vec![3, 0]);
-        a.append_monomial(50, vec![4, 0]);
-        a.append_monomial(100, vec![0, 1]);
-        a.append_monomial(100, vec![1, 1]);
-        a.append_monomial(-49, vec![3, 1]);
-        a.append_monomial(1, vec![4, 1]);
-        a.append_monomial(-100, vec![0, 2]);
-        a.append_monomial(-1, vec![3, 2]);
+        let mut a = MultivariatePolynomial::from_monomial(SmallInt(50), vec![3, 0]);
+        a.append_monomial(SmallInt(50), vec![4, 0]);
+        a.append_monomial(SmallInt(100), vec![0, 1]);
+        a.append_monomial(SmallInt(100), vec![1, 1]);
+        a.append_monomial(SmallInt(-49), vec![3, 1]);
+        a.append_monomial(SmallInt(1), vec![4, 1]);
+        a.append_monomial(SmallInt(-100), vec![0, 2]);
+        a.append_monomial(SmallInt(-1), vec![3, 2]);
 
-        let mut b = MultivariatePolynomial::from_monomial(50, vec![3, 0]);
-        b.append_monomial(50, vec![4, 0]);
-        b.append_monomial(100, vec![0, 1]);
-        b.append_monomial(100, vec![1, 1]);
-        b.append_monomial(51, vec![3, 1]);
-        b.append_monomial(1, vec![4, 1]);
-        b.append_monomial(100, vec![0, 2]);
-        b.append_monomial(1, vec![3, 2]);
+        let mut b = MultivariatePolynomial::from_monomial(SmallInt(50), vec![3, 0]);
+        b.append_monomial(SmallInt(50), vec![4, 0]);
+        b.append_monomial(SmallInt(100), vec![0, 1]);
+        b.append_monomial(SmallInt(100), vec![1, 1]);
+        b.append_monomial(SmallInt(51), vec![3, 1]);
+        b.append_monomial(SmallInt(1), vec![4, 1]);
+        b.append_monomial(SmallInt(100), vec![0, 2]);
+        b.append_monomial(SmallInt(1), vec![3, 2]);
 
-        let mut res = MultivariatePolynomial::from_monomial(50, vec![3, 0]);
-        res.append_monomial(100, vec![0, 1]);
-        res.append_monomial(1, vec![3, 1]);
+        let mut res = MultivariatePolynomial::from_monomial(SmallInt(50), vec![3, 0]);
+        res.append_monomial(SmallInt(100), vec![0, 1]);
+        res.append_monomial(SmallInt(1), vec![3, 1]);
 
-        assert_eq!(MultivariatePolynomial::<i64, usize>::gcd(&a, &b), res);
+        assert_eq!(MultivariatePolynomial::gcd(&a, &b), res);
     }
 
     #[test]
@@ -252,26 +256,26 @@ mod tests {
         //gcd(100-170x-270x^2+12y+30xy+18x^2y,
         //    100-370x+270x^2+12y+6xy-18x^2y)
         // = 100-270x+12y+18xy
-        let mut a = MultivariatePolynomial::from_monomial(100, vec![0, 0]);
-        a.append_monomial(-170, vec![1, 0]);
-        a.append_monomial(-270, vec![2, 0]);
-        a.append_monomial(12, vec![0, 1]);
-        a.append_monomial(30, vec![1, 1]);
-        a.append_monomial(18, vec![2, 1]);
+        let mut a = MultivariatePolynomial::from_monomial(SmallInt(100), vec![0, 0]);
+        a.append_monomial(SmallInt(-170), vec![1, 0]);
+        a.append_monomial(SmallInt(-270), vec![2, 0]);
+        a.append_monomial(SmallInt(12), vec![0, 1]);
+        a.append_monomial(SmallInt(30), vec![1, 1]);
+        a.append_monomial(SmallInt(18), vec![2, 1]);
 
-        let mut b = MultivariatePolynomial::from_monomial(100, vec![0, 0]);
-        b.append_monomial(-370, vec![1, 0]);
-        b.append_monomial(270, vec![2, 0]);
-        b.append_monomial(12, vec![0, 1]);
-        b.append_monomial(6, vec![1, 1]);
-        b.append_monomial(-18, vec![2, 1]);
+        let mut b = MultivariatePolynomial::from_monomial(SmallInt(100), vec![0, 0]);
+        b.append_monomial(SmallInt(-370), vec![1, 0]);
+        b.append_monomial(SmallInt(270), vec![2, 0]);
+        b.append_monomial(SmallInt(12), vec![0, 1]);
+        b.append_monomial(SmallInt(6), vec![1, 1]);
+        b.append_monomial(SmallInt(-18), vec![2, 1]);
 
-        let mut res = MultivariatePolynomial::from_monomial(100, vec![0, 0]);
-        res.append_monomial(-270, vec![1, 0]);
-        res.append_monomial(12, vec![0, 1]);
-        res.append_monomial(18, vec![1, 1]);
+        let mut res = MultivariatePolynomial::from_monomial(SmallInt(100), vec![0, 0]);
+        res.append_monomial(SmallInt(-270), vec![1, 0]);
+        res.append_monomial(SmallInt(12), vec![0, 1]);
+        res.append_monomial(SmallInt(18), vec![1, 1]);
 
-        assert_eq!(MultivariatePolynomial::<i64, usize>::gcd(&a, &b), res);
+        assert_eq!(MultivariatePolynomial::gcd(&a, &b), res);
     }
 
     #[test]
@@ -280,30 +284,30 @@ mod tests {
         //gcd(100 + 100 x - 90 x^3 - 90 x^4 + 12 y + 12 x y + 3 x^3 y^2 + 3 x^4 y^2,
         //    100 - 100 x - 90 x^3 + 90 x^4 + 12 y - 12 x y + 3 x^3 y^2 - 3 x^4 y^2)
         // = 100 - 90 x^3 + 12 y + 3 x^3 y^2
-        let mut a = MultivariatePolynomial::from_monomial(100, vec![0, 0]);
-        a.append_monomial(100, vec![1, 0]);
-        a.append_monomial(-90, vec![3, 0]);
-        a.append_monomial(-90, vec![4, 0]);
-        a.append_monomial(12, vec![0, 1]);
-        a.append_monomial(12, vec![1, 1]);
-        a.append_monomial(3, vec![3, 2]);
-        a.append_monomial(3, vec![4, 2]);
+        let mut a = MultivariatePolynomial::from_monomial(SmallInt(100), vec![0, 0]);
+        a.append_monomial(SmallInt(100), vec![1, 0]);
+        a.append_monomial(SmallInt(-90), vec![3, 0]);
+        a.append_monomial(SmallInt(-90), vec![4, 0]);
+        a.append_monomial(SmallInt(12), vec![0, 1]);
+        a.append_monomial(SmallInt(12), vec![1, 1]);
+        a.append_monomial(SmallInt(3), vec![3, 2]);
+        a.append_monomial(SmallInt(3), vec![4, 2]);
 
-        let mut b = MultivariatePolynomial::from_monomial(100, vec![0, 0]);
-        b.append_monomial(-100, vec![1, 0]);
-        b.append_monomial(-90, vec![3, 0]);
-        b.append_monomial(90, vec![4, 0]);
-        b.append_monomial(12, vec![0, 1]);
-        b.append_monomial(-12, vec![1, 1]);
-        b.append_monomial(3, vec![3, 2]);
-        b.append_monomial(-3, vec![4, 2]);
+        let mut b = MultivariatePolynomial::from_monomial(SmallInt(100), vec![0, 0]);
+        b.append_monomial(SmallInt(-100), vec![1, 0]);
+        b.append_monomial(SmallInt(-90), vec![3, 0]);
+        b.append_monomial(SmallInt(90), vec![4, 0]);
+        b.append_monomial(SmallInt(12), vec![0, 1]);
+        b.append_monomial(SmallInt(-12), vec![1, 1]);
+        b.append_monomial(SmallInt(3), vec![3, 2]);
+        b.append_monomial(SmallInt(-3), vec![4, 2]);
 
-        let mut res = MultivariatePolynomial::from_monomial(100, vec![0, 0]);
-        res.append_monomial(-90, vec![3, 0]);
-        res.append_monomial(12, vec![0, 1]);
-        res.append_monomial(3, vec![3, 2]);
+        let mut res = MultivariatePolynomial::from_monomial(SmallInt(100), vec![0, 0]);
+        res.append_monomial(SmallInt(-90), vec![3, 0]);
+        res.append_monomial(SmallInt(12), vec![0, 1]);
+        res.append_monomial(SmallInt(3), vec![3, 2]);
 
-        assert_eq!(MultivariatePolynomial::<i64, usize>::gcd(&a, &b), res);
+        assert_eq!(MultivariatePolynomial::gcd(&a, &b), res);
     }
 
 }

@@ -109,7 +109,7 @@ impl Div for FiniteField {
     fn div(self, other: FiniteField) -> Self::Output {
         assert_eq!(self.p, other.p);
         FiniteField {
-            n: zp::mul(self.n, zp::inv(other.n, self.p), self.p),
+            n: zp::mul(self.n, zp::inv(other.n % self.p, self.p), self.p),
             p: self.p,
         }
     }
@@ -120,7 +120,7 @@ impl Div<usize> for FiniteField {
 
     fn div(self, other: usize) -> Self::Output {
         FiniteField {
-            n: zp::mul(self.n, zp::inv(other, self.p), self.p),
+            n: zp::mul(self.n, zp::inv(other % self.p, self.p), self.p),
             p: self.p,
         }
     }
@@ -131,7 +131,7 @@ impl Mul<usize> for FiniteField {
 
     fn mul(self, other: usize) -> Self::Output {
         FiniteField {
-            n: zp::mul(self.n, other, self.p),
+            n: zp::mul(self.n, other % self.p, self.p),
             p: self.p,
         }
     }
