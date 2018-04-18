@@ -58,6 +58,8 @@ pub struct GlobalVarInfo {
     inv_name_map: Vec<String>,
     name_map: HashMap<String, VarName>,
     pub func_attribs: HashMap<VarName, Vec<FunctionAttributes>>,
+    pub log_level: usize,
+    pub polyratfun: bool, // turn coefficients into rat_
 }
 
 impl GlobalVarInfo {
@@ -66,6 +68,8 @@ impl GlobalVarInfo {
             inv_name_map: vec![],
             name_map: HashMap::new(),
             func_attribs: HashMap::new(),
+            log_level: 0,
+            polyratfun: false,
         }
     }
 
@@ -118,6 +122,8 @@ impl VarInfo {
                 inv_name_map,
                 name_map,
                 func_attribs: HashMap::new(),
+                log_level: 0,
+                polyratfun: true,
             },
             local_info: LocalVarInfo {
                 variables: HashMap::new(),
@@ -422,10 +428,10 @@ impl Element {
                 Some(Ordering::Equal)
             }
             (&Element::Num(_, ref n1), &Element::Num(_, ref n2)) => n1.partial_cmp(n2),
-            (_, &Element::RationalPolynomialCoefficient(..)) => Some(Ordering::Less),
-            (&Element::RationalPolynomialCoefficient(..), _) => Some(Ordering::Greater),
             (_, &Element::Num(..)) => Some(Ordering::Less),
             (&Element::Num(..), _) => Some(Ordering::Greater),
+            (_, &Element::RationalPolynomialCoefficient(..)) => Some(Ordering::Less),
+            (&Element::RationalPolynomialCoefficient(..), _) => Some(Ordering::Greater),
             (&Element::Pow(_, ref be1), &Element::Pow(_, ref be2)) => {
                 let (ref b1, ref e1) = **be1;
                 let (ref b2, ref e2) = **be2;

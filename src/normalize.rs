@@ -1,12 +1,12 @@
 use num_traits::{One, Pow, Zero};
 use number::Number;
+use poly::convert::{to_expression, to_rational_polynomial};
+use poly::raw::MultivariatePolynomial;
 use std::cmp::Ordering;
 use std::mem;
 use std::ptr;
 use structure::{Element, FunctionAttributes, GlobalVarInfo, FUNCTION_DELTA, FUNCTION_GCD,
                 FUNCTION_MUL, FUNCTION_NARGS, FUNCTION_RAT, FUNCTION_SUM};
-use poly::convert::{to_expression, to_rational_polynomial};
-use poly::raw::MultivariatePolynomial;
 
 impl Element {
     // TODO: return iterator over Elements for ground level?
@@ -434,15 +434,54 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
             *num *= mem::replace(num1, DUMMY_NUM!());
             return true;
         }
-        return false;
+
+        if !var_info.polyratfun {
+            return false;
+        }
     }
 
-    if let Element::Num(..) = *sec {
-        return false;
+    if !var_info.polyratfun {
+        if let Element::Num(..) = *sec {
+            return false;
+        }
     }
 
-    // multiply two polyratfuns
+    // swap the number and polyratfun to make merging easier
+    if let Element::Num(..) = *first {
+        if let Element::RationalPolynomialCoefficient(..) = *sec {
+            mem::swap(first, sec);
+        }
+    }
+
     if let Element::RationalPolynomialCoefficient(ref mut _dirty, ref mut p) = *first {
+        // multiply polyratfun and number
+        if let Element::Num(ref _dirty, ref mut n) = *sec {
+            let (ref mut num, ref mut den) = &mut **p;
+            match n {
+                Number::SmallInt(_) => {
+                    *num = mem::replace(num, MultivariatePolynomial::new()) * n.clone()
+                } // TODO: improve
+                Number::BigInt(_) => {
+                    *num = mem::replace(num, MultivariatePolynomial::new()) * n.clone()
+                }
+                Number::SmallRat(ref num1, ref den1) => {
+                    *num = mem::replace(num, MultivariatePolynomial::new())
+                        * Number::SmallInt(num1.clone());
+                    *den = mem::replace(den, MultivariatePolynomial::new())
+                        * Number::SmallInt(den1.clone());
+                }
+                Number::BigRat(ref nd) => {
+                    *num = mem::replace(num, MultivariatePolynomial::new())
+                        * Number::BigInt(nd.numer().clone());
+                    *den = mem::replace(den, MultivariatePolynomial::new())
+                        * Number::BigInt(nd.denom().clone());
+                }
+            }
+
+            return true;
+        }
+
+        // multiply two polyratfuns
         if let Element::RationalPolynomialCoefficient(ref mut _dirty1, ref mut p1) = *sec {
             let (ref mut num, ref mut den) = &mut **p;
             let (ref mut num1, ref mut den1) = &mut **p1;
@@ -672,6 +711,38 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
             if num.is_zero() {
                 is_zero = true;
             }
+        }
+        (
+            &mut Element::Num(_, ref mut n),
+            &mut &mut Element::RationalPolynomialCoefficient(ref mut dirty1, ref mut p1),
+        ) => {
+            let (ref mut num, ref mut den) = &mut **p1;
+            match n {
+                Number::SmallInt(_) => {
+                    *num =
+                        mem::replace(num, MultivariatePolynomial::new()) + den.clone() * n.clone();
+                } // TODO: improve
+                Number::BigInt(_) => {
+                    *num =
+                        mem::replace(num, MultivariatePolynomial::new()) + den.clone() * n.clone();
+                }
+                Number::SmallRat(ref num1, ref den1) => {
+                    let newden = den.clone() * Number::SmallInt(den1.clone());
+                    *num = num.clone() * Number::SmallInt(den1.clone())
+                        + den.clone() * Number::SmallInt(num1.clone());
+                    *den = newden;
+                }
+                Number::BigRat(ref nd) => {
+                    let newden = den.clone() * Number::BigInt(nd.denom().clone());
+                    *num = num.clone() * Number::BigInt(nd.denom().clone())
+                        + den.clone() * Number::BigInt(nd.numer().clone());
+                    *den = newden;
+                }
+            }
+
+            // TODO: check 0
+            *dirty1 = true;
+            return true;
         }
         (
             &mut Element::RationalPolynomialCoefficient(ref mut _dirty, ref mut p),

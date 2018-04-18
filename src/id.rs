@@ -369,9 +369,7 @@ impl Element {
                                 }
                             }) {
                                 return ElementIterSingle::SymFuncIter(SubSequenceIter::new(
-                                    args2,
-                                    args1,
-                                    var_info,
+                                    args2, args1, var_info,
                                 ));
                             } else {
                                 println!("Warning: used ?a in symmetric function pattern match. Ignoring symmetric property.");
@@ -381,11 +379,7 @@ impl Element {
                 }
 
                 ElementIterSingle::FnIter(FuncIterator::from_element(
-                    name2,
-                    args2,
-                    name1,
-                    args1,
-                    var_info,
+                    name2, args2, name1, args1, var_info,
                 ))
             }
             (&Element::Term(_, ref f1), &Element::Term(_, ref f2))

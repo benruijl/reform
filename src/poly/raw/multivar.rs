@@ -551,6 +551,16 @@ impl<R: Ring, E: Exponent> Mul<R> for MultivariatePolynomial<R, E> {
     }
 }
 
+impl<R: Ring, E: Exponent> Add<R> for MultivariatePolynomial<R, E> {
+    type Output = Self;
+
+    fn add(self, other: R) -> Self::Output {
+        let mut res = self.clone();
+        res.append_monomial(other, vec![E::zero(); self.nvars]);
+        res
+    }
+}
+
 impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     #[inline]
     fn mul_monomial(mut self, coefficient: &R, exponents: &[E]) -> Self {

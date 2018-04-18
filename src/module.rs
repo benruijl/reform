@@ -1,12 +1,12 @@
+use num_traits::{One, Zero};
+use number::Number;
 use std::cmp::Ordering;
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::mem;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time;
-use num_traits::{Zero, One};
-use number::Number;
 
 use crossbeam;
 use crossbeam::sync::MsQueue;
@@ -119,7 +119,10 @@ impl Element {
                                     .map(|x| {
                                         Element::Pow(
                                             true,
-                                            Box::new((x.clone(), Element::Num(false, Number::SmallInt(n)))),
+                                            Box::new((
+                                                x.clone(),
+                                                Element::Num(false, Number::SmallInt(n)),
+                                            )),
                                         )
                                     })
                                     .collect(),
@@ -495,9 +498,8 @@ fn do_module_rec(
 
                                         if let TermStreamWrapper::Owned(mut nfa) = tsr {
                                             match nfa.len() {
-                                                0 => {
-                                                    newfuncarg.push(Element::Num(false, Number::zero()))
-                                                }
+                                                0 => newfuncarg
+                                                    .push(Element::Num(false, Number::zero())),
                                                 1 => newfuncarg.push(nfa.swap_remove(0)),
                                                 _ => {
                                                     let mut sub = Element::SubExpr(true, nfa);
@@ -992,6 +994,9 @@ impl Module {
 
 // execute the module
 pub fn do_program(program: &mut Program, write_log: bool, verbosity: u64, num_threads: usize) {
+    // set the log level
+    program.var_info.global_info.log_level = verbosity as usize;
+
     for module in &mut program.modules {
         // move global statements from the previous module into the new one
         // TODO: do swap instead of clone?
