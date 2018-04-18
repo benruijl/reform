@@ -76,6 +76,10 @@ impl GlobalVarInfo {
     pub fn num_vars(&self) -> usize {
         self.name_map.len()
     }
+
+    pub fn get_name(&self, var: VarName) -> &str {
+        &self.inv_name_map[var as usize]
+    }
 }
 
 /// Keep track of local state, such as the values for dollar variables.
@@ -341,7 +345,7 @@ pub enum Statement<ID: Id = VarName> {
     ForIn(Element<ID>, Vec<Element<ID>>, Vec<Statement<ID>>),
     ForInRange(Element<ID>, Element<ID>, Element<ID>, Vec<Statement<ID>>),
     Expand,
-    Print,
+    Print(PrintMode, Vec<ID>),
     Multiply(Element<ID>),
     Symmetrize(ID),
     Collect(ID),
@@ -601,11 +605,27 @@ impl fmt::Display for Procedure {
 impl fmt::Display for Statement {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            Statement::NewExpression(ref id, ref e) => write!(f, "expr {} = {};", id, e),
+            Statement::NewExpression(ref id, ref e) => writeln!(f, "expr {} = {};", id, e),
             Statement::IdentityStatement(ref id) => write!(f, "{}", id),
             Statement::SplitArg(ref name) => writeln!(f, "SplitArg {};", name),
             Statement::Expand => writeln!(f, "Expand;"),
-            Statement::Print => writeln!(f, "Print;"),
+            Statement::Print(ref mode, ref es) => {
+                write!(f, "Print")?;
+                match mode {
+                    PrintMode::Form => {} // default
+                    PrintMode::Mathematica => write!(f, " Mathematica")?,
+                }
+
+                match es.first() {
+                    Some(x) => write!(f, " {}", x)?,
+                    None => {}
+                }
+
+                for x in es.iter().skip(1) {
+                    write!(f, ",{}", x)?;
+                }
+                writeln!(f, ";")
+            }
             Statement::Multiply(ref x) => writeln!(f, "Multiply {};", x),
             Statement::Symmetrize(ref x) => writeln!(f, "Symmetrize {};", x),
             Statement::Collect(ref x) => writeln!(f, "Collect {};", x),
@@ -752,19 +772,31 @@ impl fmt::Display for IdentityStatementMode {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub enum PrintMode {
+    Form,
+    Mathematica,
+}
+
 pub struct ElementPrinter<'a> {
     pub element: &'a Element,
     pub var_info: &'a GlobalVarInfo,
+    pub print_mode: PrintMode,
 }
 
 impl<'a> fmt::Display for ElementPrinter<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.element.fmt_output(f, self.var_info)
+        self.element.fmt_output(f, self.print_mode, self.var_info)
     }
 }
 
 impl Element {
-    pub fn fmt_output(&self, f: &mut fmt::Formatter, var_info: &GlobalVarInfo) -> fmt::Result {
+    pub fn fmt_output(
+        &self,
+        f: &mut fmt::Formatter,
+        print_mode: PrintMode,
+        var_info: &GlobalVarInfo,
+    ) -> fmt::Result {
         match self {
             &Element::VariableArgument(ref name) => {
                 write!(f, "?")?;
@@ -777,11 +809,11 @@ impl Element {
                 fmt_varname(name, f, var_info)?;
                 write!(f, "?{{")?;
                 match restriction.first() {
-                    Some(x) => x.fmt_output(f, var_info)?,
+                    Some(x) => x.fmt_output(f, print_mode, var_info)?,
                     None => {}
                 }
                 for t in restriction.iter().skip(1) {
-                    t.fmt_output(f, var_info)?
+                    t.fmt_output(f, print_mode, var_info)?
                 }
                 write!(f, "}}")
             },
@@ -797,58 +829,70 @@ impl Element {
                 match *b {
                     Element::SubExpr(..) | Element::Term(..) => {
                         write!(f, "(")?;
-                        b.fmt_output(f, var_info)?;
+                        b.fmt_output(f, print_mode, var_info)?;
                         write!(f, ")")?
                     }
-                    _ => b.fmt_output(f, var_info)?,
+                    _ => b.fmt_output(f, print_mode, var_info)?,
                 };
                 match *e {
                     Element::SubExpr(..) | Element::Term(..) => {
                         write!(f, "^(")?;
-                        e.fmt_output(f, var_info)?;
+                        e.fmt_output(f, print_mode, var_info)?;
                         write!(f, ")")
                     }
                     _ => {
                         write!(f, "^")?;
-                        e.fmt_output(f, var_info)
+                        e.fmt_output(f, print_mode, var_info)
                     }
                 }
             }
             &Element::Fn(_, ref name, ref args) => {
                 fmt_varname(&name, f, var_info)?;
-                write!(f, "(")?;
+
+                match print_mode {
+                    PrintMode::Form => write!(f, "(")?,
+                    PrintMode::Mathematica => write!(f, "[")?,
+                }
+
                 match args.first() {
-                    Some(x) => x.fmt_output(f, var_info)?,
+                    Some(x) => x.fmt_output(f, print_mode, var_info)?,
                     None => {}
                 }
 
                 for x in args.iter().skip(1) {
                     write!(f, ",")?;
-                    x.fmt_output(f, var_info)?;
+                    x.fmt_output(f, print_mode, var_info)?;
                 }
 
-                write!(f, ")")
+                match print_mode {
+                    PrintMode::Form => write!(f, ")"),
+                    PrintMode::Mathematica => write!(f, "]"),
+                }
             }
             &Element::Term(_, ref factors) => {
                 match factors.first() {
                     Some(s @ &Element::SubExpr(..)) if factors.len() > 1 => {
                         write!(f, "(")?;
-                        s.fmt_output(f, var_info)?;
+                        s.fmt_output(f, print_mode, var_info)?;
                         write!(f, ")")?
                     }
-                    Some(x) => x.fmt_output(f, var_info)?,
+                    Some(x) => x.fmt_output(f, print_mode, var_info)?,
                     None => {}
                 }
                 for t in factors.iter().skip(1) {
                     match t {
                         s @ &Element::SubExpr(..) => {
                             write!(f, "*(")?;
-                            s.fmt_output(f, var_info)?;
+                            s.fmt_output(f, print_mode, var_info)?;
                             write!(f, ")")?
                         }
                         _ => {
-                            write!(f, "*")?;
-                            t.fmt_output(f, var_info)?
+                            match print_mode {
+                                PrintMode::Form => write!(f, "*")?,
+                                PrintMode::Mathematica => write!(f, " ")?,
+                            }
+
+                            t.fmt_output(f, print_mode, var_info)?
                         }
                     }
                 }
@@ -856,34 +900,48 @@ impl Element {
             }
             &Element::SubExpr(_, ref terms) => {
                 match terms.first() {
-                    Some(x) => x.fmt_output(f, var_info)?,
+                    Some(x) => x.fmt_output(f, print_mode, var_info)?,
                     None => {}
                 }
                 for t in terms.iter().skip(1) {
                     write!(f, "+")?;
-                    t.fmt_output(f, var_info)?
+                    t.fmt_output(f, print_mode, var_info)?
                 }
                 write!(f, "")
             }
-            &Element::RationalPolynomialCoefficient(_, ref p) => write!(
-                f,
-                "rat_({},{})",
-                PolyPrinter {
-                    poly: &p.0,
-                    var_info: var_info
-                },
-                PolyPrinter {
-                    poly: &p.1,
-                    var_info: var_info
-                }
-            ),
+            &Element::RationalPolynomialCoefficient(_, ref p) => match print_mode {
+                PrintMode::Form => write!(
+                    f,
+                    "rat_({},{})",
+                    PolyPrinter {
+                        poly: &p.0,
+                        var_info: var_info
+                    },
+                    PolyPrinter {
+                        poly: &p.1,
+                        var_info: var_info
+                    }
+                ),
+                PrintMode::Mathematica => write!(
+                    f,
+                    "({})/({})",
+                    PolyPrinter {
+                        poly: &p.0,
+                        var_info: var_info
+                    },
+                    PolyPrinter {
+                        poly: &p.1,
+                        var_info: var_info
+                    }
+                ),
+            },
         }
     }
 }
 
 impl fmt::Display for Element {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        self.fmt_output(f, &GlobalVarInfo::empty())
+        self.fmt_output(f, PrintMode::Form, &GlobalVarInfo::empty())
     }
 }
 
@@ -1083,7 +1141,10 @@ impl Statement<String> {
             Statement::Collect(ref name) => Statement::Collect(var_info.get_name(name)),
             Statement::Multiply(ref mut e) => Statement::Multiply(e.to_element(var_info)),
             Statement::Expand => Statement::Expand,
-            Statement::Print => Statement::Print,
+            Statement::Print(ref mode, ref es) => Statement::Print(
+                mode.clone(),
+                es.iter().map(|name| var_info.get_name(name)).collect(),
+            ),
             Statement::Maximum(ref mut e) => Statement::Maximum(e.to_element(var_info)),
             Statement::Call(ref name, ref mut es) => Statement::Call(
                 name.clone(),

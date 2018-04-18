@@ -9,7 +9,7 @@ use std::io::{BufReader, BufWriter, SeekFrom};
 use std::mem;
 
 use normalize::merge_terms;
-use structure::{Element, ElementPrinter, GlobalVarInfo, Statement, VarInfo};
+use structure::{Element, ElementPrinter, GlobalVarInfo, PrintMode, Statement, VarInfo};
 
 pub const MAXTERMMEM: usize = 10_000_000; // maximum number of terms allowed in memory
 pub const SMALL_BUFFER: u64 = 100_000; // number of terms before sorting
@@ -186,7 +186,7 @@ impl OutputTermStreamer {
         module_name: &str,
         var_info: &mut VarInfo,
         global_statements: &[Statement],
-        print_output: bool,
+        mut print_output: bool,
         _write_log: bool,
     ) {
         let inpterm = input_streamer.termcount();
@@ -196,6 +196,8 @@ impl OutputTermStreamer {
         input_streamer.termcounter_input = 0;
 
         assert!(input_streamer.mem_buffer_input.is_empty());
+
+        let mut print_mode = PrintMode::Form;
 
         // can the sort be done completely in memory?
         if self.sortfiles.is_empty() {
@@ -212,6 +214,15 @@ impl OutputTermStreamer {
                 match *s {
                     Statement::Collect(ref v) => {
                         a = Element::Fn(false, v.clone(), vec![a]);
+                    }
+                    Statement::Print(mode, ref es) => {
+                        if es.len() == 0
+                            || es.iter()
+                                .any(|e| exprname == var_info.global_info.get_name(*e))
+                        {
+                            print_output = true;
+                        }
+                        print_mode = mode;
                     }
                     _ => {}
                 }
@@ -242,6 +253,7 @@ impl OutputTermStreamer {
                         ElementPrinter {
                             element: x,
                             var_info: &var_info.global_info,
+                            print_mode: print_mode
                         }
                     );
                 }
@@ -347,6 +359,7 @@ impl OutputTermStreamer {
                             ElementPrinter {
                                 element: x,
                                 var_info: &vi,
+                                print_mode: print_mode
                             }
                         );
                         x.serialize(&mut ofb);
@@ -368,13 +381,11 @@ impl OutputTermStreamer {
                     Statement::Collect(ref v) => {
                         // does the output fit in memory?
                         if input_streamer.termcounter_input == 0 {
-                            self.mem_buffer = vec![
-                                Element::Fn(
-                                    false,
-                                    v.clone(),
-                                    mem::replace(&mut self.mem_buffer, vec![]),
-                                ),
-                            ];
+                            self.mem_buffer = vec![Element::Fn(
+                                false,
+                                v.clone(),
+                                mem::replace(&mut self.mem_buffer, vec![]),
+                            )];
                         } else {
                             panic!("Cannot collect, since output does not fit in memory.");
                         }
@@ -393,6 +404,7 @@ impl OutputTermStreamer {
                         ElementPrinter {
                             element: x,
                             var_info: &var_info.global_info,
+                            print_mode: print_mode
                         }
                     );
                 }

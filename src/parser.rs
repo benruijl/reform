@@ -1,14 +1,14 @@
+use number::Number;
+use rug::{Integer, Rational};
 use std::fs::File;
 use std::io::prelude::*;
 use std::str::FromStr;
 use structure::{Element, FunctionAttributes, IdentityStatement, IdentityStatementMode, Module,
-                NumOrder, Procedure, Program, Statement};
-use number::Number;
-use rug::{Integer, Rational};
+                NumOrder, PrintMode, Procedure, Program, Statement};
 
-use combine::State;
 use combine::char::*;
 use combine::primitives::Stream;
+use combine::State;
 use combine::*;
 
 // parse a reform file
@@ -213,7 +213,15 @@ parser!{
             sep_by(attribs, lex_char('+')).skip(statementend())))
                  .map(|(d,e)| Statement::Attrib(d, e));
 
-    choice!(newexpr, assign, inside, collect, attrib)
+    let printmode = optional(choice!(keyword("form").map(|_| PrintMode::Form),
+                            keyword("mathematica").map(|_| PrintMode::Mathematica)))
+                         .map(|x| x.unwrap_or(PrintMode::Form));
+
+    let print = keyword("print").with((printmode, sep_by(varname(), lex_char(','))))
+        .skip(statementend())
+        .map(|(m, es)| Statement::Print(m, es));
+
+    choice!(newexpr, assign, inside, collect, attrib, print)
 }
 }
 
@@ -238,9 +246,6 @@ parser!{
     let expand = keyword("expand")
         .skip(statementend())
         .map(|_| Statement::Expand);
-    let print = keyword("print")
-        .skip(statementend())
-        .map(|_| Statement::Print);
     let maximum = keyword("maximum")
         .with(dollarvar())
         .skip(statementend())
@@ -250,6 +255,14 @@ parser!{
         between(lex_char('('), lex_char(')'), sep_by(expr(), lex_char(','))),
     ).skip(statementend())
         .map(|(name, args): (String, Vec<Element<String>>)| Statement::Call(name, args));
+
+    let printmode = optional(choice!(keyword("form").map(|_| PrintMode::Form),
+                            keyword("mathematica").map(|_| PrintMode::Mathematica)))
+                         .map(|x| x.unwrap_or(PrintMode::Form));
+
+    let print = keyword("print").with((printmode, sep_by(varname(), lex_char(','))))
+        .skip(statementend())
+        .map(|(m, es)| Statement::Print(m, es));
 
     let idmode =
         optional(choice!(keyword("once"), keyword("all"), keyword("many"))).map(|x| match x {

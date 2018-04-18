@@ -626,12 +626,13 @@ fn do_module_rec(
                 output,
             );
         }
-        Statement::Print => {
+        Statement::Print(ref mode, ..) => {
             println!(
                 "\t+{}",
                 ElementPrinter {
                     element: &input,
                     var_info: &global_var_info,
+                    print_mode: *mode
                 }
             );
             return do_module_rec(
@@ -974,6 +975,9 @@ impl Module {
                         panic!("Can only assign attributes to functions or dollar variables");
                     }
                 },
+                Statement::Print(..) => {
+                    // this will be processed during sorting
+                }
                 _ => unimplemented!(),
             }
         }
