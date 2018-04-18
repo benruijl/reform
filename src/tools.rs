@@ -1,9 +1,12 @@
-use num_traits::{Signed, Zero, One};
-use number::Number;
-use std::cmp::Ordering;
-use structure::{Element, NumOrder};
 use num_traits::sign::abs;
+use num_traits::{One, Signed, Zero};
+use number::Number;
+use poly::exponent::Exponent;
+use poly::raw::MultivariatePolynomial;
+use std::cmp::Ordering;
+use std::mem;
 use std::ops::Rem;
+use structure::{Element, NumOrder};
 
 // a SliceRef has either a borrowed slice,
 // or a vector of borrowed arguments.
@@ -139,7 +142,6 @@ impl GCD for i64 {
 pub fn lcm(a: u64, b: u64) -> u64 {
     (a / GCD::gcd(a, b)) * b
 }
-
 
 pub fn normalize_fraction(pos: &mut bool, num: &mut u64, den: &mut u64) {
     if *num == 0 {
@@ -311,9 +313,10 @@ pub fn exponentiate(factors: &[Element], pow: u64) -> Element {
     if factors.is_empty() {
         return Element::SubExpr(
             true,
-            vec![
-                Element::Term(true, vec![Element::Num(false, Number::one())]),
-            ],
+            vec![Element::Term(
+                true,
+                vec![Element::Num(false, Number::one())],
+            )],
         );
     }
 
@@ -352,4 +355,31 @@ pub fn exponentiate(factors: &[Element], pow: u64) -> Element {
     }
 
     Element::SubExpr(true, res)
+}
+
+pub fn add_num_poly<E: Exponent>(
+    n: &mut Number,
+    num: &mut MultivariatePolynomial<Number, E>,
+    den: &mut MultivariatePolynomial<Number, E>,
+) {
+    match n {
+        Number::SmallInt(_) => {
+            *num = mem::replace(num, MultivariatePolynomial::new()) + den.clone() * n.clone();
+        } // TODO: improve
+        Number::BigInt(_) => {
+            *num = mem::replace(num, MultivariatePolynomial::new()) + den.clone() * n.clone();
+        }
+        Number::SmallRat(ref num1, ref den1) => {
+            let newden = den.clone() * Number::SmallInt(den1.clone());
+            *num = num.clone() * Number::SmallInt(den1.clone())
+                + den.clone() * Number::SmallInt(num1.clone());
+            *den = newden;
+        }
+        Number::BigRat(ref nd) => {
+            let newden = den.clone() * Number::BigInt(nd.denom().clone());
+            *num = num.clone() * Number::BigInt(nd.denom().clone())
+                + den.clone() * Number::BigInt(nd.numer().clone());
+            *den = newden;
+        }
+    }
 }

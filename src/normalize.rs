@@ -7,6 +7,7 @@ use std::mem;
 use std::ptr;
 use structure::{Element, FunctionAttributes, GlobalVarInfo, FUNCTION_DELTA, FUNCTION_GCD,
                 FUNCTION_MUL, FUNCTION_NARGS, FUNCTION_RAT, FUNCTION_SUM};
+use tools::add_num_poly;
 
 impl Element {
     // TODO: return iterator over Elements for ground level?
@@ -589,22 +590,72 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
         return true;
     }
 
+    // make sure a term is always first
+    if let Element::Term(..) = sec {
+        mem::swap(first, sec);
+    }
+
     let mut is_zero = false;
 
     match (sec, &mut first) {
-        (&mut Element::Term(_, ref mut t1), &mut &mut Element::Term(ref mut d2, ref mut t2)) => {
-            // treat the case where the term doesn't have a coefficient
+        (&mut Element::Term(_, ref mut t1), &mut &mut Element::Term(_, ref mut t2)) => {
             assert!(!t1.is_empty() && !t2.is_empty());
 
-            // TODO: implement case where only one term has a polyratfun
-            if let Some(&mut Element::RationalPolynomialCoefficient(ref mut _dirty, ref mut p)) =
-                t1.last_mut()
+            let mut num1 = Element::Num(false, Number::SmallInt(1));
+            let mut num2 = Element::Num(false, Number::SmallInt(1));
+            let mut add_coeff = true;
+
+            // check if the two terms should be merged
             {
-                if let Some(&mut Element::RationalPolynomialCoefficient(
-                    ref mut _dirty1,
-                    ref mut p1,
-                )) = t2.last_mut()
-                {
+                let len1 = t1.len();
+                let len2 = t2.len();
+                let (mut l1, mut l11) = t1.split_at_mut(len1 - 1);
+                let (mut l2, mut l22) = t2.split_at_mut(len2 - 1);
+
+                let same = match l11[0] {
+                    Element::Num(..) | Element::RationalPolynomialCoefficient(..) => match l22[0] {
+                        Element::Num(..) | Element::RationalPolynomialCoefficient(..) => l1 == l2,
+                        _ => l1[..len1 - 2] == *l2 && l1[len1 - 2..] == *l22,
+                    },
+                    _ => match l22[0] {
+                        Element::Num(..) | Element::RationalPolynomialCoefficient(..) => {
+                            *l1 == l2[..len2 - 2] && *l11 == l2[len2 - 2..]
+                        }
+                        _ => l1 == l2 && l11 == l22,
+                    },
+                };
+
+                // extract the coefficients
+                if same {
+                    match l11[0] {
+                        Element::Num(..) | Element::RationalPolynomialCoefficient(..) => {
+                            mem::swap(&mut l11[0], &mut num1)
+                        }
+                        _ => {}
+                    }
+                    match l22[0] {
+                        Element::Num(..) | Element::RationalPolynomialCoefficient(..) => {
+                            add_coeff = false;
+                            mem::swap(&mut l22[0], &mut num2)
+                        }
+                        _ => {}
+                    }
+                } else {
+                    return false;
+                }
+            }
+
+            if let Element::Num(..) = num2 {
+                // make sure that the RationalPolynomialCoefficient is in num2 if it is there
+                mem::swap(&mut num1, &mut num2);
+            }
+
+            // now we merge the coefficient into num2
+            match (&mut num1, &mut num2) {
+                (
+                    Element::RationalPolynomialCoefficient(ref mut _dirty, ref mut p),
+                    Element::RationalPolynomialCoefficient(ref mut _dirty1, ref mut p1),
+                ) => {
                     let (ref mut num, ref mut den) = &mut **p1; // note the switch
                     let (ref mut num1, ref mut den1) = &mut **p;
 
@@ -616,56 +667,38 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
                     *num = newnum.long_division(&g1).0;
                     *den = newden.long_division(&g1).0;
 
-                    // TODO: add 0 check
-                    //if num.is_zero() {
-                    //    is_zero = true;
-                    // }
-
-                    return true;
-                }
-            }
-
-            let mut num1 = Number::one();
-            {
-                let (mut l1, l11) = t1.split_at(t1.len() - 1);
-                if let Element::Num(_, ref num) = l11[0] {
-                    num1 = num.clone();
-                } else {
-                    l1 = t1;
-                }
-
-                {
-                    let l2 = match t2.last() {
-                        Some(&Element::Num(..)) => &t2[..t2.len() - 1],
-                        _ => &t2[..],
-                    };
-
-                    if l1 != l2 {
-                        return false;
+                    if num.is_zero() {
+                        is_zero = true;
                     }
                 }
-            }
-            t1.clear(); // remove the old data
-            *d2 = false;
-            // should we add the terms?
-            if let Some(&mut Element::Num(_, ref mut num)) = t2.last_mut() {
-                *num += num1.clone(); // FIXME: avoid a borrow checker error
+                (
+                    Element::Num(_, ref mut n),
+                    Element::RationalPolynomialCoefficient(ref mut _dirty, ref mut p),
+                ) => {
+                    let (ref mut num, ref mut den) = &mut **p;
+                    add_num_poly(n, num, den);
 
-                // if 0, we return an empty term
-                if num.is_zero() {
-                    is_zero = true;
-                } else {
-                    return true;
+                    if num.is_zero() {
+                        is_zero = true;
+                    }
                 }
+                (Element::Num(_, ref mut n1), Element::Num(_, ref mut n)) => {
+                    *n += mem::replace(n1, Number::SmallInt(1));
+                    if n.is_zero() {
+                        is_zero = true;
+                    }
+                }
+                _ => unreachable!(),
             }
 
             if !is_zero {
-                // add one
-                num1 += Number::one();
-                if num1.is_zero() {
-                    is_zero = true;
+                // write num2 into t2
+                if add_coeff {
+                    t2.push(num2);
+                } else {
+                    *t2.last_mut().unwrap() = num2;
                 }
-                t2.push(Element::Num(false, num1));
+                return true;
             }
         }
         // x + x/2
@@ -674,33 +707,21 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
             assert!(!t2.is_empty());
 
             if **a == t2[0] && t2.len() == 2 {
-                if let Element::Num(_, ref mut num) = t2[1] {
-                    *num += Number::one();
-                    if num.is_zero() {
-                        is_zero = true;
+                match t2[1] {
+                    Element::Num(_, ref mut num) => {
+                        *num += Number::one();
+                        if num.is_zero() {
+                            is_zero = true;
+                        }
                     }
-                } else {
-                    return false;
-                }
-            } else {
-                return false;
-            }
-        }
-        (&mut Element::Term(_, ref t2), ref mut a) => {
-            assert!(!t2.is_empty());
-
-            if ***a == t2[0] && t2.len() == 2 {
-                if let Element::Num(_, ref num) = t2[1] {
-                    let nn = num.clone() + Number::one();
-                    if nn.is_zero() {
-                        is_zero = true;
+                    Element::RationalPolynomialCoefficient(_, ref mut num) => {
+                        let (ref mut num, ref mut den) = &mut **num;
+                        add_num_poly(&mut Number::SmallInt(1), num, den);
+                        if num.is_zero() {
+                            is_zero = true;
+                        }
                     }
-                    ***a = Element::Term(
-                        false,
-                        vec![mem::replace(a, DUMMY_ELEM!()), Element::Num(false, nn)],
-                    );
-                } else {
-                    return false;
+                    _ => return false,
                 }
             } else {
                 return false;
@@ -717,28 +738,7 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
             &mut &mut Element::RationalPolynomialCoefficient(ref mut dirty1, ref mut p1),
         ) => {
             let (ref mut num, ref mut den) = &mut **p1;
-            match n {
-                Number::SmallInt(_) => {
-                    *num =
-                        mem::replace(num, MultivariatePolynomial::new()) + den.clone() * n.clone();
-                } // TODO: improve
-                Number::BigInt(_) => {
-                    *num =
-                        mem::replace(num, MultivariatePolynomial::new()) + den.clone() * n.clone();
-                }
-                Number::SmallRat(ref num1, ref den1) => {
-                    let newden = den.clone() * Number::SmallInt(den1.clone());
-                    *num = num.clone() * Number::SmallInt(den1.clone())
-                        + den.clone() * Number::SmallInt(num1.clone());
-                    *den = newden;
-                }
-                Number::BigRat(ref nd) => {
-                    let newden = den.clone() * Number::BigInt(nd.denom().clone());
-                    *num = num.clone() * Number::BigInt(nd.denom().clone())
-                        + den.clone() * Number::BigInt(nd.numer().clone());
-                    *den = newden;
-                }
-            }
+            add_num_poly(n, num, den);
 
             // TODO: check 0
             *dirty1 = true;
