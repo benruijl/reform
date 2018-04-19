@@ -599,8 +599,11 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
     }
 
     // make sure a term is always first
-    if let Element::Term(..) = sec {
-        mem::swap(first, sec);
+    if let Element::Term(..) = first {
+    } else {
+        if let Element::Term(..) = sec {
+            mem::swap(first, sec);
+        }
     }
 
     let mut is_zero = false;
@@ -608,6 +611,11 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
     match (sec, &mut first) {
         (&mut Element::Term(_, ref mut t1), &mut &mut Element::Term(_, ref mut t2)) => {
             assert!(!t1.is_empty() && !t2.is_empty());
+
+            // perform a quick check
+            if t1[0] != t2[0] {
+                return false;
+            }
 
             let mut num1 = Element::Num(false, Number::SmallInt(1));
             let mut num2 = Element::Num(false, Number::SmallInt(1));

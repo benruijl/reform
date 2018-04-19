@@ -432,9 +432,18 @@ impl Element {
                 }
                 Some(Ordering::Equal)
             }
-            (&Element::Num(_, ref n1), &Element::Num(_, ref n2)) => n1.partial_cmp(n2),
+            (&Element::Num(_, ref n1), &Element::Num(_, ref n2)) => if ground_level {
+                Some(Ordering::Equal)
+            } else {
+                n1.partial_cmp(n2)
+            },
             (_, &Element::Num(..)) => Some(Ordering::Less),
             (&Element::Num(..), _) => Some(Ordering::Greater),
+            // TODO: if we allow polyratfuns in functions, we should add a partial_cmp between them
+            (
+                &Element::RationalPolynomialCoefficient(..),
+                &Element::RationalPolynomialCoefficient(..),
+            ) => Some(Ordering::Equal),
             (_, &Element::RationalPolynomialCoefficient(..)) => Some(Ordering::Less),
             (&Element::RationalPolynomialCoefficient(..), _) => Some(Ordering::Greater),
             (&Element::Pow(_, ref be1), &Element::Pow(_, ref be2)) => {
@@ -479,11 +488,16 @@ impl Element {
                 }
 
                 for (taa, tbb) in ta.iter().zip(tb) {
-                    if let &Element::Num(..) = taa {
-                        if let &Element::Num(..) = tbb {
-                            if ground_level {
-                                continue; // don't compare numbers on ground level
+                    if ground_level {
+                        match taa {
+                            Element::Num(..) | Element::RationalPolynomialCoefficient(..) => {
+                                match tbb {
+                                    Element::Num(..)
+                                    | Element::RationalPolynomialCoefficient(..) => continue, // don't compare coefficients on ground level
+                                    _ => {}
+                                }
                             }
+                            _ => {}
                         }
                     }
 
