@@ -67,31 +67,39 @@ impl Element {
                     }
                     FUNCTION_RAT => {
                         if a.len() > 2 {
-                            panic!("Polyratfun can have at most two components");
+                            return false;
                         }
 
-                        // convert to polyratfun
+                        // convert to polyratfun if possible
                         // TODO: what to do with variable mappings?
                         // we don't want an enormous array
                         if a.len() == 1 {
-                            Element::RationalPolynomialCoefficient(
-                                false,
-                                Box::new((
-                                    to_rational_polynomial(&a[0], var_info.num_vars()).unwrap(),
-                                    MultivariatePolynomial::from_constant_with_nvars(
-                                        Number::one(),
-                                        var_info.num_vars(),
-                                    ),
-                                )),
-                            )
+                            if let Ok(prf) = to_rational_polynomial(&a[0], var_info.num_vars()) {
+                                Element::RationalPolynomialCoefficient(
+                                    false,
+                                    Box::new((
+                                        prf,
+                                        MultivariatePolynomial::from_constant_with_nvars(
+                                            Number::one(),
+                                            var_info.num_vars(),
+                                        ),
+                                    )),
+                                )
+                            } else {
+                                return false;
+                            }
                         } else {
-                            Element::RationalPolynomialCoefficient(
-                                false,
-                                Box::new((
-                                    to_rational_polynomial(&a[0], var_info.num_vars()).unwrap(),
-                                    to_rational_polynomial(&a[1], var_info.num_vars()).unwrap(),
-                                )),
-                            )
+                            match to_rational_polynomial(&a[0], var_info.num_vars()) {
+                                Ok(num) => match to_rational_polynomial(&a[1], var_info.num_vars())
+                                {
+                                    Ok(den) => Element::RationalPolynomialCoefficient(
+                                        false,
+                                        Box::new((num, den)),
+                                    ),
+                                    _ => return false,
+                                },
+                                _ => return false,
+                            }
                         }
                     }
                     FUNCTION_GCD => {
