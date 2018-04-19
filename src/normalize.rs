@@ -347,13 +347,15 @@ impl Element {
                         }
                         ts.truncate(lastindex + 1);
 
-                        if let Some(Element::Num(_, num)) = ts.last().cloned() {
-                            match num {
-                                Number::SmallInt(0) => ts.clear(),
-                                Number::SmallInt(1) if ts.len() > 1 => {
-                                    ts.pop();
-                                } // don't add a factor
-                                _ => {}
+                        if let Some(Element::Num(..)) = ts.last() {
+                            if let Some(Element::Num(_, num)) = ts.last().cloned() {
+                                match num {
+                                    Number::SmallInt(0) => ts.clear(),
+                                    Number::SmallInt(1) if ts.len() > 1 => {
+                                        ts.pop();
+                                    } // don't add a factor
+                                    _ => {}
+                                }
                             }
                         }
                     }
