@@ -261,6 +261,7 @@ impl Program {
                     let printer = ElementPrinter {
                         element: &terms,
                         var_info: &self.var_info.global_info,
+                        print_mode: PrintMode::Form,
                     };
                     return printer.to_string();
                 }
