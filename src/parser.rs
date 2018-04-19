@@ -202,7 +202,8 @@ parser!{
                          keyword("noncommutative").map(|_| FunctionAttributes::NonCommutative),
                          keyword("nonlocal").map(|_| FunctionAttributes::NonLocal));
 
-    let inside = (keyword("inside").with(factor()),
+    let inside = (keyword("inside").with(sep_by(factor(),
+            lex_char(','))),
         statementend()
             .with(many(statement()))
             .skip(keyword("endinside"))
@@ -217,7 +218,10 @@ parser!{
                             keyword("mathematica").map(|_| PrintMode::Mathematica)))
                          .map(|x| x.unwrap_or(PrintMode::Form));
 
-    let print = keyword("print").with((printmode, sep_by(varname(), lex_char(','))))
+    let print = keyword("print").with((printmode, sep_by(
+            choice!(lex_char('$').with(varname()).map(|s| '$'.to_string() + &s),
+                    varname()),
+            lex_char(','))))
         .skip(statementend())
         .map(|(m, es)| Statement::Print(m, es));
 
@@ -260,7 +264,10 @@ parser!{
                             keyword("mathematica").map(|_| PrintMode::Mathematica)))
                          .map(|x| x.unwrap_or(PrintMode::Form));
 
-    let print = keyword("print").with((printmode, sep_by(varname(), lex_char(','))))
+    let print = keyword("print").with((printmode, sep_by(
+            choice!(lex_char('$').with(varname()).map(|s| '$'.to_string() + &s),
+                    varname()),
+            lex_char(','))))
         .skip(statementend())
         .map(|(m, es)| Statement::Print(m, es));
 
@@ -297,7 +304,8 @@ parser!{
             .skip(statementend()))
             .map(|(f, ss)| Statement::Argument(f, ss));
 
-    let inside = (keyword("inside").with(factor()),
+    let inside = (keyword("inside").with(sep_by(factor(),
+            lex_char(','))),
         statementend()
             .with(many(statement()))
             .skip(keyword("endinside"))

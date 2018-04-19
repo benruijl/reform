@@ -554,39 +554,41 @@ fn do_module_rec(
             }
         }
         // this will create a subrecursion
-        Statement::Inside(ref d, ref sts) => {
-            if let Element::Dollar(name, _) = *d {
-                let mut dollar = mem::replace(
-                    local_var_info
-                        .variables
-                        .get_mut(&name)
-                        .expect("Dollar variable is uninitialized"),
-                    DUMMY_ELEM!(),
-                );
-                let mut tsr = TermStreamWrapper::Owned(vec![]);
-                do_module_rec(
-                    dollar,
-                    sts,
-                    local_var_info,
-                    global_var_info,
-                    0,
-                    &mut vec![false],
-                    &mut tsr,
-                );
-
-                if let TermStreamWrapper::Owned(mut nfa) = tsr {
-                    local_var_info.variables.insert(
-                        name,
-                        match nfa.len() {
-                            0 => Element::Num(false, Number::zero()),
-                            1 => nfa.swap_remove(0),
-                            _ => {
-                                let mut sub = Element::SubExpr(true, nfa);
-                                sub.normalize_inplace(global_var_info);
-                                sub
-                            }
-                        },
+        Statement::Inside(ref ds, ref sts) => {
+            for d in ds {
+                if let Element::Dollar(name, _) = *d {
+                    let mut dollar = mem::replace(
+                        local_var_info
+                            .variables
+                            .get_mut(&name)
+                            .expect("Dollar variable is uninitialized"),
+                        DUMMY_ELEM!(),
                     );
+                    let mut tsr = TermStreamWrapper::Owned(vec![]);
+                    do_module_rec(
+                        dollar,
+                        sts,
+                        local_var_info,
+                        global_var_info,
+                        0,
+                        &mut vec![false],
+                        &mut tsr,
+                    );
+
+                    if let TermStreamWrapper::Owned(mut nfa) = tsr {
+                        local_var_info.variables.insert(
+                            name,
+                            match nfa.len() {
+                                0 => Element::Num(false, Number::zero()),
+                                1 => nfa.swap_remove(0),
+                                _ => {
+                                    let mut sub = Element::SubExpr(true, nfa);
+                                    sub.normalize_inplace(global_var_info);
+                                    sub
+                                }
+                            },
+                        );
+                    }
                 }
             }
             return do_module_rec(
@@ -626,15 +628,31 @@ fn do_module_rec(
                 output,
             );
         }
-        Statement::Print(ref mode, ..) => {
-            println!(
-                "\t+{}",
-                ElementPrinter {
-                    element: &input,
-                    var_info: &global_var_info,
-                    print_mode: *mode
+        Statement::Print(ref mode, ref vars) => {
+            if vars.len() == 0 {
+                println!(
+                    "\t+{}",
+                    ElementPrinter {
+                        element: &input,
+                        var_info: &global_var_info,
+                        print_mode: *mode
+                    }
+                );
+            } else {
+                for d in vars {
+                    if let Some(x) = local_var_info.variables.get(d) {
+                        println!(
+                            "{}",
+                            ElementPrinter {
+                                element: x,
+                                var_info: &global_var_info,
+                                print_mode: *mode
+                            }
+                        );
+                    }
                 }
-            );
+            }
+
             return do_module_rec(
                 input,
                 statements,
@@ -913,54 +931,56 @@ impl Module {
                     }
                 }
                 // this will create a subrecursion
-                Statement::Inside(ref d, ref mut sts) => {
-                    if let Element::Dollar(name, _) = *d {
-                        let mut dollar = mem::replace(
-                            var_info
-                                .local_info
-                                .variables
-                                .get_mut(&name)
-                                .expect("Dollar variable is uninitialized"),
-                            DUMMY_ELEM!(),
-                        );
-
-                        // normalize the statements
-                        let mut old_statements = mem::replace(sts, vec![]);
-                        Module::statements_to_control_flow_stat(
-                            &mut old_statements,
-                            var_info,
-                            procedures,
-                            sts,
-                        );
-
-                        for x in sts.iter_mut() {
-                            x.normalize(&var_info.global_info);
-                        }
-
-                        let mut tsr = TermStreamWrapper::Owned(vec![]);
-                        do_module_rec(
-                            dollar,
-                            sts,
-                            &mut var_info.local_info,
-                            &var_info.global_info,
-                            0,
-                            &mut vec![false],
-                            &mut tsr,
-                        );
-
-                        if let TermStreamWrapper::Owned(mut nfa) = tsr {
-                            var_info.local_info.variables.insert(
-                                name,
-                                match nfa.len() {
-                                    0 => Element::Num(false, Number::zero()),
-                                    1 => nfa.swap_remove(0),
-                                    _ => {
-                                        let mut sub = Element::SubExpr(true, nfa);
-                                        sub.normalize_inplace(&var_info.global_info);
-                                        sub
-                                    }
-                                },
+                Statement::Inside(ref ds, ref mut sts) => {
+                    for d in ds {
+                        if let Element::Dollar(name, _) = *d {
+                            let mut dollar = mem::replace(
+                                var_info
+                                    .local_info
+                                    .variables
+                                    .get_mut(&name)
+                                    .expect("Dollar variable is uninitialized"),
+                                DUMMY_ELEM!(),
                             );
+
+                            // normalize the statements
+                            let mut old_statements = mem::replace(sts, vec![]);
+                            Module::statements_to_control_flow_stat(
+                                &mut old_statements,
+                                var_info,
+                                procedures,
+                                sts,
+                            );
+
+                            for x in sts.iter_mut() {
+                                x.normalize(&var_info.global_info);
+                            }
+
+                            let mut tsr = TermStreamWrapper::Owned(vec![]);
+                            do_module_rec(
+                                dollar,
+                                sts,
+                                &mut var_info.local_info,
+                                &var_info.global_info,
+                                0,
+                                &mut vec![false],
+                                &mut tsr,
+                            );
+
+                            if let TermStreamWrapper::Owned(mut nfa) = tsr {
+                                var_info.local_info.variables.insert(
+                                    name,
+                                    match nfa.len() {
+                                        0 => Element::Num(false, Number::zero()),
+                                        1 => nfa.swap_remove(0),
+                                        _ => {
+                                            let mut sub = Element::SubExpr(true, nfa);
+                                            sub.normalize_inplace(&var_info.global_info);
+                                            sub
+                                        }
+                                    },
+                                );
+                            }
                         }
                     }
                 }
@@ -975,8 +995,20 @@ impl Module {
                         panic!("Can only assign attributes to functions or dollar variables");
                     }
                 },
-                Statement::Print(..) => {
-                    // this will be processed during sorting
+                Statement::Print(ref mode, ref vars) => {
+                    // only print dollar variables at this stage, the rest will be processed during sorting
+                    for d in vars {
+                        if let Some(x) = var_info.local_info.variables.get(d) {
+                            println!(
+                                "{}",
+                                ElementPrinter {
+                                    element: x,
+                                    var_info: &var_info.global_info,
+                                    print_mode: *mode
+                                }
+                            );
+                        }
+                    }
                 }
                 _ => unimplemented!(),
             }

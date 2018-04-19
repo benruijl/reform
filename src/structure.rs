@@ -341,7 +341,7 @@ pub enum Statement<ID: Id = VarName> {
     SplitArg(ID),
     Repeat(Vec<Statement<ID>>),
     Argument(Element<ID>, Vec<Statement<ID>>),
-    Inside(Element<ID>, Vec<Statement<ID>>),
+    Inside(Vec<Element<ID>>, Vec<Statement<ID>>),
     IfElse(Element<ID>, Vec<Statement<ID>>, Vec<Statement<ID>>),
     ForIn(Element<ID>, Vec<Element<ID>>, Vec<Statement<ID>>),
     ForInRange(Element<ID>, Element<ID>, Element<ID>, Vec<Statement<ID>>),
@@ -665,7 +665,11 @@ impl fmt::Display for Statement {
                 writeln!(f, "endargument;")
             }
             Statement::Inside(ref ff, ref ss) => {
-                writeln!(f, "inside {};", ff)?;
+                writeln!(f, "inside ")?;
+
+                for fff in ff {
+                    writeln!(f, ",{}", fff)?;
+                }
 
                 for s in ss {
                     write!(f, "\t{}", s)?;
@@ -885,29 +889,49 @@ impl Element {
                 }
             }
             &Element::Term(_, ref factors) => {
-                match factors.first() {
-                    Some(s @ &Element::SubExpr(..)) if factors.len() > 1 => {
-                        write!(f, "(")?;
-                        s.fmt_output(f, print_mode, var_info)?;
-                        write!(f, ")")?
-                    }
-                    Some(x) => x.fmt_output(f, print_mode, var_info)?,
-                    None => {}
-                }
-                for t in factors.iter().skip(1) {
-                    match t {
-                        s @ &Element::SubExpr(..) => {
-                            write!(f, "*(")?;
-                            s.fmt_output(f, print_mode, var_info)?;
-                            write!(f, ")")?
-                        }
-                        _ => {
-                            match print_mode {
-                                PrintMode::Form => write!(f, "*")?,
-                                PrintMode::Mathematica => write!(f, " ")?,
+                match print_mode {
+                    PrintMode::Form => {
+                        match factors.first() {
+                            Some(s @ &Element::SubExpr(..)) if factors.len() > 1 => {
+                                write!(f, "(")?;
+                                s.fmt_output(f, print_mode, var_info)?;
+                                write!(f, ")")?
                             }
+                            Some(x) => x.fmt_output(f, print_mode, var_info)?,
+                            None => {}
+                        }
+                        for t in factors.iter().skip(1) {
+                            match t {
+                                s @ &Element::SubExpr(..) => {
+                                    write!(f, "*(")?;
+                                    s.fmt_output(f, print_mode, var_info)?;
+                                    write!(f, ")")?
+                                }
+                                _ => {
+                                    write!(f, "*")?;
+                                    t.fmt_output(f, print_mode, var_info)?
+                                }
+                            }
+                        }
+                    }
+                    PrintMode::Mathematica => {
+                        if let Some(n @ Element::Num(..)) = factors.last() {
+                            n.fmt_output(f, print_mode, var_info)?
+                        }
 
-                            t.fmt_output(f, print_mode, var_info)?
+                        for t in factors.iter() {
+                            match t {
+                                s @ &Element::SubExpr(..) => {
+                                    write!(f, "(")?;
+                                    s.fmt_output(f, print_mode, var_info)?;
+                                    write!(f, ")")?
+                                }
+                                &Element::Num(..) => {}
+                                _ => {
+                                    write!(f, " ")?;
+                                    t.fmt_output(f, print_mode, var_info)?
+                                }
+                            }
                         }
                     }
                 }
@@ -1129,8 +1153,8 @@ impl Statement<String> {
                 f.to_element(var_info),
                 ss.iter_mut().map(|s| s.to_statement(var_info)).collect(),
             ),
-            Statement::Inside(ref mut f, ref mut ss) => Statement::Inside(
-                f.to_element(var_info),
+            Statement::Inside(ref mut ff, ref mut ss) => Statement::Inside(
+                ff.iter_mut().map(|f| f.to_element(var_info)).collect(),
                 ss.iter_mut().map(|s| s.to_statement(var_info)).collect(),
             ),
             Statement::IfElse(ref mut e, ref mut ss, ref mut sse) => Statement::IfElse(
