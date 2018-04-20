@@ -7,6 +7,8 @@ mod tests {
     use poly::raw::zp;
     use poly::raw::MultivariatePolynomial;
     use serialize;
+    use std::cmp::Ordering;
+    use std::io::Cursor;
     use structure::Element;
     use tools;
 
@@ -326,6 +328,29 @@ mod tests {
         elem.serialize(&mut buffer);
 
         assert_eq!(elem, Element::deserialize(&mut buffer.as_slice()).unwrap())
+    }
+
+    #[test]
+    fn serialize1() {
+        let a = Element::Term(
+            false,
+            vec![Element::Var(1), Element::Num(false, SmallInt(5))],
+        );
+        let b = Element::Term(
+            false,
+            vec![Element::Var(1), Element::Num(false, SmallInt(6))],
+        );
+
+        let mut a1 = vec![];
+        a.serialize(&mut a1);
+
+        let mut b1 = vec![];
+        b.serialize(&mut b1);
+
+        assert_eq!(
+            Element::compare_term_serialized(&mut Cursor::new(&a1), &mut Cursor::new(&b1), true),
+            Ordering::Equal
+        )
     }
 
 }

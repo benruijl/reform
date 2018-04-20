@@ -1,7 +1,9 @@
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use number::Number;
 use poly::raw::MultivariatePolynomial;
-use std::io::{Error, Read, Write};
+use std::cmp::Ordering;
+use std::io::Cursor;
+use std::io::{Error, Read, Seek, SeekFrom, Write};
 use structure::*;
 
 // TODO: replace by mem::discriminant when it stabilizes
@@ -69,6 +71,13 @@ impl Number {
             NUM_BIGRAT_ID => unimplemented!(),
             _ => unreachable!(),
         })
+    }
+
+    pub fn compare_serialized(b1: &mut Cursor<&[u8]>, b2: &mut Cursor<&[u8]>) -> Ordering {
+        // TODO: compare bytes?
+        let num1 = Number::deserialize(b1).unwrap();
+        let num2 = Number::deserialize(b2).unwrap();
+        num1.partial_cmp(&num2).unwrap()
     }
 }
 
@@ -183,5 +192,148 @@ impl Element {
             }
             _ => unreachable!(),
         })
+    }
+
+    /// Compare normalized terms in serialized form.
+    pub fn compare_term_serialized(
+        b1: &mut Cursor<&[u8]>,
+        b2: &mut Cursor<&[u8]>,
+        ground_level: bool,
+    ) -> Ordering {
+        match (b1.read_u8().unwrap(), b2.read_u8().unwrap()) {
+            (FN_ID, FN_ID) => {
+                let name1 = b1.read_u32::<LittleEndian>().unwrap();
+                let name2 = b2.read_u32::<LittleEndian>().unwrap();
+
+                if name1 != name2 {
+                    return name1.cmp(&name2);
+                }
+
+                let len1 = b1.read_u32::<LittleEndian>().unwrap();
+                let len2 = b2.read_u32::<LittleEndian>().unwrap();
+
+                if len1 != len2 {
+                    return len1.cmp(&len2);
+                }
+
+                for _ in 0..len1 {
+                    match Element::compare_term_serialized(b1, b2, false) {
+                        Ordering::Equal => {}
+                        x => return x,
+                    }
+                }
+
+                Ordering::Equal
+            }
+            (NUM_ID, NUM_ID) => if ground_level {
+                Ordering::Equal
+            } else {
+                Number::compare_serialized(b1, b2)
+            },
+            (_, NUM_ID) => Ordering::Less,
+            (NUM_ID, _) => Ordering::Greater,
+            // TODO: if we allow polyratfuns in functions, we should add a partial_cmp between them
+            (PRF_ID, PRF_ID) => Ordering::Equal,
+            (_, PRF_ID) => Ordering::Less,
+            (PRF_ID, _) => Ordering::Greater,
+            (POW_ID, POW_ID) => {
+                // compare the base
+                match Element::compare_term_serialized(b1, b2, false) {
+                    // compare exponent
+                    Ordering::Equal => Element::compare_term_serialized(b1, b2, false),
+                    x => x,
+                }
+            }
+            (POW_ID, _) => Ordering::Less, // TODO: check if this is correct
+            (_, POW_ID) => Ordering::Greater,
+            (TERM_ID, TERM_ID) => {
+                let len1 = b1.read_u32::<LittleEndian>().unwrap();
+                let len2 = b2.read_u32::<LittleEndian>().unwrap();
+
+                // do a quick length check
+                // TODO: check if the terms have coefficients
+                if (!ground_level && len1 != len2)
+                    || (ground_level && (len1 + 1 < len2 || len1 > len2 + 1))
+                {
+                    return len1.cmp(&len2);
+                }
+
+                let maxlen = if len1 > len2 { len1 } else { len2 };
+
+                for i in 0..maxlen {
+                    // ignore coefficients on ground level
+                    if ground_level {
+                        if i < len1 {
+                            let e1 = b1.read_u8().unwrap();
+                            b1.seek(SeekFrom::Current(-1)).unwrap();
+                            if e1 == NUM_ID || e1 == PRF_ID {
+                                continue;
+                            }
+                        }
+
+                        if i < len2 {
+                            let e2 = b2.read_u8().unwrap();
+                            b2.seek(SeekFrom::Current(-1)).unwrap();
+                            if e2 == NUM_ID || e2 == PRF_ID {
+                                continue;
+                            }
+                        }
+                    }
+                    match Element::compare_term_serialized(b1, b2, false) {
+                        Ordering::Equal => {}
+                        x => return x,
+                    }
+                }
+
+                Ordering::Equal
+            }
+            (_, TERM_ID) => {
+                let len = b2.read_u32::<LittleEndian>().unwrap();
+                if ground_level && len == 2 {
+                    let e = b2.read_u8().unwrap();
+                    if e == NUM_ID {
+                        b2.seek(SeekFrom::Current(-1)).unwrap();
+                        return Element::compare_term_serialized(b1, b2, ground_level);
+                    }
+                }
+
+                Ordering::Less
+            }
+            (TERM_ID, _) => {
+                let len = b1.read_u32::<LittleEndian>().unwrap();
+                if ground_level && len == 2 {
+                    let e = b1.read_u8().unwrap();
+                    if e == NUM_ID {
+                        b1.seek(SeekFrom::Current(-1)).unwrap();
+                        return Element::compare_term_serialized(b1, b2, ground_level);
+                    }
+                }
+
+                Ordering::Greater
+            }
+            (FN_ID, _) => Ordering::Less,
+            (_, FN_ID) => Ordering::Greater,
+            (EXPR_ID, EXPR_ID) => {
+                let len1 = b1.read_u32::<LittleEndian>().unwrap();
+                let len2 = b2.read_u32::<LittleEndian>().unwrap();
+                if len1 != len2 {
+                    return len1.cmp(&len2);
+                }
+
+                for _ in 0..len1 {
+                    match Element::compare_term_serialized(b1, b2, false) {
+                        Ordering::Equal => {}
+                        x => return x,
+                    }
+                }
+
+                Ordering::Equal
+            }
+            (EXPR_ID, _) => Ordering::Less,
+            (VAR_ID, VAR_ID) => b1.read_u32::<LittleEndian>()
+                .unwrap()
+                .cmp(&b2.read_u32::<LittleEndian>().unwrap()),
+            _ => Ordering::Less,
+        }
     }
 }

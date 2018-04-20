@@ -510,17 +510,17 @@ impl Element {
                 Some(Ordering::Equal)
             }
             (_, &Element::Term(_, ref t)) => {
-                if t.len() == 2 {
+                if ground_level && t.len() == 2 {
                     if let Element::Num(..) = t[1] {
-                        return self.partial_cmp(&t[0], var_info, ground_level);
+                        return self.partial_cmp(&t[0], var_info, false);
                     }
                 }
                 Some(Ordering::Less)
             }
             (&Element::Term(_, ref t), _) => {
-                if t.len() == 2 {
+                if ground_level && t.len() == 2 {
                     if let Element::Num(..) = t[1] {
-                        return t[0].partial_cmp(other, var_info, ground_level);
+                        return t[0].partial_cmp(other, var_info, false);
                     }
                 }
                 Some(Ordering::Greater)
