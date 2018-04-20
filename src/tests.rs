@@ -6,6 +6,8 @@ mod tests {
     use poly::raw::finitefield::FiniteField;
     use poly::raw::zp;
     use poly::raw::MultivariatePolynomial;
+    use serialize;
+    use structure::Element;
     use tools;
 
     #[test]
@@ -308,6 +310,22 @@ mod tests {
         res.append_monomial(SmallInt(3), vec![3, 2]);
 
         assert_eq!(MultivariatePolynomial::gcd(&a, &b), res);
+    }
+
+    #[test]
+    fn serialize() {
+        let mut a = MultivariatePolynomial::from_monomial(SmallInt(100), vec![0, 0]);
+        a.append_monomial(SmallInt(100), vec![1, 0]);
+
+        let mut b = MultivariatePolynomial::from_monomial(SmallInt(-3), vec![2, 3]);
+        b.append_monomial(SmallInt(1), vec![1, 0]);
+
+        let elem = Element::RationalPolynomialCoefficient(false, Box::new((a, b)));
+
+        let mut buffer = vec![];
+        elem.serialize(&mut buffer);
+
+        assert_eq!(elem, Element::deserialize(&mut buffer.as_slice()).unwrap())
     }
 
 }
