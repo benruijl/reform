@@ -892,168 +892,50 @@ impl Module {
                         }
                     }
                 }
+                Statement::Module(_) => panic!("Nesting of modules is not allowed"),
                 ref a => output.push(a.clone()),
             }
         }
     }
 
-    // normalize all expressions in statements and execute global
-    // operations
-    fn normalize_module(
+    fn execute_module(
         &mut self,
-        exprs: &mut Vec<Expression>,
+        expressions: &mut Vec<Expression>,
         var_info: &mut VarInfo,
         procedures: &[Procedure],
+        sort_statements: &mut Vec<Statement>,
+        write_log: bool,
+        verbosity: u64,
+        num_threads: usize,
     ) {
-        for x in &mut self.global_statements {
-            match *x {
-                Statement::NewExpression(ref name, ref mut e) => {
-                    let mut expr = InputTermStreamer::new(None);
-                    let mut ee = mem::replace(e, DUMMY_ELEM!());
-                    ee.normalize_inplace(&var_info.global_info);
-
-                    match ee {
-                        Element::SubExpr(_, t) => for x in t {
-                            expr.add_term_input(x);
-                        },
-                        x => {
-                            expr.add_term_input(x);
-                        }
-                    }
-                    exprs.push((name.clone(), expr));
-                }
-                Statement::Assign(ref dollar, ref e) => {
-                    let mut ee = e.clone();
-                    ee.replace_vars(&var_info.local_info.variables, true);
-                    ee.normalize_inplace(&var_info.global_info);
-                    if let Element::Dollar(ref d, ..) = *dollar {
-                        var_info.local_info.add_dollar(d.clone(), ee);
-                    }
-                }
-                // this will create a subrecursion
-                Statement::Inside(ref ds, ref mut sts) => {
-                    for d in ds {
-                        if let Element::Dollar(name, _) = *d {
-                            let mut dollar = mem::replace(
-                                var_info
-                                    .local_info
-                                    .variables
-                                    .get_mut(&name)
-                                    .expect("Dollar variable is uninitialized"),
-                                DUMMY_ELEM!(),
-                            );
-
-                            // normalize the statements
-                            let mut old_statements = mem::replace(sts, vec![]);
-                            Module::statements_to_control_flow_stat(
-                                &mut old_statements,
-                                var_info,
-                                procedures,
-                                sts,
-                            );
-
-                            for x in sts.iter_mut() {
-                                x.normalize(&var_info.global_info);
-                            }
-
-                            let mut tsr = TermStreamWrapper::Owned(vec![]);
-                            do_module_rec(
-                                dollar,
-                                sts,
-                                &mut var_info.local_info,
-                                &var_info.global_info,
-                                0,
-                                &mut vec![false],
-                                &mut tsr,
-                            );
-
-                            if let TermStreamWrapper::Owned(mut nfa) = tsr {
-                                var_info.local_info.variables.insert(
-                                    name,
-                                    match nfa.len() {
-                                        0 => Element::Num(false, Number::zero()),
-                                        1 => nfa.swap_remove(0),
-                                        _ => {
-                                            let mut sub = Element::SubExpr(true, nfa);
-                                            sub.normalize_inplace(&var_info.global_info);
-                                            sub
-                                        }
-                                    },
-                                );
-                            }
-                        }
-                    }
-                }
-                Statement::Attrib(ref f, ref attribs) => match *f {
-                    Element::Var(ref name) | Element::Dollar(ref name, _) => {
-                        var_info
-                            .global_info
-                            .func_attribs
-                            .insert(name.clone(), attribs.clone());
-                    }
-                    _ => {
-                        panic!("Can only assign attributes to functions or dollar variables");
-                    }
-                },
-                Statement::Print(ref mode, ref vars) => {
-                    // only print dollar variables at this stage, the rest will be processed during sorting
-                    for d in vars {
-                        if let Some(x) = var_info.local_info.variables.get(d) {
-                            println!(
-                                "{}",
-                                ElementPrinter {
-                                    element: x,
-                                    var_info: &var_info.global_info,
-                                    print_mode: *mode
-                                }
-                            );
-                        }
-                    }
-                }
-                _ => unimplemented!(),
-            }
+        // move global statements from the previous module into the new one
+        for (d, v) in var_info.local_info.global_variables.drain() {
+            var_info.local_info.variables.insert(d, v);
         }
 
+        // normalize the module
         let mut old_statements = mem::replace(&mut self.statements, vec![]);
         Module::statements_to_control_flow_stat(
             &mut old_statements,
             var_info,
-            procedures,
+            &procedures,
             &mut self.statements,
         );
 
         for x in &mut self.statements {
             x.normalize(&var_info.global_info);
         }
-    }
-}
 
-// execute the module
-pub fn do_program(program: &mut Program, write_log: bool, verbosity: u64, num_threads: usize) {
-    // set the log level
-    program.var_info.global_info.log_level = verbosity as usize;
-
-    for module in &mut program.modules {
-        // move global statements from the previous module into the new one
-        // TODO: do swap instead of clone?
-        program.var_info.local_info.variables =
-            program.var_info.local_info.global_variables.clone();
-
-        module.normalize_module(
-            &mut program.expressions,
-            &mut program.var_info,
-            &program.procedures,
-        );
-        debug!("{}", module); // print module code
+        debug!("{}", self); // print module code
 
         // execute the module for every expression
-        for &mut (ref name, ref mut input_stream) in &mut program.expressions {
+        for &mut (ref name, ref mut input_stream) in expressions {
             // only process active expressions
-            if !module.active_exprs.is_empty() && !module.active_exprs.contains(name) {
+            if !self.active_exprs.is_empty() && !self.active_exprs.contains(name) {
                 continue;
             }
 
-            let global_info = program.var_info.global_info.clone();
+            let global_info = var_info.global_info.clone();
 
             let mut output = OutputTermStreamer::new();
 
@@ -1061,7 +943,7 @@ pub fn do_program(program: &mut Program, write_log: bool, verbosity: u64, num_th
                 let mut output_mutarc = Arc::new(Mutex::new(output));
 
                 let queue: MsQueue<Option<Element>> = MsQueue::new();
-                let thread_local_varinfo = program.var_info.local_info.clone();
+                let thread_local_varinfo = var_info.local_info.clone();
 
                 // create threads that process terms
                 crossbeam::scope(|scope| {
@@ -1073,7 +955,7 @@ pub fn do_program(program: &mut Program, write_log: bool, verbosity: u64, num_th
                             while let Some(x) = queue.pop() {
                                 do_module_rec(
                                     x,
-                                    &module.statements,
+                                    &self.statements,
                                     &mut thread_varinfo,
                                     &global_info,
                                     0,
@@ -1118,9 +1000,9 @@ pub fn do_program(program: &mut Program, write_log: bool, verbosity: u64, num_th
                 while let Some(x) = input_stream.read_term() {
                     do_module_rec(
                         x,
-                        &module.statements,
-                        &mut program.var_info.local_info,
-                        &program.var_info.global_info,
+                        &self.statements,
+                        &mut var_info.local_info,
+                        &var_info.global_info,
                         0,
                         &mut executed,
                         &mut output_wrapped,
@@ -1130,7 +1012,7 @@ pub fn do_program(program: &mut Program, write_log: bool, verbosity: u64, num_th
                         if output.termcount() > 100_000 && output.termcount() % 100_000 == 0 {
                             println!(
                                 "{} -- generated: {}\tterms left: {}",
-                                module.name,
+                                self.name,
                                 output.termcount(),
                                 input_stream.termcount()
                             );
@@ -1141,16 +1023,149 @@ pub fn do_program(program: &mut Program, write_log: bool, verbosity: u64, num_th
                 output_wrapped.extract()
             };
 
-            let exprname = program.var_info.get_str_name(name);
+            let exprname = var_info.get_str_name(name);
             output.sort(
                 &exprname,
                 input_stream,
-                &module.name,
-                &mut program.var_info, // TODO: this is not correct in the parallel case
-                &module.global_statements,
+                &self.name,
+                var_info, // TODO: this is not correct in the parallel case
+                sort_statements,
                 verbosity > 0,
                 write_log,
             );
+        }
+    }
+}
+
+impl Program {
+    pub fn do_program(&mut self, write_log: bool, verbosity: u64, num_threads: usize) {
+        // set the log level
+        self.var_info.global_info.log_level = verbosity as usize;
+
+        // statements that should be executed during sorting
+        let mut sort_statements = vec![];
+
+        for x in &mut self.statements {
+            match *x {
+                Statement::Module(ref mut m) => m.execute_module(
+                    &mut self.expressions,
+                    &mut self.var_info,
+                    &self.procedures,
+                    &mut sort_statements,
+                    write_log,
+                    verbosity,
+                    num_threads,
+                ),
+                Statement::NewExpression(ref name, ref mut e) => {
+                    let mut expr = InputTermStreamer::new(None);
+                    let mut ee = mem::replace(e, DUMMY_ELEM!());
+                    ee.normalize_inplace(&self.var_info.global_info);
+
+                    match ee {
+                        Element::SubExpr(_, t) => for x in t {
+                            expr.add_term_input(x);
+                        },
+                        x => {
+                            expr.add_term_input(x);
+                        }
+                    }
+                    self.expressions.push((name.clone(), expr));
+                }
+                Statement::Assign(ref dollar, ref e) => {
+                    let mut ee = e.clone();
+                    ee.replace_vars(&self.var_info.local_info.variables, true);
+                    ee.normalize_inplace(&self.var_info.global_info);
+                    if let Element::Dollar(ref d, ..) = *dollar {
+                        self.var_info.local_info.add_dollar(d.clone(), ee);
+                    }
+                }
+                // this will create a subrecursion
+                Statement::Inside(ref ds, ref mut sts) => {
+                    for d in ds {
+                        if let Element::Dollar(name, _) = *d {
+                            let mut dollar = mem::replace(
+                                self.var_info
+                                    .local_info
+                                    .variables
+                                    .get_mut(&name)
+                                    .expect("Dollar variable is uninitialized"),
+                                DUMMY_ELEM!(),
+                            );
+
+                            // normalize the statements
+                            let mut old_statements = mem::replace(sts, vec![]);
+                            Module::statements_to_control_flow_stat(
+                                &mut old_statements,
+                                &mut self.var_info,
+                                &self.procedures,
+                                sts,
+                            );
+
+                            for x in sts.iter_mut() {
+                                x.normalize(&self.var_info.global_info);
+                            }
+
+                            let mut tsr = TermStreamWrapper::Owned(vec![]);
+                            do_module_rec(
+                                dollar,
+                                sts,
+                                &mut self.var_info.local_info,
+                                &self.var_info.global_info,
+                                0,
+                                &mut vec![false],
+                                &mut tsr,
+                            );
+
+                            if let TermStreamWrapper::Owned(mut nfa) = tsr {
+                                self.var_info.local_info.variables.insert(
+                                    name,
+                                    match nfa.len() {
+                                        0 => Element::Num(false, Number::zero()),
+                                        1 => nfa.swap_remove(0),
+                                        _ => {
+                                            let mut sub = Element::SubExpr(true, nfa);
+                                            sub.normalize_inplace(&self.var_info.global_info);
+                                            sub
+                                        }
+                                    },
+                                );
+                            }
+                        }
+                    }
+                }
+                Statement::Attrib(ref f, ref attribs) => match *f {
+                    Element::Var(ref name) | Element::Dollar(ref name, _) => {
+                        self.var_info
+                            .global_info
+                            .func_attribs
+                            .insert(name.clone(), attribs.clone());
+                    }
+                    _ => {
+                        panic!("Can only assign attributes to functions or dollar variables");
+                    }
+                },
+                Statement::Print(ref mode, ref vars) => {
+                    // only print dollar variables at this stage
+                    for d in vars {
+                        if let Some(x) = self.var_info.local_info.variables.get(d) {
+                            println!(
+                                "{}",
+                                ElementPrinter {
+                                    element: x,
+                                    var_info: &self.var_info.global_info,
+                                    print_mode: *mode
+                                }
+                            );
+                        }
+                    }
+
+                    if vars.len() == 0 {
+                        sort_statements.push(Statement::Print(mode.clone(), vec![]));
+                    }
+                }
+                Statement::Collect(ref id) => sort_statements.push(Statement::Collect(id.clone())),
+                _ => unimplemented!(),
+            }
         }
     }
 }

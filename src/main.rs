@@ -68,8 +68,7 @@ fn main() {
         .get_matches();
 
     let mut program = reform::parser::parse_file(matches.value_of("INPUT").unwrap());
-    reform::module::do_program(
-        &mut program,
+    program.do_program(
         matches.is_present("log"),
         matches.occurrences_of("v"),
         matches.value_of("workers").unwrap().parse().unwrap(),

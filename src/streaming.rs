@@ -185,7 +185,7 @@ impl OutputTermStreamer {
         input_streamer: &mut InputTermStreamer,
         module_name: &str,
         var_info: &mut VarInfo,
-        global_statements: &[Statement],
+        sort_statements: &mut Vec<Statement>,
         mut print_output: bool,
         _write_log: bool,
     ) {
@@ -210,8 +210,8 @@ impl OutputTermStreamer {
             input_streamer.input = None;
 
             // execute the global statements
-            for s in global_statements {
-                match *s {
+            for s in sort_statements.drain(..) {
+                match s {
                     Statement::Collect(ref v) => {
                         a = Element::Fn(false, v.clone(), vec![a]);
                     }
@@ -376,8 +376,8 @@ impl OutputTermStreamer {
             }
 
             // execute the global statements
-            for s in global_statements {
-                match *s {
+            for s in sort_statements.drain(..) {
+                match s {
                     Statement::Collect(ref v) => {
                         // does the output fit in memory?
                         if input_streamer.termcounter_input == 0 {

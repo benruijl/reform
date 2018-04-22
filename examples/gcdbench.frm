@@ -18,6 +18,3 @@ endinside;
 
 $r = gcd_($ag, $bg);
 print $r;
-
-{
-}
