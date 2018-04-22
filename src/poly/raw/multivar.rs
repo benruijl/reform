@@ -542,22 +542,21 @@ impl<'a, R: Ring, E: Exponent> Mul<&'a MultivariatePolynomial<R, E>>
 impl<R: Ring, E: Exponent> Mul<R> for MultivariatePolynomial<R, E> {
     type Output = Self;
 
-    fn mul(self, other: R) -> Self::Output {
-        let mut res = self.clone();
-        for c in &mut res.coefficients {
-            *c = c.clone() * other.clone();
+    fn mul(mut self, other: R) -> Self::Output {
+        for c in &mut self.coefficients {
+            *c *= other.clone();
         }
-        res
+        self
     }
 }
 
 impl<R: Ring, E: Exponent> Add<R> for MultivariatePolynomial<R, E> {
     type Output = Self;
 
-    fn add(self, other: R) -> Self::Output {
-        let mut res = self.clone();
-        res.append_monomial(other, vec![E::zero(); self.nvars]);
-        res
+    fn add(mut self, other: R) -> Self::Output {
+        let nvars = self.nvars;
+        self.append_monomial(other, vec![E::zero(); nvars]);
+        self
     }
 }
 
@@ -685,7 +684,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
             let mut c = self.coefficients[t].clone();
             for &(n, ref v) in r {
-                c = c * v.clone().pow(self.exponents(t)[n].as_());
+                c *= v.clone().pow(self.exponents(t)[n].as_());
                 e[n] = E::zero();
             }
 

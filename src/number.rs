@@ -101,7 +101,9 @@ impl GCD for Number {
         use self::Number::*;
         match (a, b) {
             (SmallInt(i1), SmallInt(i2)) => SmallInt(GCD::gcd(i1, i2)),
-            (SmallInt(i1), BigInt(i2)) | (BigInt(i2), SmallInt(i1)) => BigInt(i2.gcd(&Integer::from(i1))),
+            (SmallInt(i1), BigInt(i2)) | (BigInt(i2), SmallInt(i1)) => {
+                BigInt(i2.gcd(&Integer::from(i1)))
+            }
             (BigInt(i1), BigInt(i2)) => BigInt(i1.gcd(&i2)),
             _ => unreachable!(),
         }

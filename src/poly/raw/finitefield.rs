@@ -3,7 +3,7 @@ use num_traits::{One, Pow, Zero};
 use poly::raw::zp;
 use poly::ring::{MulModNum, ToFiniteField};
 use std::fmt;
-use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
+use std::ops::{Add, Div, Mul, MulAssign, Neg, Rem, Sub};
 use tools::GCD;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -44,6 +44,13 @@ impl Mul for FiniteField {
             n: zp::mul(self.n, other.n, self.p),
             p: self.p,
         }
+    }
+}
+
+impl MulAssign for FiniteField {
+    fn mul_assign(&mut self, other: Self) {
+        assert_eq!(self.p, other.p);
+        self.n = zp::mul(self.n, other.n, self.p);
     }
 }
 

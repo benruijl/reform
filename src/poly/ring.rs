@@ -1,7 +1,7 @@
 use num_traits::{One, Pow, Zero};
 use poly::raw::finitefield::FiniteField;
 use std::fmt::{Debug, Display};
-use std::ops::{Div, Neg, Rem};
+use std::ops::{Div, MulAssign, Neg, Rem};
 use tools::GCD;
 
 pub trait MulModNum {
@@ -24,6 +24,7 @@ pub trait Ring:
     + MulModNum
     + GCD
     + Pow<u32, Output = Self>
+    + MulAssign
     + Neg<Output = Self>
     + Div<Output = Self>
     + Rem<Output = Self>
@@ -34,15 +35,14 @@ pub trait Ring:
 }
 
 impl<
-        T: 
-        //Copy
-            Zero
+        T: Zero
             + One
             + Debug
             + Display
             + MulModNum
             + GCD
             + Pow<u32, Output = Self>
+            + MulAssign
             + Neg<Output = Self>
             + Div<Output = Self>
             + Rem<Output = Self>
