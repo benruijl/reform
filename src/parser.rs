@@ -143,21 +143,12 @@ parser!{
         }
     };
 
-    let module_options = optional((keyword("mod").with(varname()), optional(keyword("for")
-        .with(sep_by(varname(), lex_char(',')))).map(|x| x.unwrap_or(vec![]))))
-        .map(|x| x.unwrap_or(("mod".to_string(), vec![])));
-
-    let module = (many(global_statement()), module_options, between(lex_char('{'), lex_char('}'), many(statement())))
-        .map(|(global_statements, (name, active_exprs), statements)|
-                Module { global_statements, name, active_exprs, statements }
-        );
-
     skipnocode()
-        .with((many(procedure), many(module)))
+        .with((many(procedure), many(statement())))
         .skip(eof())
         .map(
-            |(p, m): (Vec<Procedure<String>>, Vec<Module<String>>)| {
-                Program::new(m, p)
+            |(p, s): (Vec<Procedure<String>>, Vec<Statement<String>>)| {
+                Program::new(s, p)
             },
         )
 }
@@ -183,15 +174,22 @@ parser!{
 }
 
 parser!{
-   fn global_statement[I]()(I) -> Statement<String>
+   fn statement[I]()(I) -> Statement<String>
     where [I: Stream<Item=char>]
 {
-    let newexpr = (keyword("expr").with(varname()), lex_char('=').with(expr()))
+    let module_options = optional((keyword("mod").with(varname()), optional(keyword("for")
+        .with(sep_by(varname(), lex_char(',')))).map(|x| x.unwrap_or(vec![]))))
+        .map(|x| x.unwrap_or(("mod".to_string(), vec![])));
+
+    let module = (module_options, between(lex_char('{'), lex_char('}'), many(statement())))
+        .map(|((name, active_exprs), statements)|
+                Statement::Module(Module { name, active_exprs, statements })
+        );
+
+   let newexpr = (keyword("expr").with(varname()), lex_char('=').with(expr()))
         .skip(statementend())
         .map(|(n, e)| Statement::NewExpression(n, e));
 
-    let assign = (dollarvar(), lex_char('=').with(expr()).skip(statementend()))
-        .map(|(d, e)| Statement::Assign(d, e));
     let collect = keyword("collect")
         .with(varname())
         .skip(statementend())
@@ -202,37 +200,10 @@ parser!{
                          keyword("noncommutative").map(|_| FunctionAttributes::NonCommutative),
                          keyword("nonlocal").map(|_| FunctionAttributes::NonLocal));
 
-    let inside = (keyword("inside").with(sep_by(factor(),
-            lex_char(','))),
-        statementend()
-            .with(many(statement()))
-            .skip(keyword("endinside"))
-            .skip(statementend()))
-            .map(|(f, ss)| Statement::Inside(f, ss));
-
     let attrib = (keyword("attrib").with(factor()), lex_char('=').with(
             sep_by(attribs, lex_char('+')).skip(statementend())))
                  .map(|(d,e)| Statement::Attrib(d, e));
 
-    let printmode = optional(choice!(keyword("form").map(|_| PrintMode::Form),
-                            keyword("mathematica").map(|_| PrintMode::Mathematica)))
-                         .map(|x| x.unwrap_or(PrintMode::Form));
-
-    let print = keyword("print").with((printmode, sep_by(
-            choice!(lex_char('$').with(varname()).map(|s| '$'.to_string() + &s),
-                    varname()),
-            lex_char(','))))
-        .skip(statementend())
-        .map(|(m, es)| Statement::Print(m, es));
-
-    choice!(newexpr, assign, inside, collect, attrib, print)
-}
-}
-
-parser!{
-   fn statement[I]()(I) -> Statement<String>
-    where [I: Stream<Item=char>]
-{
     let assign = (dollarvar(), lex_char('=').with(expr()).skip(statementend()))
         .map(|(d, e)| Statement::Assign(d, e));
     let symmetrize = keyword("symmetrize")
@@ -346,6 +317,10 @@ parser!{
             Statement::IfElse(q, x, e));
 
     choice!(
+        module,
+        newexpr,
+        collect,
+        attrib,
         call_procedure,
         assign,
         maximum,

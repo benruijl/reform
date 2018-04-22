@@ -28,7 +28,7 @@ pub type Expression = (VarName, InputTermStreamer);
 #[derive(Debug)]
 pub struct Program {
     pub expressions: Vec<Expression>,
-    pub modules: Vec<Module>,
+    pub statements: Vec<Statement>,
     pub procedures: Vec<Procedure>,
     pub var_info: VarInfo,
 }
@@ -163,12 +163,12 @@ impl VarInfo {
 impl Program {
     /// Create a new Program from the parser output.
     pub fn new(
-        mut modules: Vec<Module<String>>,
+        mut statements: Vec<Statement<String>>,
         mut procedures: Vec<Procedure<String>>,
     ) -> Program {
         let mut prog = Program {
             expressions: vec![],
-            modules: vec![],
+            statements: vec![],
             procedures: vec![],
             var_info: VarInfo::new(),
         };
@@ -187,24 +187,11 @@ impl Program {
             }
         }
 */
-        let mut parsed_modules = vec![];
-        for m in &mut modules {
-            parsed_modules.push(Module {
-                name: m.name.clone(),
-                active_exprs: m.active_exprs
-                    .iter()
-                    .map(|n| prog.var_info.get_name(n))
-                    .collect(),
-                statements: m.statements
-                    .iter_mut()
-                    .map(|s| s.to_statement(&mut prog.var_info))
-                    .collect(),
-                global_statements: m.global_statements
-                    .iter_mut()
-                    .map(|s| s.to_statement(&mut prog.var_info))
-                    .collect(),
-            });
-        }
+
+        let parsed_statements = statements
+            .iter_mut()
+            .map(|s| s.to_statement(&mut prog.var_info))
+            .collect();
 
         // NOTE: the names of the arguments are not substituted
         let mut parsed_procedures = vec![];
@@ -234,7 +221,7 @@ impl Program {
             });
         }
 
-        prog.modules = parsed_modules;
+        prog.statements = parsed_statements;
         prog.procedures = parsed_procedures;
         prog
     }
@@ -272,12 +259,11 @@ impl Program {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Module<ID: Id = VarName> {
     pub name: String,
     pub active_exprs: Vec<ID>,
     pub statements: Vec<Statement<ID>>,
-    pub global_statements: Vec<Statement<ID>>,
 }
 
 #[derive(Debug)]
@@ -336,6 +322,7 @@ macro_rules! DUMMY_ELEM {
 
 #[derive(Debug, Clone)]
 pub enum Statement<ID: Id = VarName> {
+    Module(Module<ID>),
     NewExpression(ID, Element<ID>),
     IdentityStatement(IdentityStatement<ID>),
     SplitArg(ID),
@@ -572,9 +559,7 @@ pub enum IdentityStatementMode {
 
 impl fmt::Display for Module {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for (i, x) in self.global_statements.iter().enumerate() {
-            write!(f, "{}: {}", i, x)?;
-        }
+        // TODO: add mod options
         writeln!(f, "{{")?;
         for (i, x) in self.statements.iter().enumerate() {
             write!(f, "{}: {}", i, x)?;
@@ -620,6 +605,7 @@ impl fmt::Display for Procedure {
 impl fmt::Display for Statement {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
+            Statement::Module(ref m) => writeln!(f, "{}", m),
             Statement::NewExpression(ref id, ref e) => writeln!(f, "expr {} = {};", id, e),
             Statement::IdentityStatement(ref id) => write!(f, "{}", id),
             Statement::SplitArg(ref name) => writeln!(f, "SplitArg {};", name),
@@ -1134,6 +1120,17 @@ impl Element {
 impl Statement<String> {
     pub fn to_statement(&mut self, var_info: &mut VarInfo) -> Statement {
         match *self {
+            Statement::Module(ref mut m) => Statement::Module(Module {
+                name: m.name.clone(),
+                active_exprs: m.active_exprs
+                    .iter()
+                    .map(|n| var_info.get_name(n))
+                    .collect(),
+                statements: m.statements
+                    .iter_mut()
+                    .map(|s| s.to_statement(var_info))
+                    .collect(),
+            }),
             Statement::NewExpression(ref name, ref mut e) => {
                 Statement::NewExpression(var_info.get_name(name), e.to_element(var_info))
             }
