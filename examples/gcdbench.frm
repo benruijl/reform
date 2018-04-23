@@ -5,16 +5,16 @@ $a = (1 + 3*x1 + 5*x2 + 7*x3 + 9*x4 + 11*x5 + 13*x6 + 15*x7)^$exp - 1;
 $b = (1 - 3*x1 - 5*x2 - 7*x3 + 9*x4 - 11*x5 - 13*x6 + 15*x7)^$exp + 1;
 $g = (1 + 3*x1 + 5*x2 + 7*x3 + 9*x4 + 11*x5 + 13*x6 - 15*x7)^$exp + 3;
 
-inside $a,$b,$g;
+inside $a,$b,$g {
     expand;
-endinside;
+}
 
 $ag = $a * $g;
 $bg = $b * $g;
 
-inside $ag,$bg;
+inside $ag,$bg {
     expand;
-endinside;
+}
 
 $r = gcd_($ag, $bg);
 print $r;

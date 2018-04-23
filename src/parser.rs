@@ -137,9 +137,9 @@ parser!{
             args: lex_char('(').with(sep_by(expr(), lex_char(','))).skip(skipnocode()),
             local_args: optional(lex_char(';').with(sep_by(expr(), lex_char(',')))).map(
                 |x : Option<Vec<Element<String>>>| x.unwrap_or(vec![])).skip(skipnocode()),
-            _: lex_char(')').with(lex_char(';')),
+            _: lex_char(')').with(lex_char('{')),
             statements: many(statement()),
-            _: keyword("endprocedure").with(lex_char(';'))
+            _: lex_char('}')
         }
     };
 
@@ -260,44 +260,29 @@ parser!{
     }.map(|x| Statement::IdentityStatement(x));
 
     let repeat = keyword("repeat").with(choice!(
-        statementend()
-            .with(many(statement()))
-            .skip(keyword("endrepeat"))
-            .skip(statementend())
+        between(lex_char('{'), lex_char('}'), many(statement()))
             .map(|x| Statement::Repeat(x)),
         statement().map(|x| Statement::Repeat(vec![x]))
     ));
 
     let argument = (keyword("argument").with(factor()),
-        statementend()
-            .with(many(statement()))
-            .skip(keyword("endargument"))
-            .skip(statementend()))
+        between(lex_char('{'), lex_char('}'), many(statement())))
             .map(|(f, ss)| Statement::Argument(f, ss));
 
     let inside = (keyword("inside").with(sep_by(factor(),
-            lex_char(','))),
-        statementend()
-            .with(many(statement()))
-            .skip(keyword("endinside"))
-            .skip(statementend()))
+        lex_char(','))),
+        between(lex_char('{'), lex_char('}'), many(statement())))
             .map(|(f, ss)| Statement::Inside(f, ss));
 
     let forinrange = (keyword("for").with(factor()),
         keyword("in").with(expr()),
         string("..").with(expr()),
-        statementend()
-            .with(many(statement()))
-            .skip(keyword("endfor"))
-            .skip(statementend()))
+        between(lex_char('{'), lex_char('}'), many(statement())))
             .map(|(d, l, u, ss)| Statement::ForInRange(d, l, u, ss));
 
     let forinlist = (keyword("for").with(factor()),
         keyword("in").with(sep_by(expr(), lex_char(','))),
-        statementend()
-            .with(many(statement()))
-            .skip(keyword("endfor"))
-            .skip(statementend()))
+        between(lex_char('{'), lex_char('}'), many(statement())))
             .map(|(d, l, ss)| Statement::ForIn(d, l, ss));
 
     let forin = try(forinlist).or(forinrange);
@@ -308,10 +293,10 @@ parser!{
         keyword("match").with(between(lex_char('('), lex_char(')'), expr())),
     );
     let ifelse = (keyword("if").with(ifclause)
-        ,choice!(statementend().with(many(statement())).skip(keyword("endif")).skip(statementend()),
+        ,choice!(between(lex_char('{'), lex_char('}'), many(statement())),
         statement().map(|x: Statement<String>| vec![x])),
-        optional(keyword("else").with(choice!(statementend().with(many(statement())).skip(keyword("endif")).skip(statementend()),
-        statement().map(|x: Statement<String>| vec![x]))))
+        optional(keyword("else").with(choice!(between(lex_char('{'), lex_char('}'), many(statement())),
+            statement().map(|x: Statement<String>| vec![x]))))
         .map(|x : Option<Vec<Statement<String>>>| x.unwrap_or(vec![]))). // parse the else
         map(|(q,x,e) : (Element<String>, Vec<Statement<String>>, Vec<Statement<String>>)|
             Statement::IfElse(q, x, e));

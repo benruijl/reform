@@ -201,14 +201,15 @@ impl Element {
                                     *b = newbase;
                                 }
                             }
-                            Element::Num(_, Number::SmallInt(n)) if n < 0 => {
-                                unimplemented!();
-                                // exponent is a negative integer
-                                /*if let Element::Num(_, mut pos, mut num, mut den) = *b {
+                            Element::Num(_, Number::SmallInt(ref n)) if *n < 0 => {
+                                if let Element::Num(_, ref mut num) = *b {
                                     // base is a rational number: (p/q)^(-n) = q^n/p^n
-                                    exp_fraction(&mut pos, &mut num, &mut den, n);
-                                    break Element::Num(false, pos, den, num);
-                                }*/                            }
+                                    break Element::Num(
+                                        false,
+                                        Number::one() / num.clone().pow(-n as u32),
+                                    );
+                                }
+                            }
                             _ => {}
                         };
                         return changed;
