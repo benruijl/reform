@@ -1204,6 +1204,13 @@ impl Statement {
     pub fn replace_vars(&mut self, map: &HashMap<VarName, Element>, dollar_only: bool) -> bool {
         let mut changed = false;
         match *self {
+            Statement::Module(Module {
+                ref mut statements, ..
+            }) => {
+                for s in statements {
+                    changed |= s.replace_vars(map, dollar_only);
+                }
+            }
             Statement::IdentityStatement(IdentityStatement {
                 mode: _,
                 ref mut lhs,
@@ -1277,6 +1284,13 @@ impl Statement {
 
     pub fn normalize(&mut self, var_info: &GlobalVarInfo) {
         match *self {
+            Statement::Module(Module {
+                ref mut statements, ..
+            }) => {
+                for s in statements {
+                    s.normalize(var_info);
+                }
+            }
             Statement::IdentityStatement(IdentityStatement {
                 ref mut lhs,
                 ref mut rhs,

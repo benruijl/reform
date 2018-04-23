@@ -3,6 +3,7 @@ use number::Number;
 use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::mem;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -787,6 +788,8 @@ impl Module {
                 }
                 Statement::ForInRange(ref d, ref mut l, ref mut u, ref mut s) => {
                     if let Element::Dollar(dd, _) = *d {
+                        // TODO: note that dollar variables in the range parameters are evaluted at
+                        // module compile time instead of runtime!
                         l.normalize_inplace(&var_info.global_info);
                         u.normalize_inplace(&var_info.global_info);
 
@@ -1045,8 +1048,10 @@ impl Program {
         // statements that should be executed during sorting
         let mut sort_statements = vec![];
 
-        for x in &mut self.statements {
-            match *x {
+        let mut statements: VecDeque<Statement> = self.statements.iter().cloned().collect();
+
+        while let Some(mut x) = statements.pop_front() {
+            match &mut x {
                 Statement::Module(ref mut m) => m.execute_module(
                     &mut self.expressions,
                     &mut self.var_info,
@@ -1144,6 +1149,55 @@ impl Program {
                         panic!("Can only assign attributes to functions or dollar variables");
                     }
                 },
+                Statement::ForInRange(ref d, ref mut l, ref mut u, ref mut s) => {
+                    if let Element::Dollar(dd, _) = *d {
+                        l.normalize_inplace(&self.var_info.global_info);
+                        u.normalize_inplace(&self.var_info.global_info);
+
+                        let mut replace_map = HashMap::new();
+                        if let Element::Num(_, Number::SmallInt(li)) = *l {
+                            if let Element::Num(_, Number::SmallInt(ui)) = *u {
+                                // unroll the loop
+                                for ll in (li..ui).rev() {
+                                    let lle = Element::Num(false, Number::SmallInt(ll));
+                                    replace_map.insert(dd, lle);
+                                    for ss in s.iter().rev() {
+                                        let mut news = ss.clone();
+                                        if news.replace_vars(&replace_map, true) {
+                                            news.normalize(&self.var_info.global_info);
+                                        }
+                                        statements.push_front(news);
+                                    }
+                                }
+                            } else {
+                                panic!("Upper range index is not an integer");
+                            }
+                        } else {
+                            panic!("Lower range index is not an integer");
+                        }
+                    } else {
+                        panic!("Loop counter should be a dollar variable");
+                    }
+                }
+                Statement::ForIn(ref d, ref l, ref s) => {
+                    if let Element::Dollar(dd, _) = *d {
+                        let mut replace_map = HashMap::new();
+
+                        // unroll the loop
+                        for ll in l.iter().rev() {
+                            replace_map.insert(dd, ll.clone());
+                            for ss in s.iter().rev() {
+                                let mut news = ss.clone();
+                                if news.replace_vars(&replace_map, true) {
+                                    news.normalize(&self.var_info.global_info);
+                                }
+                                statements.push_front(news);
+                            }
+                        }
+                    } else {
+                        panic!("Loop counter should be a dollar variable");
+                    }
+                }
                 Statement::Print(ref mode, ref vars) => {
                     // only print dollar variables at this stage
                     for d in vars {
