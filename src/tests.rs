@@ -1,6 +1,5 @@
 #[cfg(test)]
 mod tests {
-    use module;
     use number::Number::*;
     use parser;
     use poly::raw::finitefield::FiniteField;
@@ -22,7 +21,7 @@ mod tests {
             }
 "#,
         );
-        module::do_program(&mut program, false, 0, 1);
+        program.do_program(false, 0, 1);
         assert_eq!(program.get_result("F"), "1");
     }
 
@@ -37,7 +36,7 @@ mod tests {
             }
 "#,
         );
-        module::do_program(&mut program, false, 0, 1);
+        program.do_program(false, 0, 1);
         assert_eq!(program.get_result("F"), "720");
     }
 
