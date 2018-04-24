@@ -189,6 +189,91 @@ impl Statement {
             Statement::IdentityStatement(ref id) => {
                 StatementIter::IdentityStatement(id.to_iter(input, var_info))
             }
+            Statement::Collect(ref name) => StatementIter::Simple(
+                Element::Fn(
+                    false,
+                    name.clone(),
+                    vec![mem::replace(input, DUMMY_ELEM!())],
+                ),
+                true,
+            ),
+            Statement::Extract(ref name) => {
+                if let Element::SubExpr(_, ref mut ts) = input {
+                    let mut powmap: HashMap<isize, Vec<Element>> = HashMap::new();
+                    for t in ts.drain(..) {
+                        let mut pow = 0;
+                        let mut newterm = vec![];
+                        match t {
+                            Element::Term(_, fs) => {
+                                let mut newfacs = vec![];
+                                for f in fs {
+                                    match &f {
+                                        Element::Pow(_, be) => {
+                                            if let Element::Var(n) = be.0 {
+                                                if n == *name {
+                                                    if let Element::Num(_, Number::SmallInt(en)) =
+                                                        be.1
+                                                    {
+                                                        pow = en;
+                                                        continue;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Element::Var(n) if n == name => {
+                                            pow = 1;
+                                            continue;
+                                        }
+                                        _ => {}
+                                    }
+                                    newfacs.push(f);
+                                }
+                                newterm.push(Element::Term(true, newfacs));
+                            }
+                            Element::Var(n) if n == *name => {
+                                pow = 1;
+                                newterm.push(Element::Num(false, Number::one()));
+                            }
+                            Element::Pow(_, ref be) => {
+                                if let Element::Var(n) = be.0 {
+                                    if n == *name {
+                                        if let Element::Num(_, Number::SmallInt(en)) = be.1 {
+                                            pow = en;
+                                            newterm.push(Element::Num(false, Number::one()));
+                                        }
+                                    }
+                                }
+                                if pow == 0 {
+                                    newterm.push(t.clone());
+                                }
+                            }
+                            _ => newterm.push(t),
+                        }
+
+                        powmap.entry(pow).or_insert(vec![]).extend(newterm);
+                    }
+
+                    for (k, v) in powmap {
+                        ts.push(Element::Term(
+                            true,
+                            vec![
+                                Element::Pow(
+                                    true,
+                                    Box::new((
+                                        Element::Var(name.clone()),
+                                        Element::Num(false, Number::SmallInt(k)),
+                                    )),
+                                ),
+                                Element::SubExpr(true, v),
+                            ],
+                        ));
+                        ts.last_mut()
+                            .unwrap()
+                            .normalize_inplace(&var_info.global_info);
+                    }
+                }
+                StatementIter::Simple(mem::replace(input, DUMMY_ELEM!()), true)
+            }
             Statement::SplitArg(ref name) => {
                 // TODO: use mutability to prevent unnecessary copy
                 // split function arguments at the ground level

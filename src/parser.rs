@@ -195,6 +195,11 @@ parser!{
         .skip(statementend())
         .map(|x| Statement::Collect(x));
 
+    let extract = keyword("extract")
+        .with(varname())
+        .skip(statementend())
+        .map(|x| Statement::Extract(x));
+
     let attribs = choice!(keyword("symmetric").map(|_| FunctionAttributes::Symmetric),
                          keyword("linear").map(|_| FunctionAttributes::Linear),
                          keyword("noncommutative").map(|_| FunctionAttributes::NonCommutative),
@@ -305,6 +310,7 @@ parser!{
         module,
         newexpr,
         collect,
+        extract,
         attrib,
         call_procedure,
         assign,
