@@ -12,19 +12,8 @@ use cpuprofiler::PROFILER;
 
 fn main() {
     env_logger::init();
-
     #[cfg(feature = "profile")]
-    let do_profile = match std::env::var("CPUPROFILE") {
-        Ok(val) => {
-            info!("Using profiler: saving in {}", val);
-            PROFILER.lock().unwrap().start(val).unwrap();
-            true
-        }
-        _ => {
-            info!("Not using profiler");
-            false
-        }
-    };
+    PROFILER.lock().unwrap().state(); // Ensure linking to gperftools
 
     let matches = App::new("reFORM")
         .version("0.1.0")
@@ -73,11 +62,4 @@ fn main() {
         matches.occurrences_of("v"),
         matches.value_of("workers").unwrap().parse().unwrap(),
     );
-
-    #[cfg(feature = "profile")]
-    {
-        if do_profile {
-            PROFILER.lock().unwrap().stop().unwrap();
-        }
-    }
 }
