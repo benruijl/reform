@@ -1,10 +1,12 @@
 #[cfg(test)]
 mod tests {
+    use number::Number;
     use number::Number::*;
     use parser;
     use poly::raw::finitefield::FiniteField;
     use poly::raw::zp;
     use poly::raw::MultivariatePolynomial;
+    use rug::{Integer, Rational};
     use serialize;
     use std::cmp::Ordering;
     use std::io::Cursor;
@@ -350,6 +352,21 @@ mod tests {
             Element::compare_term_serialized(&mut Cursor::new(&a1), &mut Cursor::new(&b1), true),
             Ordering::Equal
         )
+    }
+
+    #[test]
+    fn gmpexport() {
+        let a = BigRat(Box::new(Rational::from((
+            Integer::from_str_radix("-8123891273812738932462374623", 10).unwrap(),
+            Integer::from_str_radix("12987312472911297873291738912", 10).unwrap(),
+        ))));
+
+        let mut buffer = vec![];
+        a.serialize(&mut buffer);
+
+        let res = Number::deserialize(&mut Cursor::new(&buffer)).unwrap();
+
+        assert_eq!(a, res);
     }
 
 }

@@ -4,11 +4,12 @@ extern crate itertools; // command line argument options
                         //extern crate rand;
 extern crate byteorder; // for serialization
 extern crate crossbeam;
+extern crate gmp_mpfr_sys;
 extern crate ndarray;
 extern crate num_integer;
 extern crate num_traits;
-extern crate rug; // for gmp and bigint support
 extern crate rand;
+extern crate rug; // for gmp and bigint support
 
 #[macro_use]
 extern crate log;
@@ -22,10 +23,10 @@ pub mod id;
 pub mod module;
 pub mod normalize;
 pub mod parser;
+pub mod poly;
 pub mod serialize;
 pub mod streaming;
 pub mod tools;
-pub mod poly;
 
 #[cfg(test)]
 mod tests;

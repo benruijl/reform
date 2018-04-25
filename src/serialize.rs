@@ -1,9 +1,12 @@
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use gmp_mpfr_sys::gmp;
 use number::Number;
 use poly::raw::MultivariatePolynomial;
+use rug::{Integer, Rational};
 use std::cmp::Ordering;
 use std::io::Cursor;
 use std::io::{Error, Read, Seek, SeekFrom, Write};
+use std::os::raw::c_void;
 use structure::*;
 
 // TODO: replace by mem::discriminant when it stabilizes
@@ -38,6 +41,60 @@ fn deserialize_list(buffer: &mut Read) -> Vec<Element> {
     list
 }
 
+fn serialize_integer(i: &Integer, buffer: &mut Write) -> usize {
+    unsafe {
+        // TODO: can we overflow, since we use bytes?
+        let mut count = (gmp::mpz_sizeinbase(i.as_raw(), 2) + 7) / 8;
+        buffer.write_u8(gmp::mpz_sgn(i.as_raw()) as u8).unwrap();
+        buffer.write_u64::<LittleEndian>(count as u64).unwrap();
+
+        // TODO: directly write to buffer?
+        let mut numbuffer = vec![0u8; count];
+        gmp::mpz_export(
+            &mut numbuffer[0] as *mut _ as *mut c_void,
+            &mut count,
+            1,
+            1,
+            -1,
+            0,
+            i.as_raw(),
+        );
+        buffer.write(&numbuffer).unwrap();
+        9 + count
+    }
+}
+
+fn deserialize_integer(buffer: &mut Read) -> Result<Integer, Error> {
+    let sign = buffer.read_u8()?;
+    let count = buffer.read_u64::<LittleEndian>()? as usize;
+
+    let mut res = gmp::mpz_t {
+        alloc: 0,
+        size: 0,
+        d: 0 as *mut u64,
+    };
+
+    let mut numbuffer = vec![0u8; count];
+    buffer.read(&mut numbuffer)?;
+    unsafe {
+        gmp::mpz_import(
+            &mut res,
+            count,
+            1,
+            1,
+            -1,
+            0,
+            &numbuffer[0] as *const _ as *const c_void,
+        );
+
+        if sign > 1 {
+            Ok(-Integer::from_raw(res))
+        } else {
+            Ok(Integer::from_raw(res))
+        }
+    }
+}
+
 impl Number {
     pub fn serialize(&self, buffer: &mut Write) -> usize {
         match self {
@@ -52,11 +109,15 @@ impl Number {
                 buffer.write_i64::<LittleEndian>(*d as i64).unwrap();
                 17
             }
-            Number::BigInt(_i) => {
-                // mpz_out_raw is not in the bindings yet
-                unimplemented!()
+            Number::BigInt(i) => {
+                buffer.write_u8(NUM_BIGINT_ID).unwrap();
+                1 + serialize_integer(i, buffer)
             }
-            Number::BigRat(_r) => unimplemented!(),
+            Number::BigRat(r) => {
+                buffer.write_u8(NUM_BIGRAT_ID).unwrap();
+                let n = serialize_integer(r.numer(), buffer);
+                1 + n + serialize_integer(r.denom(), buffer)
+            }
         }
     }
 
@@ -67,8 +128,12 @@ impl Number {
                 buffer.read_i64::<LittleEndian>()? as isize,
                 buffer.read_i64::<LittleEndian>()? as isize,
             ),
-            NUM_BIGINT_ID => unimplemented!(),
-            NUM_BIGRAT_ID => unimplemented!(),
+            NUM_BIGINT_ID => Number::BigInt(deserialize_integer(buffer)?),
+            NUM_BIGRAT_ID => {
+                let num = deserialize_integer(buffer)?;
+                let den = deserialize_integer(buffer)?;
+                Number::BigRat(Box::new(Rational::from((num, den))))
+            }
             _ => unreachable!(),
         })
     }
@@ -225,11 +290,13 @@ impl Element {
 
                 Ordering::Equal
             }
-            (NUM_ID, NUM_ID) => if ground_level {
-                Ordering::Equal
-            } else {
-                Number::compare_serialized(b1, b2)
-            },
+            (NUM_ID, NUM_ID) => {
+                if ground_level {
+                    Ordering::Equal
+                } else {
+                    Number::compare_serialized(b1, b2)
+                }
+            }
             (_, NUM_ID) => Ordering::Less,
             (NUM_ID, _) => Ordering::Greater,
             // TODO: if we allow polyratfuns in functions, we should add a partial_cmp between them
