@@ -19,7 +19,7 @@ rand = "0.4.2"
 combine = "2.5.2"
 byteorder = "1.1.0"
 crossbeam = "0.3.2"
-rug = "1.0.1"
+rug = { version = "1.0.1", default-features = false, features = ["integer", "rational"] }
 num-integer = "0.1"
 num-traits = "0.2"
 ndarray = "0.11.0"
