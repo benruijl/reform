@@ -6,6 +6,6 @@ procedure derivative(x, n) {
 
 expr F = u^5;
 
-{
+apply {
 	call derivative(u, 2);
 }

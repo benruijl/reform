@@ -6,7 +6,7 @@ inside $a {
     id f(x?) = f(x?+1);
 }
 
-{
+apply {
     inside $a {
         id f(x?) = f(x?+1);
     }

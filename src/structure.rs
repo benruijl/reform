@@ -263,6 +263,7 @@ impl Program {
 pub struct Module<ID: Id = VarName> {
     pub name: String,
     pub active_exprs: Vec<ID>,
+    pub exclude_exprs: Vec<ID>,
     pub statements: Vec<Statement<ID>>,
 }
 
@@ -1125,6 +1126,10 @@ impl Statement<String> {
             Statement::Module(ref mut m) => Statement::Module(Module {
                 name: m.name.clone(),
                 active_exprs: m.active_exprs
+                    .iter()
+                    .map(|n| var_info.get_name(n))
+                    .collect(),
+                exclude_exprs: m.exclude_exprs
                     .iter()
                     .map(|n| var_info.get_name(n))
                     .collect(),

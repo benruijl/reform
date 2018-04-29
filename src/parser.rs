@@ -177,13 +177,15 @@ parser!{
    fn statement[I]()(I) -> Statement<String>
     where [I: Stream<Item=char>]
 {
-    let module_options = optional((keyword("mod").with(varname()), optional(keyword("for")
-        .with(sep_by(varname(), lex_char(',')))).map(|x| x.unwrap_or(vec![]))))
-        .map(|x| x.unwrap_or(("mod".to_string(), vec![])));
+    let module_options = keyword("apply").with(optional((varname(), optional(keyword("for")
+        .with(sep_by(varname(), lex_char(',')))).map(|x| x.unwrap_or(vec![])),
+        optional(keyword("exclude")
+        .with(sep_by(varname(), lex_char(',')))).map(|x| x.unwrap_or(vec![])))))
+        .map(|x| x.unwrap_or(("mod".to_string(), vec![], vec![])));
 
     let module = (module_options, between(lex_char('{'), lex_char('}'), many(statement())))
-        .map(|((name, active_exprs), statements)|
-                Statement::Module(Module { name, active_exprs, statements })
+        .map(|((name, active_exprs, exclude_exprs), statements)|
+                Statement::Module(Module { name, active_exprs, exclude_exprs, statements })
         );
 
    let newexpr = (keyword("expr").with(varname()), lex_char('=').with(expr()))

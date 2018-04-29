@@ -1019,7 +1019,9 @@ impl Module {
         // execute the module for every expression
         for &mut (ref name, ref mut input_stream) in expressions {
             // only process active expressions
-            if !self.active_exprs.is_empty() && !self.active_exprs.contains(name) {
+            if (!self.active_exprs.is_empty() && !self.active_exprs.contains(name))
+                || self.exclude_exprs.contains(name)
+            {
                 continue;
             }
 

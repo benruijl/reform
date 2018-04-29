@@ -2,7 +2,7 @@ expr F = x;
 
 attrib $a = nonlocal;
 
-{
+apply {
   $a = 2;
   id x = y + x;
   if (match(x))  $a = 5;
