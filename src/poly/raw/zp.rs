@@ -21,6 +21,10 @@ where
 {
 }
 
+/// Type for numbers in Zp.
+#[allow(non_camel_case_types)]
+pub type ufield = u32;
+
 /// Computes `x + y` in Zp.
 #[inline]
 pub fn add<T: UnsignedInteger>(x: T, y: T, p: T) -> T {
