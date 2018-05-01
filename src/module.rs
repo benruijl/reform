@@ -141,6 +141,88 @@ impl Element {
             _ => self.clone(),
         }
     }
+
+    fn extract(mut self, names: &[VarName], var_info: &GlobalVarInfo) -> Element {
+        if names.len() == 0 {
+            return self;
+        }
+
+        if let Element::SubExpr(_, ref mut ts) = self {
+            let mut powmap: HashMap<isize, Vec<Element>> = HashMap::new();
+            for t in ts.drain(..) {
+                let mut pow = 0;
+                let mut newterm = vec![];
+                match t {
+                    Element::Term(_, fs) => {
+                        let mut newfacs = vec![];
+                        for f in fs {
+                            match &f {
+                                Element::Pow(_, be) => {
+                                    if let Element::Var(n) = be.0 {
+                                        if n == names[0] {
+                                            if let Element::Num(_, Number::SmallInt(en)) = be.1 {
+                                                pow = en;
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                }
+                                Element::Var(n) if n == &names[0] => {
+                                    pow = 1;
+                                    continue;
+                                }
+                                _ => {}
+                            }
+                            newfacs.push(f);
+                        }
+                        newterm.push(Element::Term(true, newfacs));
+                    }
+                    Element::Var(n) if n == names[0] => {
+                        pow = 1;
+                        newterm.push(Element::Num(false, Number::one()));
+                    }
+                    Element::Pow(_, ref be) => {
+                        if let Element::Var(n) = be.0 {
+                            if n == names[0] {
+                                if let Element::Num(_, Number::SmallInt(en)) = be.1 {
+                                    pow = en;
+                                    newterm.push(Element::Num(false, Number::one()));
+                                }
+                            }
+                        }
+                        if pow == 0 {
+                            newterm.push(t.clone());
+                        }
+                    }
+                    _ => newterm.push(t),
+                }
+
+                powmap.entry(pow).or_insert(vec![]).extend(newterm);
+            }
+
+            for (k, v) in powmap {
+                let mut newv = Element::SubExpr(true, v);
+                newv.normalize_inplace(var_info);
+                newv = newv.extract(&names[1..], var_info);
+
+                ts.push(Element::Term(
+                    true,
+                    vec![
+                        Element::Pow(
+                            true,
+                            Box::new((
+                                Element::Var(names[0].clone()),
+                                Element::Num(false, Number::SmallInt(k)),
+                            )),
+                        ),
+                        newv,
+                    ],
+                ));
+                ts.last_mut().unwrap().normalize_inplace(var_info);
+            }
+        }
+        self
+    }
 }
 
 #[derive(Debug)]
@@ -197,83 +279,10 @@ impl Statement {
                 ),
                 true,
             ),
-            Statement::Extract(ref name) => {
-                if let Element::SubExpr(_, ref mut ts) = input {
-                    let mut powmap: HashMap<isize, Vec<Element>> = HashMap::new();
-                    for t in ts.drain(..) {
-                        let mut pow = 0;
-                        let mut newterm = vec![];
-                        match t {
-                            Element::Term(_, fs) => {
-                                let mut newfacs = vec![];
-                                for f in fs {
-                                    match &f {
-                                        Element::Pow(_, be) => {
-                                            if let Element::Var(n) = be.0 {
-                                                if n == *name {
-                                                    if let Element::Num(_, Number::SmallInt(en)) =
-                                                        be.1
-                                                    {
-                                                        pow = en;
-                                                        continue;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        Element::Var(n) if n == name => {
-                                            pow = 1;
-                                            continue;
-                                        }
-                                        _ => {}
-                                    }
-                                    newfacs.push(f);
-                                }
-                                newterm.push(Element::Term(true, newfacs));
-                            }
-                            Element::Var(n) if n == *name => {
-                                pow = 1;
-                                newterm.push(Element::Num(false, Number::one()));
-                            }
-                            Element::Pow(_, ref be) => {
-                                if let Element::Var(n) = be.0 {
-                                    if n == *name {
-                                        if let Element::Num(_, Number::SmallInt(en)) = be.1 {
-                                            pow = en;
-                                            newterm.push(Element::Num(false, Number::one()));
-                                        }
-                                    }
-                                }
-                                if pow == 0 {
-                                    newterm.push(t.clone());
-                                }
-                            }
-                            _ => newterm.push(t),
-                        }
-
-                        powmap.entry(pow).or_insert(vec![]).extend(newterm);
-                    }
-
-                    for (k, v) in powmap {
-                        ts.push(Element::Term(
-                            true,
-                            vec![
-                                Element::Pow(
-                                    true,
-                                    Box::new((
-                                        Element::Var(name.clone()),
-                                        Element::Num(false, Number::SmallInt(k)),
-                                    )),
-                                ),
-                                Element::SubExpr(true, v),
-                            ],
-                        ));
-                        ts.last_mut()
-                            .unwrap()
-                            .normalize_inplace(&var_info.global_info);
-                    }
-                }
-                StatementIter::Simple(mem::replace(input, DUMMY_ELEM!()), true)
-            }
+            Statement::Extract(ref names) => StatementIter::Simple(
+                mem::replace(input, DUMMY_ELEM!()).extract(names, &var_info.global_info),
+                true,
+            ),
             Statement::SplitArg(ref name) => {
                 // TODO: use mutability to prevent unnecessary copy
                 // split function arguments at the ground level

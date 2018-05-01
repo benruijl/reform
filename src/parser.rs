@@ -198,7 +198,7 @@ parser!{
         .map(|x| Statement::Collect(x));
 
     let extract = keyword("extract")
-        .with(varname())
+        .with(sep_by(varname(), lex_char(',')))
         .skip(statementend())
         .map(|x| Statement::Extract(x));
 

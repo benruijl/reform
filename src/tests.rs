@@ -18,7 +18,7 @@ mod tests {
         let mut program = parser::parse_string(
             r#"
             expr F = f(1);
-            {
+            apply {
                 id f(x?) = 1;
             }
 "#,
@@ -32,7 +32,7 @@ mod tests {
         let mut program = parser::parse_string(
             r#"
             expr F = f(6);
-            {
+            apply {
                 repeat id f(x?{>0}) = x?*f(x?-1);
                 id f(0) = 1;
             }

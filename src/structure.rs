@@ -338,7 +338,7 @@ pub enum Statement<ID: Id = VarName> {
     Multiply(Element<ID>),
     Symmetrize(ID),
     Collect(ID),
-    Extract(ID),
+    Extract(Vec<ID>),
     Assign(Element<ID>, Element<ID>),
     Maximum(Element<ID>),
     Call(String, Vec<Element<ID>>),
@@ -632,7 +632,13 @@ impl fmt::Display for Statement {
             Statement::Multiply(ref x) => writeln!(f, "Multiply {};", x),
             Statement::Symmetrize(ref x) => writeln!(f, "Symmetrize {};", x),
             Statement::Collect(ref x) => writeln!(f, "Collect {};", x),
-            Statement::Extract(ref x) => writeln!(f, "Extract {};", x),
+            Statement::Extract(ref xs) => {
+                writeln!(f, "Extract ")?;
+                for x in xs {
+                    write!(f, ",{}", x)?;
+                }
+                writeln!(f, "")
+            }
             Statement::Repeat(ref ss) => if ss.len() == 1 {
                 write!(f, "repeat {}", ss[0])
             } else {
@@ -1182,7 +1188,9 @@ impl Statement<String> {
             Statement::SplitArg(ref name) => Statement::SplitArg(var_info.get_name(name)),
             Statement::Symmetrize(ref name) => Statement::Symmetrize(var_info.get_name(name)),
             Statement::Collect(ref name) => Statement::Collect(var_info.get_name(name)),
-            Statement::Extract(ref name) => Statement::Extract(var_info.get_name(name)),
+            Statement::Extract(ref names) => {
+                Statement::Extract(names.iter().map(|name| var_info.get_name(name)).collect())
+            }
             Statement::Multiply(ref mut e) => Statement::Multiply(e.to_element(var_info)),
             Statement::Expand => Statement::Expand,
             Statement::Print(ref mode, ref es) => Statement::Print(
@@ -1241,13 +1249,23 @@ impl Statement {
             }
             Statement::SplitArg(ref mut name)
             | Statement::Symmetrize(ref mut name)
-            | Statement::Extract(ref mut name)
             | Statement::Collect(ref mut name) => {
                 if let Some(x) = map.get(name) {
                     if let &Element::Var(ref y) = x {
                         *name = y.clone();
                     } else {
                         panic!("Cannot replace function name by generic expression");
+                    }
+                }
+            }
+            Statement::Extract(ref mut names) => {
+                for name in names {
+                    if let Some(x) = map.get(name) {
+                        if let &Element::Var(ref y) = x {
+                            *name = y.clone();
+                        } else {
+                            panic!("Cannot replace function name by generic expression");
+                        }
                     }
                 }
             }
