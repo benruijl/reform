@@ -11,6 +11,7 @@ use poly::exponent::Exponent;
 use poly::ring::Ring;
 
 use poly::raw::finitefield::FiniteField;
+use poly::raw::zp::ufield;
 
 /// Multivariate polynomial with a degree sparse and variable dense representation.
 #[derive(Clone)]
@@ -76,7 +77,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         }
     }
 
-    pub fn to_finite_field(&self, p: usize) -> MultivariatePolynomial<FiniteField, E> {
+    pub fn to_finite_field(&self, p: ufield) -> MultivariatePolynomial<FiniteField, E> {
         let newc = self.coefficients
             .iter()
             .map(|x| x.to_finite_field(p))

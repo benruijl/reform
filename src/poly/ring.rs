@@ -1,16 +1,19 @@
 use num_traits::{One, Pow, Zero};
+use number::Number;
 use poly::raw::finitefield::FiniteField;
+use poly::raw::zp::ufield;
+use rug::Integer;
 use std::fmt::{Debug, Display};
 use std::ops::{Div, MulAssign, Neg, Rem};
 use tools::GCD;
 
 pub trait MulModNum {
-    fn mul_num(&self, n: usize) -> Self;
-    fn mod_num(&self, n: usize) -> Self;
+    fn mul_num(&self, n: ufield) -> Self;
+    fn mod_num(&self, n: ufield) -> Self;
 }
 
 pub trait ToFiniteField {
-    fn to_finite_field(&self, p: usize) -> FiniteField;
+    fn to_finite_field(&self, p: ufield) -> FiniteField;
     fn from_finite_field(&FiniteField) -> Self;
 }
 
@@ -54,12 +57,8 @@ impl<
 }
 
 impl ToFiniteField for i64 {
-    fn to_finite_field(&self, p: usize) -> FiniteField {
-        if *self < 0 {
-            FiniteField::new(((-*self / p as i64 + 1) * p as i64 + *self) as usize, p)
-        } else {
-            FiniteField::new(*self as usize, p)
-        }
+    fn to_finite_field(&self, p: ufield) -> FiniteField {
+        FiniteField::from_i64(*self, p)
     }
 
     fn from_finite_field(ff: &FiniteField) -> i64 {
@@ -72,11 +71,41 @@ impl ToFiniteField for i64 {
 }
 
 impl MulModNum for i64 {
-    fn mul_num(&self, n: usize) -> i64 {
+    fn mul_num(&self, n: ufield) -> i64 {
         self * (n as i64)
     }
 
-    fn mod_num(&self, n: usize) -> i64 {
+    fn mod_num(&self, n: ufield) -> i64 {
         self % (n as i64)
+    }
+}
+
+impl MulModNum for Number {
+    fn mul_num(&self, n: ufield) -> Number {
+        self.clone() * Number::SmallInt(n as isize)
+    }
+
+    fn mod_num(&self, n: ufield) -> Number {
+        self.clone() % Number::SmallInt(n as isize)
+    }
+}
+
+impl ToFiniteField for Number {
+    fn to_finite_field(&self, p: ufield) -> FiniteField {
+        match *self {
+            Number::SmallInt(i) => FiniteField::from_i64(i as i64, p),
+            Number::BigInt(ref i) => {
+                FiniteField::from_i64((i.clone() % Integer::from(p)).to_i64().unwrap(), p)
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn from_finite_field(ff: &FiniteField) -> Number {
+        Number::SmallInt(if ff.n > ff.p / 2 {
+            ff.n as isize - ff.p as isize
+        } else {
+            ff.n as isize
+        })
     }
 }

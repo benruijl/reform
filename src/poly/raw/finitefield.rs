@@ -1,6 +1,7 @@
 use num_traits::cast::AsPrimitive;
 use num_traits::{One, Pow, Zero};
 use poly::raw::zp;
+use poly::raw::zp::ufield;
 use poly::ring::{MulModNum, ToFiniteField};
 use std::fmt;
 use std::ops::{Add, Div, Mul, MulAssign, Neg, Rem, Sub};
@@ -8,23 +9,46 @@ use tools::GCD;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct FiniteField {
-    pub n: usize,
-    pub p: usize,
+    pub n: ufield,
+    pub p: ufield,
 }
 
 impl FiniteField {
-    pub fn new(n: usize, p: usize) -> FiniteField {
-        FiniteField { n: n % p, p: p }
+    pub fn new(n: ufield, p: ufield) -> FiniteField {
+        FiniteField { n: n, p: p }
+    }
+
+    pub fn from_i64(n: i64, p: ufield) -> FiniteField {
+        // TODO: this code is not safe on 32-bit machines
+        if n < 0 {
+            // note that the remainder % will be negative
+            FiniteField {
+                n: (p as i64 + (n % p as i64)) as ufield,
+                p: p,
+            }
+        } else {
+            FiniteField {
+                n: (n % p as i64) as ufield,
+                p: p,
+            }
+        }
+    }
+
+    pub fn from_u64(n: u64, p: ufield) -> FiniteField {
+        FiniteField {
+            n: (n % p as u64) as ufield,
+            p: p,
+        }
     }
 
     /// Change the prime (size) of the finite field.
-    pub fn set_prime(&mut self, p: usize) {
+    pub fn set_prime(&mut self, p: ufield) {
         self.p = p;
         self.n = self.n % p;
     }
 
     // Compute the multiplicative inverse of an element in the field.
-    pub fn inverse(n: usize, p: usize) -> usize {
+    pub fn inverse(n: ufield, p: ufield) -> ufield {
         zp::inv(n, p)
     }
 }
@@ -122,10 +146,10 @@ impl Div for FiniteField {
     }
 }
 
-impl Div<usize> for FiniteField {
+impl Div<ufield> for FiniteField {
     type Output = Self;
 
-    fn div(self, other: usize) -> Self::Output {
+    fn div(self, other: ufield) -> Self::Output {
         FiniteField {
             n: zp::mul(self.n, zp::inv(other % self.p, self.p), self.p),
             p: self.p,
@@ -133,10 +157,10 @@ impl Div<usize> for FiniteField {
     }
 }
 
-impl Mul<usize> for FiniteField {
+impl Mul<ufield> for FiniteField {
     type Output = Self;
 
-    fn mul(self, other: usize) -> Self::Output {
+    fn mul(self, other: ufield) -> Self::Output {
         FiniteField {
             n: zp::mul(self.n, other % self.p, self.p),
             p: self.p,
@@ -145,11 +169,11 @@ impl Mul<usize> for FiniteField {
 }
 
 impl MulModNum for FiniteField {
-    fn mul_num(&self, n: usize) -> FiniteField {
+    fn mul_num(&self, n: ufield) -> FiniteField {
         self.clone() * n
     }
 
-    fn mod_num(&self, n: usize) -> FiniteField {
+    fn mod_num(&self, n: ufield) -> FiniteField {
         self.clone() % FiniteField::new(n, self.p)
     }
 }
@@ -171,7 +195,7 @@ impl Pow<u32> for FiniteField {
 }
 
 impl ToFiniteField for FiniteField {
-    fn to_finite_field(&self, p: usize) -> FiniteField {
+    fn to_finite_field(&self, p: ufield) -> FiniteField {
         FiniteField::new(self.n, p)
     }
 
@@ -180,8 +204,8 @@ impl ToFiniteField for FiniteField {
     }
 }
 
-impl AsPrimitive<usize> for FiniteField {
-    fn as_(self) -> usize {
+impl AsPrimitive<ufield> for FiniteField {
+    fn as_(self) -> ufield {
         self.n
     }
 }

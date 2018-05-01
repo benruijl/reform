@@ -4,26 +4,35 @@ use std::mem;
 use poly::exponent::Exponent;
 use poly::ring::Ring;
 
+use number;
 use number::Number;
 use poly::raw::finitefield::FiniteField;
-use poly::raw::zp;
+use poly::raw::zp::ufield;
 use poly::raw::MultivariatePolynomial;
 use poly::ring::MulModNum;
 use poly::ring::ToFiniteField;
 use rand;
 use rand::distributions::{Range, Sample};
-use rug::Integer;
 use tools::GCD;
 
 use ndarray::{arr1, Array};
 use poly::raw::zp_solve::{solve, LinearSolverError};
 
-pub const LARGE_U32_PRIMES: [usize; 48] = [
-    4254797, 4255213, 4255609, 4256009, 4254799, 4255249, 4255619, 4256029, 4254821, 4255301,
-    4255637, 4256051, 4254853, 4255313, 4255673, 4256089, 4254869, 4255351, 4255679, 4256101,
-    4254883, 4255369, 4255697, 4256117, 4254911, 4255387, 4255739, 4256141, 4254949, 4255399,
-    4255747, 4256159, 4254961, 4255403, 4255751, 4256167, 4254983, 4255429, 4255781, 4256191,
-    4255039, 4255439, 4255789, 4256227, 4255057, 4255451, 4255807, 4256233,
+// 100 large u32 primes starting from the 203213901st prime number
+pub const LARGE_U32_PRIMES: [ufield; 100] = [
+    4293490987, 4293491603, 4293492277, 4293492857, 4293491017, 4293491621, 4293492283, 4293492881,
+    4293491023, 4293491639, 4293492293, 4293492893, 4293491051, 4293491659, 4293492331, 4293492941,
+    4293491149, 4293491701, 4293492349, 4293492977, 4293491171, 4293491711, 4293492383, 4293493037,
+    4293491221, 4293491747, 4293492403, 4293493049, 4293491261, 4293491779, 4293492421, 4293493069,
+    4293491269, 4293491791, 4293492431, 4293493081, 4293491273, 4293491819, 4293492487, 4293493091,
+    4293491281, 4293491849, 4293492499, 4293493117, 4293491299, 4293491863, 4293492523, 4293493121,
+    4293491303, 4293491887, 4293492583, 4293493159, 4293491311, 4293491897, 4293492587, 4293493163,
+    4293491327, 4293491911, 4293492649, 4293493207, 4293491329, 4293491953, 4293492661, 4293493229,
+    4293491399, 4293491957, 4293492673, 4293493241, 4293491431, 4293492017, 4293492701, 4293493261,
+    4293491467, 4293492023, 4293492739, 4293493319, 4293491509, 4293492097, 4293492751, 4293493363,
+    4293491539, 4293492101, 4293492769, 4293493367, 4293491551, 4293492107, 4293492779, 4293493409,
+    4293491561, 4293492113, 4293492781, 4293493423, 4293491567, 4293492139, 4293492811, 4293493433,
+    4293491591, 4293492169, 4293492821, 4293493487,
 ];
 
 enum GCDError {
@@ -34,7 +43,7 @@ enum GCDError {
 fn newton_interpolation<E: Exponent>(
     a: &[FiniteField],
     u: &[MultivariatePolynomial<FiniteField, E>],
-    p: usize,
+    p: ufield,
     x: usize, // the variable indexs to extend the polynomial by
 ) -> MultivariatePolynomial<FiniteField, E> {
     // compute inverses
@@ -509,7 +518,6 @@ where
             let a = f[0].clone(); // TODO: take the smallest?
             let mut b = MultivariatePolynomial::with_nvars(a.nvars);
 
-            // TODO: this could cause an overflow in the coefficient
             for p in f.iter().skip(1) {
                 for v in p.into_iter() {
                     b.append_monomial(v.coefficient.mul_num(k), v.exponents.to_vec());
@@ -827,7 +835,7 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                         gmc.clone()
                     };
 
-                    *gmc = zp::chinese_remainder(
+                    *gmc = number::chinese_remainder(
                         coeff,
                         Number::SmallInt(gpc.n as isize),
                         m.clone(),
@@ -865,40 +873,5 @@ impl<E: Exponent> PolynomialGCD for MultivariatePolynomial<FiniteField, E> {
         dx: &mut [u32],
     ) -> MultivariatePolynomial<FiniteField, E> {
         MultivariatePolynomial::gcd_shape_modular(&a, &b, vars, dx).unwrap()
-    }
-}
-
-impl ToFiniteField for Number {
-    // TODO: assumes p fits in an isize
-    fn to_finite_field(&self, p: usize) -> FiniteField {
-        let n = match *self {
-            Number::SmallInt(i) => i % (p as isize),
-            Number::BigInt(ref i) => (i.clone() % Integer::from(p)).to_isize().unwrap(),
-            _ => unreachable!(),
-        };
-
-        if n < 0 {
-            FiniteField::new(((-n / p as isize + 1) * p as isize + n) as usize, p)
-        } else {
-            FiniteField::new(n as usize, p)
-        }
-    }
-
-    fn from_finite_field(ff: &FiniteField) -> Number {
-        Number::SmallInt(if ff.n > ff.p / 2 {
-            ff.n as isize - ff.p as isize
-        } else {
-            ff.n as isize
-        })
-    }
-}
-
-impl MulModNum for Number {
-    fn mul_num(&self, n: usize) -> Number {
-        self.clone() * Number::SmallInt(n as isize) // FIXME: usize to isize!
-    }
-
-    fn mod_num(&self, n: usize) -> Number {
-        self.clone() % Number::SmallInt(n as isize) // FIXME: usize to isize!
     }
 }
