@@ -3,6 +3,7 @@ use number::Number;
 use poly::polynomial::PolyPrinter;
 use poly::polynomial::Polynomial;
 use std::cmp;
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
 use std::mem;
@@ -70,11 +71,18 @@ impl IfCondition {
         }
     }
 
-    pub fn replace_vars(&mut self, map: &HashMap<VarName, Element>, dollar_only: bool) -> bool {
+    pub fn replace_dollar(&mut self, map: &HashMap<VarName, DollarVariableTable>) -> bool {
         match self {
-            IfCondition::Match(e) => e.replace_vars(map, dollar_only),
+            IfCondition::Match(e) => e.replace_dollar(map),
+            IfCondition::Comparison(e1, e2, _) => e1.replace_dollar(map) || e2.replace_dollar(map),
+        }
+    }
+
+    pub fn replace_elements(&mut self, map: &HashMap<VarName, Element>) -> bool {
+        match self {
+            IfCondition::Match(e) => e.replace_elements(map),
             IfCondition::Comparison(e1, e2, _) => {
-                e1.replace_vars(map, dollar_only) || e2.replace_vars(map, dollar_only)
+                e1.replace_elements(map) || e2.replace_elements(map)
             }
         }
     }
@@ -161,16 +169,63 @@ impl GlobalVarInfo {
     }
 }
 
+type DollarVariableTable = HashMap<Vec<Element>, Element>;
+
 /// Keep track of local state, such as the values for dollar variables.
 #[derive(Debug, Clone)]
 pub struct LocalVarInfo {
-    pub variables: HashMap<VarName, Element>, // local map of (dollar) variables
-    pub global_variables: HashMap<VarName, Element>, // global map of (dollar) variables
+    pub variables: HashMap<VarName, DollarVariableTable>, // local map of (dollar) variables
+    pub global_variables: HashMap<VarName, Element>,      // global map of (dollar) variables
 }
 
 impl LocalVarInfo {
-    pub fn add_dollar(&mut self, name: VarName, value: Element) {
-        self.variables.insert(name, value);
+    pub fn add_dollar(&mut self, dollar: Element, value: Element) {
+        if let Element::Dollar(name, inds) = dollar {
+            match self.variables.entry(name) {
+                Entry::Occupied(mut a) => {
+                    a.get_mut().insert(inds, value);
+                }
+                Entry::Vacant(mut a) => {
+                    a.insert({
+                        let mut hm = HashMap::new();
+                        hm.insert(inds, value);
+                        hm
+                    });
+                }
+            };
+        } else {
+            panic!("Not a dollar variable");
+        }
+    }
+
+    pub fn get_dollar_class(&mut self, dollar: &Element) -> Option<&mut DollarVariableTable> {
+        if let Element::Dollar(ref name, _) = dollar {
+            self.variables.get_mut(name)
+        } else {
+            panic!("Not a dollar variable");
+        }
+    }
+
+    pub fn get_dollar(&self, dollar: &Element) -> Option<&Element> {
+        if let Element::Dollar(ref name, ref inds) = dollar {
+            self.variables.get(name).and_then(|x| x.get(inds))
+        } else {
+            panic!("Not a dollar variable");
+        }
+    }
+
+    pub fn get_dollar_mut(&mut self, dollar: &Element) -> Option<&mut Element> {
+        if let Element::Dollar(ref name, ref inds) = dollar {
+            self.variables.get_mut(name).and_then(|x| x.get_mut(inds))
+        } else {
+            panic!("Not a dollar variable");
+        }
+    }
+
+    pub fn get_dollar_from_name(&mut self, name: u32) -> Option<&mut Element> {
+        self.variables
+            .get_mut(&name)
+            .and_then(|x| x.get_mut(&vec![]))
     }
 }
 
@@ -355,7 +410,7 @@ pub struct Procedure<ID: Id = VarName> {
     pub statements: Vec<Statement<ID>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Ordering {
     Greater,
     Smaller,
@@ -382,11 +437,11 @@ impl Ordering {
 // all the algebraic elements. A bool as the first
 // argument is the dirty flag, which is set to true
 // if a normalization needs to happen
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Element<ID: Id = VarName> {
     VariableArgument(ID),                                        // ?a
     Wildcard(ID, Vec<Element<ID>>),                              // x?{...}
-    Dollar(ID, Option<Box<Element<ID>>>),                        // $x[y]
+    Dollar(ID, Vec<Element<ID>>),                                // $x[y]
     Var(ID, Number),                                             // x^n
     Pow(bool, Box<(Element<ID>, Element<ID>)>),                  // (1+x)^3; dirty, base, exponent
     NumberRange(Number, Ordering),                               // >0, <=-5/2
@@ -1218,9 +1273,19 @@ impl Element {
                     fmt_varname(name, f, var_info)
                 }
             }
-            &Element::Dollar(ref name, ..) => {
-                // TODO: print the index too
-                fmt_varname(name, f, var_info)
+            &Element::Dollar(ref name, ref inds) => {
+                fmt_varname(name, f, var_info)?;
+                if inds.len() > 0 {
+                    write!(f, "[")?;
+
+                    inds[0].fmt_output(f, print_mode, var_info)?;
+                    for i in inds.iter().skip(1) {
+                        write!(f, ",")?;
+                        i.fmt_output(f, print_mode, var_info)?;
+                    }
+                    write!(f, "]")?;
+                }
+                write!(f, "")
             }
             &Element::Num(_, ref n) => write!(f, "{}", n),
             &Element::NumberRange(ref num, ref rel) => write!(f, "{}{}", num, rel),
@@ -1382,14 +1447,10 @@ impl Element<String> {
                 c.clone(),
             ),
             Element::Num(_, ref n) => Element::Num(true, n.clone()),
-            Element::Dollar(ref mut name, ref mut inds) => {
-                Element::Dollar(var_info.get_name(name), {
-                    match *inds {
-                        Some(ref mut x) => Some(Box::new(x.to_element(var_info))),
-                        None => None,
-                    }
-                })
-            }
+            Element::Dollar(ref mut name, ref mut inds) => Element::Dollar(
+                var_info.get_name(name),
+                inds.iter_mut().map(|x| x.to_element(var_info)).collect(),
+            ),
             Element::Var(ref mut name, ref mut e) => {
                 Element::Var(var_info.get_name(name), e.clone())
             }
@@ -1455,13 +1516,63 @@ impl Element {
         }
     }
 
-    pub fn replace_vars(&mut self, map: &HashMap<VarName, Element>, dollar_only: bool) -> bool {
+    pub fn replace_dollar(&mut self, map: &HashMap<VarName, DollarVariableTable>) -> bool {
+        let mut changed = false;
+        *self = match *self {
+            Element::Dollar(ref mut name, ref mut inds) => {
+                for i in inds.iter_mut() {
+                    changed |= i.replace_dollar(map);
+                }
+
+                if let Some(x) = map.get(name).and_then(|x| x.get(inds)) {
+                    x.clone()
+                } else {
+                    return changed;
+                }
+            }
+            Element::Comparison(ref mut dirty, ref mut e, _) => {
+                changed |= e.0.replace_dollar(map);
+                changed |= e.1.replace_dollar(map);
+                *dirty |= changed;
+                return changed;
+            }
+            Element::Wildcard(_, ref mut restrictions) => {
+                for x in restrictions {
+                    changed |= x.replace_dollar(map);
+                }
+                return changed;
+            }
+            Element::Pow(ref mut dirty, ref mut be) => {
+                let (ref mut b, ref mut e) = *&mut **be;
+                changed |= b.replace_dollar(map);
+                changed |= e.replace_dollar(map);
+                *dirty |= changed;
+                return changed;
+            }
+            Element::Term(ref mut dirty, ref mut f)
+            | Element::SubExpr(ref mut dirty, ref mut f) => {
+                for x in f {
+                    changed |= x.replace_dollar(map);
+                }
+                *dirty |= changed;
+                return changed;
+            }
+            Element::Fn(ref mut dirty, _, ref mut args) => {
+                for x in args {
+                    changed |= x.replace_dollar(map);
+                }
+                *dirty |= changed;
+                return changed;
+            }
+            _ => return false,
+        };
+        true
+    }
+
+    pub fn replace_elements(&mut self, map: &HashMap<VarName, Element>) -> bool {
         let mut changed = false;
         *self = match *self {
             Element::Var(ref mut name, ref pow) => {
-                if dollar_only {
-                    return false;
-                }
                 if let Some(x) = map.get(name) {
                     Element::Pow(
                         true,
@@ -1471,54 +1582,62 @@ impl Element {
                     return false;
                 }
             }
-            Element::Dollar(ref mut name, ..) => {
-                if let Some(x) = map.get(name) {
-                    x.clone()
+            Element::Dollar(ref mut name, ref mut inds) => {
+                for i in inds.iter_mut() {
+                    changed |= i.replace_elements(map);
+                }
+
+                // we can still replace a dollar variable, but only if
+                // it does not have an index
+                if inds.is_empty() {
+                    if let Some(x) = map.get(name) {
+                        x.clone()
+                    } else {
+                        return changed;
+                    }
                 } else {
-                    return false;
+                    return changed;
                 }
             }
             Element::Comparison(ref mut dirty, ref mut e, _) => {
-                changed |= e.0.replace_vars(map, dollar_only);
-                changed |= e.1.replace_vars(map, dollar_only);
+                changed |= e.0.replace_elements(map);
+                changed |= e.1.replace_elements(map);
                 *dirty |= changed;
                 return changed;
             }
             Element::Wildcard(_, ref mut restrictions) => {
                 for x in restrictions {
-                    changed |= x.replace_vars(map, dollar_only);
+                    changed |= x.replace_elements(map);
                 }
                 return changed;
             }
             Element::Pow(ref mut dirty, ref mut be) => {
                 let (ref mut b, ref mut e) = *&mut **be;
-                changed |= b.replace_vars(map, dollar_only);
-                changed |= e.replace_vars(map, dollar_only);
+                changed |= b.replace_elements(map);
+                changed |= e.replace_elements(map);
                 *dirty |= changed;
                 return changed;
             }
             Element::Term(ref mut dirty, ref mut f)
             | Element::SubExpr(ref mut dirty, ref mut f) => {
                 for x in f {
-                    changed |= x.replace_vars(map, dollar_only);
+                    changed |= x.replace_elements(map);
                 }
                 *dirty |= changed;
                 return changed;
             }
             Element::Fn(ref mut dirty, ref mut name, ref mut args) => {
-                if !dollar_only {
-                    if let Some(x) = map.get(name) {
-                        if let &Element::Var(ref y, _) = x {
-                            *name = y.clone();
-                            changed = true
-                        } else {
-                            panic!("Cannot replace function name by generic expression");
-                        }
+                if let Some(x) = map.get(name) {
+                    if let &Element::Var(ref y, _) = x {
+                        *name = y.clone();
+                        changed = true
+                    } else {
+                        panic!("Cannot replace function name by generic expression");
                     }
                 }
 
                 for x in args {
-                    changed |= x.replace_vars(map, dollar_only);
+                    changed |= x.replace_elements(map);
                 }
                 *dirty |= changed;
                 return changed;
@@ -1749,14 +1868,14 @@ impl Statement {
         }
     }
 
-    pub fn replace_vars(&mut self, map: &HashMap<VarName, Element>, dollar_only: bool) -> bool {
+    pub fn replace_dollar(&mut self, map: &HashMap<VarName, DollarVariableTable>) -> bool {
         let mut changed = false;
         match *self {
             Statement::Module(Module {
                 ref mut statements, ..
             }) => {
                 for s in statements {
-                    changed |= s.replace_vars(map, dollar_only);
+                    changed |= s.replace_dollar(map);
                 }
             }
             Statement::IdentityStatement(IdentityStatement {
@@ -1764,25 +1883,105 @@ impl Statement {
                 ref mut lhs,
                 ref mut rhs,
             }) => {
-                changed |= lhs.replace_vars(map, dollar_only);
-                changed |= rhs.replace_vars(map, dollar_only);
+                changed |= lhs.replace_dollar(map);
+                changed |= rhs.replace_dollar(map);
             }
             Statement::Repeat(ref mut ss) => for s in ss {
-                changed |= s.replace_vars(map, dollar_only);
+                changed |= s.replace_dollar(map);
             },
             Statement::MatchAssign(ref mut e, ref mut ss) => {
-                changed |= e.replace_vars(map, dollar_only);
+                changed |= e.replace_dollar(map);
                 for s in ss {
-                    changed |= s.replace_vars(map, dollar_only);
+                    changed |= s.replace_dollar(map);
                 }
             }
             Statement::IfElse(ref mut e, ref mut ss, ref mut sse) => {
-                changed |= e.replace_vars(map, dollar_only);
+                changed |= e.replace_dollar(map);
                 for s in ss {
-                    changed |= s.replace_vars(map, dollar_only);
+                    changed |= s.replace_dollar(map);
                 }
                 for s in sse {
-                    changed |= s.replace_vars(map, dollar_only);
+                    changed |= s.replace_dollar(map);
+                }
+            }
+            Statement::Multiply(ref mut e) => {
+                changed |= e.replace_dollar(map);
+            }
+            Statement::Call(_, ref mut es) => for s in es {
+                changed |= s.replace_dollar(map);
+            },
+            Statement::Assign(ref mut d, ref mut e) => {
+                if let Element::Dollar(_id, ref mut inds) = d {
+                    for i in inds {
+                        changed |= i.replace_dollar(map);
+                    }
+                }
+                changed |= e.replace_dollar(map);
+            }
+            Statement::Argument(ref _d, ref mut ss) => {
+                for s in ss {
+                    changed |= s.replace_dollar(map);
+                }
+            }
+            Statement::Inside(ref _d, ref mut ss) => {
+                for s in ss {
+                    changed |= s.replace_dollar(map);
+                }
+            }
+            Statement::ForIn(_, ref mut l, ref mut ss) => {
+                for e in l {
+                    changed |= e.replace_dollar(map);
+                }
+                for s in ss {
+                    changed |= s.replace_dollar(map);
+                }
+            }
+            Statement::ForInRange(_, ref mut l, ref mut u, ref mut ss) => {
+                changed |= l.replace_dollar(map);
+                changed |= u.replace_dollar(map);
+                for s in ss {
+                    changed |= s.replace_dollar(map);
+                }
+            }
+            _ => {}
+        };
+        changed
+    }
+
+    pub fn replace_elements(&mut self, map: &HashMap<VarName, Element>) -> bool {
+        let mut changed = false;
+        match *self {
+            Statement::Module(Module {
+                ref mut statements, ..
+            }) => {
+                for s in statements {
+                    changed |= s.replace_elements(map);
+                }
+            }
+            Statement::IdentityStatement(IdentityStatement {
+                mode: _,
+                ref mut lhs,
+                ref mut rhs,
+            }) => {
+                changed |= lhs.replace_elements(map);
+                changed |= rhs.replace_elements(map);
+            }
+            Statement::Repeat(ref mut ss) => for s in ss {
+                changed |= s.replace_elements(map);
+            },
+            Statement::MatchAssign(ref mut e, ref mut ss) => {
+                changed |= e.replace_elements(map);
+                for s in ss {
+                    changed |= s.replace_elements(map);
+                }
+            }
+            Statement::IfElse(ref mut e, ref mut ss, ref mut sse) => {
+                changed |= e.replace_elements(map);
+                for s in ss {
+                    changed |= s.replace_elements(map);
+                }
+                for s in sse {
+                    changed |= s.replace_elements(map);
                 }
             }
             Statement::SplitArg(ref mut name)
@@ -1808,38 +2007,42 @@ impl Statement {
                 }
             }
             Statement::Multiply(ref mut e) => {
-                changed |= e.replace_vars(map, dollar_only);
+                changed |= e.replace_elements(map);
             }
             Statement::Call(_, ref mut es) => for s in es {
-                changed |= s.replace_vars(map, dollar_only);
+                changed |= s.replace_elements(map);
             },
-            Statement::Assign(ref _d, ref mut e) => {
-                // TODO: also change dollar variable?
-                changed |= e.replace_vars(map, dollar_only);
+            Statement::Assign(ref mut d, ref mut e) => {
+                if let Element::Dollar(_id, ref mut inds) = d {
+                    for i in inds {
+                        changed |= i.replace_elements(map);
+                    }
+                }
+                changed |= e.replace_elements(map);
             }
             Statement::Argument(ref _d, ref mut ss) => {
                 for s in ss {
-                    changed |= s.replace_vars(map, dollar_only);
+                    changed |= s.replace_elements(map);
                 }
             }
             Statement::Inside(ref _d, ref mut ss) => {
                 for s in ss {
-                    changed |= s.replace_vars(map, dollar_only);
+                    changed |= s.replace_elements(map);
                 }
             }
             Statement::ForIn(_, ref mut l, ref mut ss) => {
                 for e in l {
-                    changed |= e.replace_vars(map, dollar_only);
+                    changed |= e.replace_elements(map);
                 }
                 for s in ss {
-                    changed |= s.replace_vars(map, dollar_only);
+                    changed |= s.replace_elements(map);
                 }
             }
             Statement::ForInRange(_, ref mut l, ref mut u, ref mut ss) => {
-                changed |= l.replace_vars(map, dollar_only);
-                changed |= u.replace_vars(map, dollar_only);
+                changed |= l.replace_elements(map);
+                changed |= u.replace_elements(map);
                 for s in ss {
-                    changed |= s.replace_vars(map, dollar_only);
+                    changed |= s.replace_elements(map);
                 }
             }
             _ => {}
@@ -1876,7 +2079,11 @@ impl Statement {
             Statement::Eval(ref mut e, _) => {
                 e.normalize_inplace(var_info);
             }
-            Statement::Multiply(ref mut e) | Statement::Assign(_, ref mut e) => {
+            Statement::Multiply(ref mut e) => {
+                e.normalize_inplace(var_info);
+            }
+            Statement::Assign(ref mut d, ref mut e) => {
+                d.normalize_inplace(var_info);
                 e.normalize_inplace(var_info);
             }
             Statement::Argument(_, ref mut ss) => for s in ss {

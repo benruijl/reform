@@ -5,6 +5,7 @@ use poly::raw::MultivariatePolynomial;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::io::{Error, Read, Write};
 use std::mem;
 use std::ops::{Add, Div, Mul, Neg, Sub};
@@ -327,6 +328,15 @@ impl Polynomial {
                 varcount: self.varcount.clone(),
             },
         )
+    }
+}
+
+impl Hash for Polynomial {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // we can skip the hashmap, since we simply use the inverse
+        self.varcount.hash(state);
+        self.inv_varmap.hash(state);
+        self.poly.hash(state);
     }
 }
 

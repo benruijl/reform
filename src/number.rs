@@ -21,7 +21,8 @@ const DOWNGRADE_LIMIT: isize = 4294967296; // if a bigint is smaller than this n
 ///
 /// The mathematical operations on a number automatically upgrade
 /// and downgrade to bigint/smallint etc.
-#[derive(Debug, Clone)]
+/// TODO: hash should take into account that some bigints can be equal to smallint?
+#[derive(Debug, Clone, Hash)]
 pub enum Number {
     SmallInt(isize),
     BigInt(Integer),
@@ -297,18 +298,17 @@ impl Add for Number {
             (SmallInt(i1), BigInt(i2)) | (BigInt(i2), SmallInt(i1)) => {
                 BigInt(Integer::from(i1) + i2)
             }
-            (SmallInt(i1), SmallRat(n2, d2)) | (SmallRat(n2, d2), SmallInt(i1)) => {
-                match i1.checked_mul(d2) {
-                    Some(num1) => match n2.checked_add(num1) {
-                        Some(num) => Number::SmallRat(num, d2).normalized(),
-                        None => Number::BigRat(Box::new(
-                            Rational::from(i1) + Rational::from((n2, d2)),
-                        )).normalized(),
-                    },
+            (SmallInt(i1), SmallRat(n2, d2)) | (SmallRat(n2, d2), SmallInt(i1)) => match i1
+                .checked_mul(d2)
+            {
+                Some(num1) => match n2.checked_add(num1) {
+                    Some(num) => Number::SmallRat(num, d2).normalized(),
                     None => Number::BigRat(Box::new(Rational::from(i1) + Rational::from((n2, d2))))
                         .normalized(),
-                }
-            }
+                },
+                None => Number::BigRat(Box::new(Rational::from(i1) + Rational::from((n2, d2))))
+                    .normalized(),
+            },
             (SmallRat(n1, d1), SmallRat(n2, d2)) => match d2.checked_mul(d1 / GCD::gcd(d1, d2)) {
                 Some(lcm) => match n2.checked_mul(lcm / d2) {
                     Some(num2) => match n1.checked_mul(lcm / d1) {

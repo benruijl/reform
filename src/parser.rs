@@ -170,8 +170,8 @@ parser!{
 {
     char('$')
         .with(varname())
-        .and(optional(between(lex_char('['), lex_char(']'), expr())))
-        .map(|(x, ind)| Element::Dollar('$'.to_string() + &x, ind.map(Box::new)))
+        .and(optional(between(lex_char('['), lex_char(']'), sep_by(expr(), lex_char(',')))))
+        .map(|(x, inds)| Element::Dollar('$'.to_string() + &x, inds.unwrap_or(vec![])))
 }
 }
 

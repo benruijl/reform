@@ -202,7 +202,7 @@ impl Element {
                             }
 
                             let mut newe = e.clone();
-                            if newe.replace_vars(&replace_map, false) {
+                            if newe.replace_elements(&replace_map) {
                                 newe.normalize_inplace(&var_info);
                             }
 
@@ -329,6 +329,13 @@ impl Element {
                 if let Element::Var(_, Number::SmallInt(0)) = self {
                     *self = Element::Num(false, Number::one());
                     return true;
+                }
+            }
+            Element::Dollar(ref _d, ref mut inds) => {
+                // note that the dollar variable cannot be applied here, since
+                // we only have global information
+                for i in inds.iter_mut() {
+                    i.normalize_inplace(var_info);
                 }
             }
             Element::Pow(dirty, ..) => {

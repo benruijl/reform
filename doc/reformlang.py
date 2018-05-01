@@ -54,7 +54,7 @@ class ReformLexer(RegexLexer):
             (r'\\', String),  # stray backslash
         ],
         'function': [
-            (r'\(', Punctuation, '#push'),
-            (r'\)', Punctuation, '#pop'),
+            (r'[\(\[]', Punctuation, '#push'),
+            (r'[\)\]]', Punctuation, '#pop'),
         ]
     }

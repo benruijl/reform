@@ -373,7 +373,7 @@ impl Statement {
                     }
                 };
 
-                res.replace_vars(&var_info.local_info.variables, true); // apply the dollar variables
+                res.replace_dollar(&var_info.local_info.variables); // apply the dollar variables
                 res.normalize_inplace(&var_info.global_info);
                 StatementIter::Simple(res, true)
             }
@@ -544,12 +544,11 @@ fn do_module_rec(
         // move to iter if we decide how to propagate the var_info
         Statement::Assign(ref dollar, ref e) => {
             let mut ee = e.clone();
-            if ee.replace_vars(&local_var_info.variables, true) {
+            ee.normalize_inplace(&global_var_info);
+            if ee.replace_dollar(&local_var_info.variables) {
                 ee.normalize_inplace(&global_var_info);
             }
-            if let Element::Dollar(ref d, ..) = *dollar {
-                local_var_info.add_dollar(d.clone(), ee);
-            }
+            local_var_info.add_dollar(dollar.clone(), ee);
             return do_module_rec(
                 input,
                 statements,
@@ -584,12 +583,10 @@ fn do_module_rec(
             for s in newss {
                 if let Statement::Assign(ref dollar, ref e) = s {
                     let mut ee = e.clone();
-                    if ee.replace_vars(&local_var_info.variables, true) {
+                    if ee.replace_dollar(&local_var_info.variables) {
                         ee.normalize_inplace(&global_var_info);
                     }
-                    if let Element::Dollar(ref d, ..) = *dollar {
-                        local_var_info.add_dollar(d.clone(), ee);
-                    }
+                    local_var_info.add_dollar(dollar.clone(), ee);
                 }
             }
 
@@ -604,15 +601,11 @@ fn do_module_rec(
             );
         }
         Statement::Extract(ref d, ref xs) => {
-            if let Element::Dollar(name, _) = *d {
-                let mut dollar = Element::default();
+            if let Element::Dollar(..) = *d {
                 let mut dp = local_var_info
-                    .variables
-                    .get_mut(&name)
+                    .get_dollar_mut(d)
                     .expect("Dollar variable is uninitialized");
-
-                mem::swap(&mut dollar, dp);
-                *dp = dollar.extract(xs, &global_var_info);
+                *dp = mem::replace(dp, Element::default()).extract(xs, &global_var_info);
             }
             return do_module_rec(
                 input,
@@ -756,11 +749,10 @@ fn do_module_rec(
         // this will create a subrecursion
         Statement::Inside(ref ds, ref sts) => {
             for d in ds {
-                if let Element::Dollar(name, _) = *d {
+                if let Element::Dollar(..) = *d {
                     let mut dollar = mem::replace(
                         local_var_info
-                            .variables
-                            .get_mut(&name)
+                            .get_dollar_mut(d)
                             .expect("Dollar variable is uninitialized"),
                         Element::default(),
                     );
@@ -792,8 +784,8 @@ fn do_module_rec(
                     }
 
                     if let TermStreamWrapper::Owned(mut nfa) = tsr {
-                        local_var_info.variables.insert(
-                            name,
+                        local_var_info.add_dollar(
+                            d.clone(),
                             match nfa.len() {
                                 0 => Element::Num(false, Number::zero()),
                                 1 => nfa.swap_remove(0),
@@ -807,6 +799,7 @@ fn do_module_rec(
                     }
                 }
             }
+
             return do_module_rec(
                 input,
                 statements,
@@ -818,18 +811,18 @@ fn do_module_rec(
             );
         }
         Statement::Maximum(ref dollar) => {
-            if let Element::Dollar(ref d, ..) = *dollar {
-                if let Some(x) = local_var_info.variables.get(d) {
-                    match local_var_info.global_variables.entry(d.clone()) {
+            if let Element::Dollar(ref name, ..) = *dollar {
+                if let Some(x) = local_var_info.get_dollar(dollar).cloned() {
+                    match local_var_info.global_variables.entry(name.clone()) {
                         Entry::Occupied(mut y) => {
                             if let Some(Ordering::Less) =
-                                y.get().partial_cmp(x, global_var_info, false)
+                                y.get().partial_cmp(&x, global_var_info, false)
                             {
-                                *y.get_mut() = x.clone();
+                                *y.get_mut() = x;
                             }
                         }
                         Entry::Vacant(y) => {
-                            y.insert(x.clone());
+                            y.insert(x);
                         }
                     };
                 }
@@ -856,7 +849,7 @@ fn do_module_rec(
                 );
             } else {
                 for d in vars {
-                    if let Some(x) = local_var_info.variables.get(d) {
+                    if let Some(x) = local_var_info.get_dollar_from_name(*d) {
                         println!(
                             "{}",
                             ElementPrinter {
@@ -888,7 +881,7 @@ fn do_module_rec(
         // consider this as a workaround for excessive copying of (large) dollar variables
         let mut ns = Cow::Borrowed(&statements[current_index]);
         if ns.contains_dollar() {
-            if ns.to_mut().replace_vars(&local_var_info.variables, true) {
+            if ns.to_mut().replace_dollar(&local_var_info.variables) {
                 ns.to_mut().normalize(global_var_info);
             }
         }
@@ -906,7 +899,7 @@ fn do_module_rec(
         let mut it = ns.to_iter(&mut input, &var_info);
         loop {
             match it.next() {
-                StatementResult::Executed(f) => {
+                StatementResult::Executed(mut f) => {
                     // make sure every new term has its own local variables
                     /*for (var, e) in &oldvarinfo.variables {
                         if let Some(attribs) = global_var_info.func_attribs.get(var) {
@@ -924,6 +917,12 @@ fn do_module_rec(
                             unreachable!("Dollar variable disappeared");
                         }
                     }*/
+
+                    // It could be that the result contains a dollar variable
+                    // that became substitutable after an index change
+                    if f.replace_dollar(&local_var_info.variables) {
+                        f.normalize_inplace(global_var_info);
+                    }
 
                     *term_affected.last_mut().unwrap() = true;
                     let d = term_affected.len(); // store the depth of the stack
@@ -1015,7 +1014,7 @@ impl Module {
                     }
                 }
                 Statement::ForInRange(ref d, ref mut l, ref mut u, ref mut s) => {
-                    if let Element::Dollar(dd, _) = *d {
+                    if let Element::Dollar(dd, ref inds) = *d {
                         // TODO: note that dollar variables in the range parameters are evaluted at
                         // module compile time instead of runtime!
                         l.normalize_inplace(&var_info.global_info);
@@ -1027,10 +1026,12 @@ impl Module {
                                 // unroll the loop
                                 for ll in li..ui {
                                     let lle = Element::Num(false, Number::SmallInt(ll));
-                                    replace_map.insert(dd, lle);
+                                    let mut mm = HashMap::new();
+                                    mm.insert(inds.clone(), lle);
+                                    replace_map.insert(dd, mm);
                                     for ss in s.iter() {
                                         let mut news = ss.clone();
-                                        if news.replace_vars(&replace_map, true) {
+                                        if news.replace_dollar(&replace_map) {
                                             news.normalize(&var_info.global_info);
                                         }
                                         output.push(news);
@@ -1047,15 +1048,17 @@ impl Module {
                     }
                 }
                 Statement::ForIn(ref d, ref mut l, ref mut s) => {
-                    if let Element::Dollar(dd, _) = *d {
+                    if let Element::Dollar(dd, ref inds) = *d {
                         let mut replace_map = HashMap::new();
 
                         // unroll the loop
                         for ll in l {
-                            replace_map.insert(dd, ll.clone());
+                            let mut mm = HashMap::new();
+                            mm.insert(inds.clone(), ll.clone());
+                            replace_map.insert(dd, mm);
                             for ss in s.iter() {
                                 let mut news = ss.clone();
-                                if news.replace_vars(&replace_map, true) {
+                                if news.replace_dollar(&replace_map) {
                                     news.normalize(&var_info.global_info);
                                 }
                                 output.push(news);
@@ -1108,7 +1111,7 @@ impl Module {
                                 .cloned()
                                 .map(|mut x| {
                                     x.normalize(&var_info.global_info);
-                                    if x.replace_vars(&map, false) {
+                                    if x.replace_elements(&map) {
                                         x.normalize(&var_info.global_info);
                                     }
                                     x
@@ -1264,8 +1267,12 @@ impl Module {
         }
 
         // update the variables by their global values
-        for (d, v) in var_info.local_info.global_variables.drain() {
-            var_info.local_info.variables.insert(d, v);
+        // TODO: global variables can also have indices?
+        let gi = mem::replace(&mut var_info.local_info.global_variables, HashMap::new());
+        for (d, v) in gi {
+            var_info
+                .local_info
+                .add_dollar(Element::Dollar(d.clone(), vec![]), v);
         }
     }
 }
@@ -1323,24 +1330,20 @@ impl Program {
                 }
                 Statement::Assign(ref dollar, ref e) => {
                     let mut ee = e.clone();
-                    ee.replace_vars(&self.var_info.local_info.variables, true);
                     ee.normalize_inplace(&self.var_info.global_info);
-                    if let Element::Dollar(ref d, ..) = *dollar {
-                        self.var_info.local_info.add_dollar(d.clone(), ee);
-                    }
+                    ee.replace_dollar(&self.var_info.local_info.variables);
+                    ee.normalize_inplace(&self.var_info.global_info);
+                    self.var_info.local_info.add_dollar(dollar.clone(), ee);
                 }
                 Statement::Extract(ref d, ref xs) => {
-                    if let Element::Dollar(name, _) = *d {
-                        let mut dollar = Element::default();
+                    if let Element::Dollar(..) = *d {
                         let mut dp = self
                             .var_info
                             .local_info
-                            .variables
-                            .get_mut(&name)
+                            .get_dollar_mut(d)
                             .expect("Dollar variable is uninitialized");
-
-                        mem::swap(&mut dollar, dp);
-                        *dp = dollar.extract(xs, &self.var_info.global_info);
+                        *dp = mem::replace(dp, Element::default())
+                            .extract(xs, &self.var_info.global_info);
                     }
                 }
                 // this will create a subrecursion
@@ -1359,12 +1362,11 @@ impl Program {
                     }
 
                     for d in ds {
-                        if let Element::Dollar(name, _) = *d {
+                        if let Element::Dollar(..) = *d {
                             let mut dollar = mem::replace(
                                 self.var_info
                                     .local_info
-                                    .variables
-                                    .get_mut(&name)
+                                    .get_dollar_mut(d)
                                     .expect("Dollar variable is uninitialized"),
                                 Element::default(),
                             );
@@ -1397,8 +1399,8 @@ impl Program {
                             }
 
                             if let TermStreamWrapper::Owned(mut nfa) = tsr {
-                                self.var_info.local_info.variables.insert(
-                                    name,
+                                self.var_info.local_info.add_dollar(
+                                    d.clone(),
                                     match nfa.len() {
                                         0 => Element::Num(false, Number::zero()),
                                         1 => nfa.swap_remove(0),
@@ -1425,7 +1427,7 @@ impl Program {
                     }
                 },
                 Statement::ForInRange(ref d, ref mut l, ref mut u, ref mut s) => {
-                    if let Element::Dollar(dd, _) = *d {
+                    if let Element::Dollar(dd, ref inds) = *d {
                         l.normalize_inplace(&self.var_info.global_info);
                         u.normalize_inplace(&self.var_info.global_info);
 
@@ -1438,10 +1440,12 @@ impl Program {
                                 // unroll the loop
                                 for ll in (li..ui).rev() {
                                     let lle = Element::Num(false, Number::SmallInt(ll));
-                                    replace_map.insert(dd, lle);
+                                    let mut mm = HashMap::new();
+                                    mm.insert(inds.clone(), lle);
+                                    replace_map.insert(dd, mm);
                                     for ss in s.iter().rev() {
                                         let mut news = ss.clone();
-                                        if news.replace_vars(&replace_map, true) {
+                                        if news.replace_dollar(&replace_map) {
                                             news.normalize(&self.var_info.global_info);
                                         }
                                         statements.push_front(news);
@@ -1458,15 +1462,17 @@ impl Program {
                     }
                 }
                 Statement::ForIn(ref d, ref l, ref s) => {
-                    if let Element::Dollar(dd, _) = *d {
+                    if let Element::Dollar(dd, ref inds) = *d {
                         let mut replace_map = HashMap::new();
 
                         // unroll the loop
                         for ll in l.iter().rev() {
-                            replace_map.insert(dd, ll.clone());
+                            let mut mm = HashMap::new();
+                            mm.insert(inds.clone(), ll.clone());
+                            replace_map.insert(dd, mm);
                             for ss in s.iter().rev() {
                                 let mut news = ss.clone();
-                                if news.replace_vars(&replace_map, true) {
+                                if news.replace_dollar(&replace_map) {
                                     news.normalize(&self.var_info.global_info);
                                 }
                                 statements.push_front(news);
@@ -1479,7 +1485,7 @@ impl Program {
                 Statement::Print(ref mode, ref vars) => {
                     // only print dollar variables at this stage
                     for d in vars {
-                        if let Some(x) = self.var_info.local_info.variables.get(d) {
+                        if let Some(x) = self.var_info.local_info.get_dollar_from_name(*d) {
                             println!(
                                 "{}",
                                 ElementPrinter {
@@ -1496,7 +1502,7 @@ impl Program {
                     }
                 }
                 Statement::IfElse(ref mut cond, ref trueblock, ref falseblock) => {
-                    cond.replace_vars(&self.var_info.local_info.variables, true); // apply the dollar variables
+                    cond.replace_dollar(&self.var_info.local_info.variables); // apply the dollar variables
                     cond.normalize_inplace(&self.var_info.global_info);
 
                     match cond {

@@ -157,7 +157,7 @@ impl Element {
             }
             Element::Fn(_, name, ref old_args) => {
                 let mut changed = false;
-                let mut args = vec![];
+                let mut args = Vec::with_capacity(old_args.len());
                 for a in old_args {
                     match a.apply_map(m) {
                         MatchOptOwned::Single(x, c) => {
@@ -175,7 +175,7 @@ impl Element {
             }
             Element::Term(_, ref f) => {
                 let mut changed = false;
-                let mut args = vec![];
+                let mut args = Vec::with_capacity(f.len());
                 for x in f.iter() {
                     let (xx, c) = x.apply_map(m).into_single();
                     changed |= c;
@@ -185,13 +185,31 @@ impl Element {
             }
             Element::SubExpr(_, ref f) => {
                 let mut changed = false;
-                let mut args = vec![];
+                let mut args = Vec::with_capacity(f.len());
                 for x in f.iter() {
                     let (xx, c) = x.apply_map(m).into_single();
                     changed |= c;
                     args.push(xx);
                 }
                 MatchOptOwned::Single(Element::SubExpr(changed, args), changed)
+            }
+            Element::Dollar(ref name, ref inds) => {
+                let mut changed = false;
+                let mut newinds = Vec::with_capacity(inds.len());
+                for a in inds.iter() {
+                    match a.apply_map(m) {
+                        MatchOptOwned::Single(x, c) => {
+                            changed |= c;
+                            newinds.push(x)
+                        }
+                        MatchOptOwned::Multiple(x) => {
+                            changed = true;
+                            newinds.extend(x)
+                        }
+                    }
+                }
+
+                MatchOptOwned::Single(Element::Dollar(name.clone(), newinds), changed)
             }
             _ => MatchOptOwned::Single(self.clone(), false), // no match, so no change
         }
@@ -297,8 +315,8 @@ impl<'a> ElementIterSingle<'a> {
                                     return None;
                                 }
                             }
-                            Element::Dollar(ref i2, _) => {
-                                if var_info.local_info.variables.get(i2) != Some(&r) {
+                            Element::Dollar(..) => {
+                                if var_info.local_info.get_dollar(b2) != Some(&r) {
                                     return None;
                                 }
                             }
@@ -352,8 +370,8 @@ impl<'a> ElementIterSingle<'a> {
                                     None
                                 }
                             }
-                            Element::Dollar(ref i2, _) => {
-                                if var_info.local_info.variables.get(i2) != Some(&r1) {
+                            Element::Dollar(..) => {
+                                if var_info.local_info.get_dollar(p2) != Some(&r1) {
                                     return None;
                                 }
                                 Some(newlen)
@@ -489,8 +507,14 @@ impl Element {
                     SequenceIter::new(&SliceRef::OwnedSlice(vec![b2, e2]), b1, var_info),
                 )
             }
-            (i1, &Element::Dollar(ref i2, _)) => {
-                if var_info.local_info.variables.get(i2) == Some(i1) {
+            (&Element::Dollar(ref name, ref inds), &Element::Dollar(ref name1, ref inds1)) => {
+                // match $a[x?] to $a[1]
+                ElementIterSingle::FnIter(FuncIterator::from_element(
+                    name1, inds1, name, inds, var_info,
+                ))
+            }
+            (i1, d @ &Element::Dollar(..)) => {
+                if var_info.local_info.get_dollar(d) == Some(i1) {
                     ElementIterSingle::Once
                 } else {
                     ElementIterSingle::None
@@ -1049,8 +1073,18 @@ impl<'a> MatchIterator<'a> {
             res
         };
 
-        res.replace_vars(&self.var_info.local_info.variables, true); // subsitute dollars in rhs
-        res.normalize_inplace(self.var_info.global_info);
+        // FIXME: in the current setup, the dollar variable list
+        // handed to the id routines are empty. We have to
+        // replace dollar varialbes that are suddenly replacable
+        // due to index changes elsewhere now
+        if res.contains_dollar() {
+            res.normalize_inplace(self.var_info.global_info);
+            if res.replace_dollar(&self.var_info.local_info.variables) {
+                res.normalize_inplace(self.var_info.global_info);
+            }
+        } else {
+            res.normalize_inplace(self.var_info.global_info);
+        }
         res
     }
 
