@@ -125,7 +125,7 @@ pub fn inv<T: UnsignedInteger>(x: T, p: T) -> T {
 }
 
 /// Computes `x^n` in Zp.
-pub fn pow<T: UnsignedInteger>(x: T, n: u32, p: T) -> T {
+pub fn pow<T: UnsignedInteger>(x: T, mut n: u32, p: T) -> T {
     debug_assert!(x >= T::zero());
     debug_assert!(p > T::zero());
     debug_assert!(x < p);
@@ -146,12 +146,25 @@ pub fn pow<T: UnsignedInteger>(x: T, n: u32, p: T) -> T {
         let y = x.clone();
         return mul(x, y, p);
     }
-    // TODO: to be improved
-    let mut r = x.clone();
-    for _ in 1..n {
-        r = mul(r, x.clone(), p.clone());
+    if n < 6 {
+        // (n-1) multiplications
+        let mut r = x.clone();
+        for _ in 1..n {
+            r = mul(r, x.clone(), p.clone());
+        }
+        return r;
     }
-    r
+    // naive exponentiation by squaring
+    let mut r = T::one();
+    let mut b = x;
+    while n > 1 {
+        if n & 1 != 0 {
+            r = mul(r, b.clone(), p.clone());
+        }
+        b = mul(b.clone(), b.clone(), p.clone());
+        n >>= 1;
+    }
+    mul(r, b, p)
 }
 
 /// Use Garner's algorithm for the Chinese remainder theorem
@@ -328,15 +341,14 @@ fn test_pow() {
     check_pow(1, 2, 251);
     check_pow(2, 2, 251);
 
-    check_pow(3, 3, 241);
-    check_pow(3, 4, 241);
-    check_pow(3, 5, 241);
-    check_pow(3, 6, 241);
-
-    check_pow(3, 3, 251);
-    check_pow(3, 4, 251);
-    check_pow(3, 5, 251);
-    check_pow(3, 6, 251);
+    for x in 2..6 {
+        for n in 3..21 {
+            check_pow(x, n, 233);
+            check_pow(x, n, 239);
+            check_pow(x, n, 241);
+            check_pow(x, n, 251);
+        }
+    }
 
     check_pow(10, 3, 251);
     check_pow(10, 4, 251);
