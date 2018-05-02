@@ -18,7 +18,6 @@ pub fn solve<S1: Data<Elem = ufield>, S2: Data<Elem = ufield>>(
     b: &ArrayBase<S2, Ix1>,
     p: ufield,
 ) -> Result<Array1<ufield>, LinearSolverError> {
-    type T = ufield;
     assert!(a.shape()[0] == b.shape()[0]);
 
     let neqs = a.shape()[0];
@@ -33,7 +32,7 @@ pub fn solve<S1: Data<Elem = ufield>, S2: Data<Elem = ufield>>(
     }
 
     // Create the augmented matrix.
-    let mut m = Array2::<T>::zeros((neqs, nvars + 1));
+    let mut m = Array2::<ufield>::zeros((neqs, nvars + 1));
     for (i, e) in a.indexed_iter() {
         m[i] = *e;
     }
@@ -125,7 +124,9 @@ pub fn solve<S1: Data<Elem = ufield>, S2: Data<Elem = ufield>>(
     }
 
     // Return the solution.
-    Ok(Array1::<T>::from_iter((0..nvars).map(|i| m[(i, nvars)])))
+    Ok(Array1::<ufield>::from_iter(
+        (0..nvars).map(|i| m[(i, nvars)]),
+    ))
 }
 
 #[test]
