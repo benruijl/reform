@@ -32,7 +32,7 @@ pub fn solve<S1: Data<Elem = ufield>, S2: Data<Elem = ufield>>(
     }
 
     // Create the augmented matrix.
-    let mut m = Array2::<ufield>::zeros((neqs, nvars + 1));
+    let mut m = unsafe { Array2::<ufield>::uninitialized((neqs, nvars + 1)) };
     for (i, e) in a.indexed_iter() {
         m[i] = *e;
     }
