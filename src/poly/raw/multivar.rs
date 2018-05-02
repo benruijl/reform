@@ -389,8 +389,9 @@ impl<R: Ring, E: Exponent> Add for MultivariatePolynomial<R, E> {
 
         // Merge the two polynomials, which are assumed to be already sorted.
 
-        let mut new_coefficients = Vec::new();
-        let mut new_exponents: Vec<E> = Vec::new();
+        let mut new_coefficients = Vec::with_capacity(self.nterms + other.nterms);
+        let mut new_exponents: Vec<E> =
+            Vec::with_capacity(self.nvars * (self.nterms + other.nterms));
         let mut new_nterms = 0;
         let mut i = 0;
         let mut j = 0;
