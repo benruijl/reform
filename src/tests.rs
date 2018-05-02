@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod tests {
+    use number;
     use number::Number;
     use number::Number::*;
     use parser;
     use poly::raw::finitefield::FiniteField;
-    use poly::raw::zp;
     use poly::raw::MultivariatePolynomial;
     use rug::{Integer, Rational};
     use serialize;
@@ -130,7 +130,7 @@ mod tests {
     #[test]
     fn chinese_remainder() {
         assert_eq!(
-            zp::chinese_remainder(SmallInt(5), SmallInt(30), SmallInt(11), SmallInt(31)),
+            number::chinese_remainder(SmallInt(5), SmallInt(30), SmallInt(11), SmallInt(31)),
             SmallInt(-94)
         );
     }
