@@ -15,7 +15,7 @@ pub struct FiniteField {
 
 impl FiniteField {
     pub fn new(n: ufield, p: ufield) -> FiniteField {
-        FiniteField { n: n, p: p }
+        FiniteField { n: n % p, p: p }
     }
 
     pub fn from_i64(n: i64, p: ufield) -> FiniteField {
