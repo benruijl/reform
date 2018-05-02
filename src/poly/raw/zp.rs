@@ -1,94 +1,69 @@
 //! Modular arithmetic in Zp (commonly referred as GF(p)): each element x is in the range
-//! `0 <= x < p < 2^N`, where an N-bit unsigned integer stores the value.
-
-use std::fmt;
-
-use num_integer::Integer;
-use num_traits::Unsigned;
-
-use poly::raw::overflowing::Overflowing;
+//! `0 <= x < p < 2^N`, where p is a prime number and x is stored in an N-bit unsigned integer
+//! whose type is declared as `ufield`.
 
 pub use poly::raw::zp_solve::{solve, LinearSolverError};
-
-/// Unsigned integer.
-pub trait UnsignedInteger: Integer + Unsigned + Overflowing + Clone + fmt::Display {}
-
-impl<T> UnsignedInteger for T
-where
-    T: Integer + Unsigned + Overflowing + Clone + fmt::Display,
-{
-}
 
 /// Type for numbers in Zp.
 #[allow(non_camel_case_types)]
 pub type ufield = u32;
 
+/// Type used in intermediate stages. Must have twice the size of `ufield`.
+#[allow(non_camel_case_types)]
+type ucomp = u64;
+
 /// Computes `x + y` in Zp.
 #[inline]
-pub fn add<T: UnsignedInteger>(x: T, y: T, p: T) -> T {
-    debug_assert!(x >= T::zero());
-    debug_assert!(y >= T::zero());
-    debug_assert!(p > T::zero());
+pub fn add(x: ufield, y: ufield, p: ufield) -> ufield {
+    debug_assert!(p > 0);
     debug_assert!(x < p);
     debug_assert!(y < p);
-    let (z, b) = T::overflowing_add(x, y);
-    if b {
-        T::overflowing_sub(z, p).0
-    } else if z >= p {
-        z - p
-    } else {
-        z
+    let xx = ucomp::from(x);
+    let yy = ucomp::from(y);
+    let pp = ucomp::from(p);
+    let mut zz = xx + yy;
+    if zz >= pp {
+        zz -= pp;
     }
+    debug_assert!(zz < pp);
+    zz as ufield
 }
 
 /// Computes `x - y` in Zp.
 #[inline]
-pub fn sub<T: UnsignedInteger>(x: T, y: T, p: T) -> T {
-    debug_assert!(x >= T::zero());
-    debug_assert!(y >= T::zero());
-    debug_assert!(p > T::zero());
+pub fn sub(x: ufield, y: ufield, p: ufield) -> ufield {
+    debug_assert!(p > 0);
     debug_assert!(x < p);
     debug_assert!(y < p);
-    let (z, b) = T::overflowing_sub(x, y);
-    if b {
-        T::overflowing_add(z, p).0
-    } else {
-        z
-    }
+    let xx = ucomp::from(x);
+    let yy = ucomp::from(y);
+    let pp = ucomp::from(p);
+    let zz = if xx >= yy { xx - yy } else { xx + pp - yy };
+    debug_assert!(zz < pp);
+    zz as ufield
 }
 
 /// Computes `x * y` in Zp.
 #[inline]
-pub fn mul<T: UnsignedInteger>(x: T, y: T, p: T) -> T {
-    debug_assert!(x >= T::zero());
-    debug_assert!(y >= T::zero());
-    debug_assert!(p > T::zero());
+pub fn mul(x: ufield, y: ufield, p: ufield) -> ufield {
+    debug_assert!(p > 0);
     debug_assert!(x < p);
     debug_assert!(y < p);
-    if x.is_zero() {
-        T::zero()
-    } else {
-        // by Schrage's method
-        let q = p.clone() / x.clone();
-        let r = p.clone() % x.clone();
-        let a = x * (y.clone() % q.clone());
-        let b = if r <= q {
-            r * (y / q)
-        } else {
-            mul(r, y / q, p.clone())
-        };
-        sub(a, b, p)
-    }
+    let xx = ucomp::from(x);
+    let yy = ucomp::from(y);
+    let pp = ucomp::from(p);
+    let zz = (xx * yy) % pp;
+    debug_assert!(zz < pp);
+    zz as ufield
 }
 
 /// Computes `-x` in Zp.
 #[inline]
-pub fn neg<T: UnsignedInteger>(x: T, p: T) -> T {
-    debug_assert!(x >= T::zero());
-    debug_assert!(p > T::zero());
+pub fn neg(x: ufield, p: ufield) -> ufield {
+    debug_assert!(p > 0);
     debug_assert!(x < p);
-    if x.is_zero() {
-        T::zero()
+    if x == 0 {
+        0
     } else {
         p - x
     }
@@ -96,29 +71,30 @@ pub fn neg<T: UnsignedInteger>(x: T, p: T) -> T {
 
 /// Computes `1/x` in Zp.
 #[inline]
-pub fn inv<T: UnsignedInteger>(x: T, p: T) -> T {
-    debug_assert!(x > T::zero());
-    debug_assert!(p > T::zero());
+pub fn inv(x: ufield, p: ufield) -> ufield {
+    debug_assert!(x > 0);
+    debug_assert!(p > 0);
     debug_assert!(x < p);
+    assert!(x != 0, "0 is not invertible");
     // by the extended Euclidean algorithm: a x + b p = gcd(x, p) = 1 or a x = 1 (mod p)
     // taken from https://www.di-mgt.com.au/euclidean.html#code-modinv, which is based on Knuth
     // vol. 2, Algorithm X
-    let mut u1 = T::one();
-    let mut u3 = x.clone();
-    let mut v1 = T::zero();
-    let mut v3 = p.clone();
+    let mut u1: ufield = 1;
+    let mut u3 = x;
+    let mut v1: ufield = 0;
+    let mut v3 = p;
     let mut even_iter: bool = true;
-    while !v3.is_zero() {
-        let q = u3.clone() / v3.clone();
-        let t3 = u3 % v3.clone();
-        let t1 = u1 + q * v1.clone();
+    while v3 != 0 {
+        let q = u3 / v3;
+        let t3 = u3 % v3;
+        let t1 = u1 + q * v1;
         u1 = v1;
         v1 = t1;
         u3 = v3;
         v3 = t3;
         even_iter = !even_iter;
     }
-    assert!(u3 == T::one(), "{} is not invertible in Z_{}", x, p);
+    debug_assert!(u3 == 1);
     if even_iter {
         u1
     } else {
@@ -127,55 +103,54 @@ pub fn inv<T: UnsignedInteger>(x: T, p: T) -> T {
 }
 
 /// Computes `x^n` in Zp.
-pub fn pow<T: UnsignedInteger>(x: T, mut n: u32, p: T) -> T {
-    debug_assert!(x >= T::zero());
-    debug_assert!(p > T::zero());
+pub fn pow(x: ufield, mut n: u32, p: ufield) -> ufield {
+    debug_assert!(p > 0);
     debug_assert!(x < p);
-    if x.is_zero() {
+    if x == 0 {
         if n == 0 {
-            return T::one();
+            return 1;
         } else {
-            return T::zero();
+            return 0;
         }
     }
     if n == 0 {
-        return T::one();
+        return 1;
     }
     if n == 1 {
         return x;
     }
     if n == 2 {
-        let y = x.clone();
-        return mul(x, y, p);
+        return mul(x, x, p);
     }
     if n < 6 {
         // (n-1) multiplications
-        let mut r = x.clone();
+        let mut r = x;
         for _ in 1..n {
-            r = mul(r, x.clone(), p.clone());
+            r = mul(r, x, p);
         }
         return r;
     }
     // naive exponentiation by squaring
-    let mut r = T::one();
-    let mut b = x;
-    while n > 1 {
+    let mut r: ucomp = 1;
+    let mut b = ucomp::from(x);
+    let pp = ucomp::from(p);
+    while n != 0 {
         if n & 1 != 0 {
-            r = mul(r, b.clone(), p.clone());
+            r = (r * b) % pp;
         }
-        b = mul(b.clone(), b.clone(), p.clone());
+        b = (b * b) % pp;
         n >>= 1;
     }
-    mul(r, b, p)
+    r as ufield
 }
 
 #[test]
 fn test_add() {
     fn check_add(x: u8, y: u8, p: u8) {
-        let x64 = x as u64;
-        let y64 = y as u64;
-        let p64 = p as u64;
-        let z64 = add(x, y, p) as u64;
+        let x64 = u64::from(x);
+        let y64 = u64::from(y);
+        let p64 = u64::from(p);
+        let z64 = u64::from(add(ufield::from(x), ufield::from(y), ufield::from(p)));
         assert_eq!(z64, (x64 + y64) % p64);
     }
 
@@ -187,10 +162,10 @@ fn test_add() {
 #[test]
 fn test_sub() {
     fn check_sub(x: u8, y: u8, p: u8) {
-        let x64 = x as u64;
-        let y64 = y as u64;
-        let p64 = p as u64;
-        let z64 = sub(x, y, p) as u64;
+        let x64 = u64::from(x);
+        let y64 = u64::from(y);
+        let p64 = u64::from(p);
+        let z64 = u64::from(sub(ufield::from(x), ufield::from(y), ufield::from(p)));
         assert_eq!(z64, (p64 + x64 - y64) % p64);
     }
 
@@ -201,10 +176,10 @@ fn test_sub() {
 #[test]
 fn test_mul() {
     fn check_mul(x: u8, y: u8, p: u8) {
-        let x64 = x as u64;
-        let y64 = y as u64;
-        let p64 = p as u64;
-        let z64 = mul(x, y, p) as u64;
+        let x64 = u64::from(x);
+        let y64 = u64::from(y);
+        let p64 = u64::from(p);
+        let z64 = u64::from(mul(ufield::from(x), ufield::from(y), ufield::from(p)));
         assert_eq!(z64, x64 * y64 % p64);
     }
 
@@ -228,7 +203,7 @@ fn test_mul() {
 
 #[test]
 fn test_neg() {
-    fn check_neg(x: u8, p: u8) {
+    fn check_neg(x: ufield, p: ufield) {
         let z = neg(x, p);
         assert_eq!(add(x, z, p), 0);
     }
@@ -247,7 +222,7 @@ fn test_neg() {
 
 #[test]
 fn test_inv() {
-    fn check_inv(x: u8, p: u8) {
+    fn check_inv(x: ufield, p: ufield) {
         let z = inv(x, p);
         assert_eq!(mul(x, z, p), 1);
     }
@@ -266,10 +241,10 @@ fn test_inv() {
 #[test]
 fn test_pow() {
     fn check_pow(x: u8, n: u8, p: u8) {
-        let x64 = x as u64;
-        let n32 = n as u32;
-        let p64 = p as u64;
-        let z64 = pow(x, n as u32, p) as u64;
+        let x64 = u64::from(x);
+        let n32 = u32::from(n);
+        let p64 = u64::from(p);
+        let z64 = u64::from(pow(ufield::from(x), u32::from(n), ufield::from(p)));
         assert_eq!(z64, x64.pow(n32) % p64);
     }
 
