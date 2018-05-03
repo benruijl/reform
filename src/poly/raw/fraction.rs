@@ -6,6 +6,7 @@ use tools::GCD;
 use num_traits::cast::AsPrimitive;
 
 use poly::raw::finitefield::FiniteField;
+use poly::raw::zp::ufield;
 use poly::ring::{MulModNum, ToFiniteField};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -151,11 +152,11 @@ impl Mul<usize> for Fraction {
 }
 
 impl MulModNum for Fraction {
-    fn mul_num(&self, n: usize) -> Fraction {
-        self.clone() * n
+    fn mul_num(&self, n: ufield) -> Fraction {
+        self.clone() * (n as usize)
     }
 
-    fn mod_num(&self, n: usize) -> Fraction {
+    fn mod_num(&self, n: ufield) -> Fraction {
         self.clone() % Fraction::new(n as isize, 1)
     }
 }
@@ -181,13 +182,8 @@ impl Pow<usize> for Fraction {
 }
 
 impl ToFiniteField for Fraction {
-    fn to_finite_field(&self, p: usize) -> FiniteField {
-        if self.num < 0 {
-            FiniteField::new((-self.num / p as isize + self.num + 1) as usize, p)
-                / FiniteField::new(self.den, p)
-        } else {
-            FiniteField::new(self.num as usize, p) / FiniteField::new(self.den, p)
-        }
+    fn to_finite_field(&self, p: ufield) -> FiniteField {
+        FiniteField::from_i64(self.num as i64, p) / FiniteField::from_u64(self.den as u64, p)
     }
 
     fn from_finite_field(ff: &FiniteField) -> Fraction {

@@ -1,5 +1,6 @@
 use num_traits;
 use num_traits::{checked_pow, Inv, One, Zero};
+use rug::ops::Pow;
 use rug::{Integer, Rational};
 use std::cmp::Ordering;
 use std::fmt;
@@ -360,7 +361,6 @@ impl num_traits::Pow<u32> for Number {
 
     fn pow(self, rhs: u32) -> Number {
         use self::Number::*;
-        use rug::ops::Pow;
         match self {
             SmallInt(i) => match checked_pow(i, rhs as usize) {
                 Some(x) => SmallInt(x),
@@ -388,5 +388,60 @@ impl MulAssign for Number {
 impl AddAssign for Number {
     fn add_assign(&mut self, rhs: Number) {
         *self = self.clone() + rhs; // TODO: optimize
+    }
+}
+
+/// Use Garner's algorithm for the Chinese remainder theorem
+/// to reconstruct an x that satisfies n1 = x % p1 and n2 = x % p2.
+/// The x will be in the range [-p1*p2/2,p1*p2/2].
+pub fn chinese_remainder(n1: Number, n2: Number, p1: Number, p2: Number) -> Number {
+    if n1 > n2 {
+        return chinese_remainder(n2, n1, p2, p1);
+    }
+
+    // convert to mixed-radix notation
+    let gamma1 = match (&p1, &p2) {
+        (Number::SmallInt(i1), Number::SmallInt(i2)) => {
+            let ii1 = Integer::from(i1.clone());
+            let ii2 = Integer::from(i2.clone());
+            Number::BigInt(
+                (ii1.clone() % ii2.clone())
+                    .invert(&ii2)
+                    .expect(&format!("Could not invert {} in {}", ii1, ii2)),
+            )
+        }
+        (Number::BigInt(i1), Number::BigInt(i2)) => Number::BigInt(
+            (i1.clone() % i2.clone())
+                .invert(i2)
+                .expect(&format!("Could not invert {} in {}", i1, i2)),
+        ),
+        (Number::BigInt(i1), Number::SmallInt(i2)) => {
+            let ii2 = Integer::from(i2.clone());
+            Number::BigInt(
+                (i1.clone() % ii2.clone())
+                    .invert(&ii2)
+                    .expect(&format!("Could not invert {} in {}", i1, i2)),
+            )
+        }
+        (Number::SmallInt(i1), Number::BigInt(i2)) => {
+            let ii1 = Integer::from(i1.clone());
+            Number::BigInt(
+                (ii1.clone() % i2.clone())
+                    .invert(i2)
+                    .expect(&format!("Could not invert {} in {}", i1, i2)),
+            )
+        }
+        _ => unreachable!(),
+    };
+
+    let v1 = ((n2.clone() - n1.clone()) * gamma1.clone()) % p2.clone();
+
+    // convert to standard representation
+    let mut r = v1 * p1.clone() + n1;
+    r.normalize_inplace(); // potentially downgrade from bigint
+    if r > p1.clone() / Number::SmallInt(2) * p2.clone() {
+        r - p1 * p2
+    } else {
+        r
     }
 }
