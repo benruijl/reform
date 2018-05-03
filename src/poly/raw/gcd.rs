@@ -7,6 +7,7 @@ use poly::ring::Ring;
 use number;
 use number::Number;
 use poly::raw::finitefield::FiniteField;
+use poly::raw::zp;
 use poly::raw::zp::ufield;
 use poly::raw::MultivariatePolynomial;
 use poly::ring::MulModNum;
@@ -102,6 +103,7 @@ fn construct_new_image<E: Exponent>(
     let mut last_rank = (0, 0);
     'newimage: loop {
         // generate random numbers for all non-leading variables
+        // TODO: apply a Horner scheme to speed up the substitution?
         let (r, a1, b1) = loop {
             let r: Vec<(usize, FiniteField)> = vars.iter()
                 .map(|i| (i.clone(), FiniteField::new(range.sample(&mut rng), p)))
@@ -170,6 +172,7 @@ fn construct_new_image<E: Exponent>(
 
         // construct the linear system
         let mut gfm = vec![];
+        let mut rhs = vec![0; gfu.len() * system.len()];
 
         for (i, &(ref c, ref _e)) in gfu.iter().enumerate() {
             for (j, &(ref r, ref g, ref scale_factor)) in system.iter().enumerate() {
@@ -196,14 +199,26 @@ fn construct_new_image<E: Exponent>(
                 }
 
                 // add the coefficient from the image
+                // for single scaling, we move them to the rhs
+                if single_scale.is_some() {
+                    let currow = i * system.len() + j;
+                    rhs[currow] =
+                        zp::sub(rhs[currow], (g.coefficients[i] * scale_factor.clone()).n, p);
+                    gfm.extend(row);
+                    continue;
+                }
+
                 for ii in 0..system.len() {
                     if ii == j {
                         // TODO: is i always the correct coefficient index?
 
-                        // for the single scaling case, we scale the images in the matrix
-                        // we also add rows (later) to the matrix that force all scaling constants
-                        // to 1.
-                        row.push((g.coefficients[i] * scale_factor.clone()).n);
+                        // the scaling of the first image is fixed to 1
+                        if ii == 0 {
+                            let currow = i * system.len();
+                            rhs[currow] = zp::sub(rhs[currow], g.coefficients[i].n, p);
+                        } else {
+                            row.push((g.coefficients[i] * scale_factor.clone()).n);
+                        }
                     } else {
                         row.push(0);
                     }
@@ -215,28 +230,7 @@ fn construct_new_image<E: Exponent>(
 
         let rows = gfu.len() * system.len();
         let cols = gfm.len() / rows;
-        let mut newrows = rows;
-
-        // add constraint row to set the first scaling coefficient to 1
-        // or all of them, in case of single scaling
-        let onecount = if single_scale == None {
-            newrows += 1;
-            1
-        } else {
-            newrows += system.len();
-            system.len()
-        };
-
-        let mut rhs = vec![0; newrows];
-        for i in 0..onecount {
-            let mut con = vec![0; cols];
-            con[cols - system.len() + i] = 1;
-
-            rhs[rows + i] = 1;
-            gfm.extend(con);
-        }
-
-        let m = Array::from_shape_vec((newrows, cols), gfm).unwrap();
+        let m = Array::from_shape_vec((rows, cols), gfm).unwrap();
 
         match solve(&m, &arr1(&rhs), p) {
             Ok(x) => {

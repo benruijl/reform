@@ -326,12 +326,12 @@ impl Element {
                     // sort and merge the terms at the same time
                     if false {
                         if ts.len() > 1 {
-                            changed |= expr_sort(ts, merge_factors, var_info, false);
+                            changed |= expr_sort(ts, merge_factors, var_info, true);
                         }
                     } else {
                         // TODO: this is faster than expr_sort. presumable because there are fewer
                         // merge_factor calls
-                        ts.sort_unstable_by(|l, r| l.partial_cmp(r, var_info, false).unwrap());
+                        ts.sort_unstable_by(|l, r| l.partial_cmp(r, var_info, true).unwrap());
 
                         // now merge pows: x^a*x^b = x^(a*b)
                         // x*x^a and x*x, all should be side by side now

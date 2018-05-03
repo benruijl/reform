@@ -1,4 +1,11 @@
-$exp = 5;
+// workaround for an inefficiency
+attrib $a = nonlocal;
+attrib $b = nonlocal;
+attrib $g = nonlocal;
+attrib $ag = nonlocal;
+attrib $bg = nonlocal;
+
+$exp = 6;
 
 
 $a = (1 + 3*x1 + 5*x2 + 7*x3 + 9*x4 + 11*x5 + 13*x6 + 15*x7)^$exp - 1;
@@ -16,5 +23,9 @@ inside $ag,$bg {
     expand;
 }
 
-$r = gcd_($ag, $bg);
-print $r;
+$r = gcd_($ag, $bg) - $g;
+
+inside $r {
+    expand;
+}
+print $r; // should yield 0

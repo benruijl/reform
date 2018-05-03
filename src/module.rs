@@ -238,13 +238,16 @@ impl<'a> StatementIter<'a> {
         match *self {
             StatementIter::IdentityStatement(ref mut id) => id.next(),
             StatementIter::Multiple(ref mut f, m) => {
-                if f.is_empty() {
-                    return StatementResult::Done;
-                }
-                if m {
-                    StatementResult::Executed(f.pop().unwrap()) // FIXME: pops the last term
-                } else {
-                    StatementResult::NotExecuted(f.pop().unwrap())
+                // FIXME: this pops the last term instead of the first
+                match f.pop() {
+                    Some(x) => {
+                        if m {
+                            StatementResult::Executed(x)
+                        } else {
+                            StatementResult::NotExecuted(x)
+                        }
+                    }
+                    None => StatementResult::Done,
                 }
             }
             StatementIter::Simple(..) => {
@@ -1182,6 +1185,19 @@ impl Program {
                 }
                 // this will create a subrecursion
                 Statement::Inside(ref ds, ref mut sts) => {
+                    // normalize the statements
+                    let mut old_statements = mem::replace(sts, vec![]);
+                    Module::statements_to_control_flow_stat(
+                        &mut old_statements,
+                        &mut self.var_info,
+                        &self.procedures,
+                        sts,
+                    );
+
+                    for x in sts.iter_mut() {
+                        x.normalize(&self.var_info.global_info);
+                    }
+
                     for d in ds {
                         if let Element::Dollar(name, _) = *d {
                             let mut dollar = mem::replace(
@@ -1192,19 +1208,6 @@ impl Program {
                                     .expect("Dollar variable is uninitialized"),
                                 DUMMY_ELEM!(),
                             );
-
-                            // normalize the statements
-                            let mut old_statements = mem::replace(sts, vec![]);
-                            Module::statements_to_control_flow_stat(
-                                &mut old_statements,
-                                &mut self.var_info,
-                                &self.procedures,
-                                sts,
-                            );
-
-                            for x in sts.iter_mut() {
-                                x.normalize(&self.var_info.global_info);
-                            }
 
                             let mut tsr = TermStreamWrapper::Owned(vec![]);
                             do_module_rec(
