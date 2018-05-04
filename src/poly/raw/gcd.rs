@@ -173,7 +173,6 @@ fn construct_new_image<E: Exponent>(
         // construct the linear system
         let mut gfm = vec![];
         let mut rhs = vec![0; gfu.len() * system.len()];
-
         for (i, &(ref c, ref _e)) in gfu.iter().enumerate() {
             for (j, &(ref r, ref g, ref scale_factor)) in system.iter().enumerate() {
                 let mut row = vec![];
@@ -208,17 +207,15 @@ fn construct_new_image<E: Exponent>(
                     continue;
                 }
 
-                for ii in 0..system.len() {
-                    if ii == j {
-                        // TODO: is i always the correct coefficient index?
+                // the scaling of the first image is fixed to 1
+                if j == 0 {
+                    let currow = i * system.len();
+                    rhs[currow] = zp::sub(rhs[currow], g.coefficients[i].n, p);
+                }
 
-                        // the scaling of the first image is fixed to 1
-                        if ii == 0 {
-                            let currow = i * system.len();
-                            rhs[currow] = zp::sub(rhs[currow], g.coefficients[i].n, p);
-                        } else {
-                            row.push((g.coefficients[i] * scale_factor.clone()).n);
-                        }
+                for ii in 1..system.len() {
+                    if ii == j {
+                        row.push((g.coefficients[i] * scale_factor.clone()).n);
                     } else {
                         row.push(0);
                     }
