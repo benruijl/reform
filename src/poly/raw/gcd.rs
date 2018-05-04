@@ -112,7 +112,7 @@ fn construct_new_image<E: Exponent>(
             let a1 = ap.replace_multiple(&r);
             let b1 = bp.replace_multiple(&r);
 
-            if a1.ldegree() == aldegree && b1.ldegree() == bldegree {
+            if a1.ldegree(var) == aldegree && b1.ldegree(var) == bldegree {
                 break (r, a1, b1);
             }
         };
@@ -120,14 +120,14 @@ fn construct_new_image<E: Exponent>(
         let g1 = MultivariatePolynomial::univariate_gcd(&a1, &b1);
         trace!("GCD of sample at point {:?}: {}", r, g1);
 
-        if g1.ldegree().as_() < bounds[0] {
+        if g1.ldegree(var).as_() < bounds[var] {
             // original image and form and degree bounds are unlucky
             // change the bound and try a new prime
-            bounds[0] = g1.ldegree().as_();
+            bounds[0] = g1.ldegree(var).as_();
             return Err(GCDError::BadOriginalImage);
         }
 
-        if g1.ldegree().as_() > bounds[0] {
+        if g1.ldegree(var).as_() > bounds[var] {
             failure_count += 1;
 
             if failure_count > 2 || failure_count > ni {
@@ -357,10 +357,10 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                 }
             } else {
                 let gg = MultivariatePolynomial::univariate_gcd(&av, &bv);
-                if gg.ldegree().as_() > dx[vars[0]] {
+                if gg.ldegree(vars[0]).as_() > dx[vars[0]] {
                     return None;
                 }
-                dx[vars[0]] = gg.ldegree().as_(); // update degree bound
+                dx[vars[0]] = gg.ldegree(vars[0]).as_(); // update degree bound
                 gg
             };
 
@@ -409,8 +409,8 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                 match construct_new_image(
                     &av,
                     &bv,
-                    a.ldegree(),
-                    b.ldegree(),
+                    a.ldegree(vars[0]),
+                    b.ldegree(vars[0]),
                     dx,
                     single_scale,
                     nx,
@@ -446,13 +446,14 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
 
             // do a probabilistic division test
             let (g1, a1, b1) = loop {
-                let r: Vec<(usize, FiniteField)> = (1..a.nvars)
-                    .map(|i| (i, FiniteField::new(range.sample(&mut rng), p)))
+                let r: Vec<(usize, FiniteField)> = vars.iter()
+                    .skip(1)
+                    .map(|i| (*i, FiniteField::new(range.sample(&mut rng), p)))
                     .collect();
 
                 let g1 = gc.replace_multiple(&r);
 
-                if g1.ldegree() == gc.ldegree() {
+                if g1.ldegree(vars[0]) == gc.ldegree(vars[0]) {
                     let a1 = a.replace_multiple(&r);
                     let b1 = b.replace_multiple(&r);
                     break (g1, a1, b1);
@@ -796,8 +797,8 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                     match construct_new_image(
                         &ap,
                         &bp,
-                        a.ldegree(),
-                        b.ldegree(),
+                        a.ldegree(vars[0]),
+                        b.ldegree(vars[0]),
                         bounds,
                         single_scale,
                         nx,

@@ -501,8 +501,7 @@ impl<R: Ring, E: Exponent> Neg for MultivariatePolynomial<R, E> {
     fn neg(mut self) -> Self::Output {
         // Negate coefficients of all terms.
         for c in &mut self.coefficients {
-            let mut new_c = mem::replace(c, R::zero()).neg();
-            mem::swap(c, &mut new_c);
+            *c = mem::replace(c, R::zero()).neg();
         }
         self
     }
@@ -626,9 +625,9 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         max
     }
 
-    // Get the highest degree of the first variable in the leading monomial.
-    pub fn ldegree(&self) -> E {
-        self.last_exponents()[0].clone()
+    // Get the highest degree of a variable in the leading monomial.
+    pub fn ldegree(&self, v: usize) -> E {
+        self.last_exponents()[v].clone()
     }
 
     /// Get the highest degree of the leading monomial.
@@ -793,8 +792,9 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
         let mut q = MultivariatePolynomial::with_nvars(self.nvars);
         let mut r = self.clone();
+        let divdeg = div.ldegree_max();
 
-        while !r.is_zero() && r.ldegree_max() >= div.ldegree_max() {
+        while !r.is_zero() && r.ldegree_max() >= divdeg {
             if !(r.coefficients.last().unwrap().clone() % div.coefficients.last().unwrap().clone())
                 .is_zero()
             {
@@ -813,7 +813,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                 .collect();
 
             q.append_monomial(tc.clone(), tp.clone());
-            r = r - MultivariatePolynomial::from_monomial(tc, tp) * div.clone(); // TODO: we shouldn't clone div
+            r = r - div.clone().mul_monomial(&tc, &tp);
         }
 
         (q, r)
