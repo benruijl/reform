@@ -161,42 +161,71 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                 self.nvars
             );
         }
-        // Linear search to find the insert-point.
-        // TODO: Binary search.
-        for i in 0..self.nterms {
+
+        if self.nterms == 0 {
+            self.coefficients.push(coefficient);
+            self.exponents.append(&mut exponents);
+            self.nterms += 1;
+            return;
+        }
+
+        // Binary search to find the insert-point.
+        let mut l = 0;
+        let mut r = self.nterms;
+
+        while l <= r {
+            let m = (l + r) / 2;
+
             let c;
             {
-                let a = self.exponents(i);
+                let a = self.exponents(m);
                 let b = &exponents[..];
-                c = Self::cmp_exponents(a, b);
+                c = Self::cmp_exponents(b, a); // note the reversal
             }
-            if c == Ordering::Equal {
-                // Add the two coefficients.
-                let mut new_coeff =
-                    mem::replace(&mut self.coefficients[i], R::zero()).add(coefficient);
-                if new_coeff.is_zero() {
-                    // The coefficient becomes zero. Remove this monomial.
-                    self.coefficients.remove(i);
-                    let i = i * self.nvars;
-                    self.exponents.splice(i..i + self.nvars, Vec::new());
-                    self.nterms -= 1;
-                } else {
-                    // Set the new coefficient.
-                    mem::swap(&mut self.coefficients[i], &mut new_coeff);
+
+            match c {
+                Ordering::Equal => {
+                    // Add the two coefficients.
+                    let mut new_coeff =
+                        mem::replace(&mut self.coefficients[m], R::zero()).add(coefficient);
+                    if new_coeff.is_zero() {
+                        // The coefficient becomes zero. Remove this monomial.
+                        self.coefficients.remove(m);
+                        let i = m * self.nvars;
+                        self.exponents.splice(i..i + self.nvars, Vec::new());
+                        self.nterms -= 1;
+                    } else {
+                        // Set the new coefficient.
+                        mem::swap(&mut self.coefficients[m], &mut new_coeff);
+                    }
+                    return;
                 }
-                return;
-            } else if c == Ordering::Greater {
-                // Insert the monomial at this point.
-                self.coefficients.insert(i, coefficient);
-                let i = i * self.nvars;
-                self.exponents.splice(i..i, exponents);
-                self.nterms += 1;
-                return;
+                Ordering::Greater => {
+                    l = m + 1;
+
+                    if l == self.nterms {
+                        self.coefficients.push(coefficient);
+                        self.exponents.append(&mut exponents);
+                        self.nterms += 1;
+                        return;
+                    }
+                }
+                Ordering::Less => {
+                    if m == 0 {
+                        self.coefficients.insert(0, coefficient);
+                        self.exponents.splice(0..0, exponents);
+                        self.nterms += 1;
+                        return;
+                    }
+
+                    r = m - 1;
+                }
             }
         }
-        // Push the monomial at the last.
-        self.coefficients.push(coefficient);
-        self.exponents.append(&mut exponents);
+
+        self.coefficients.insert(l, coefficient);
+        let i = l * self.nvars;
+        self.exponents.splice(i..i, exponents);
         self.nterms += 1;
     }
 }
