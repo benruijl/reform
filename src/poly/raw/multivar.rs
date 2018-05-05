@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
 use std::mem;
@@ -706,7 +707,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     }
 
     /// Replace a list of variables in the polynomial by elements from
-    /// the ring `v'.
+    /// the ring.
     pub fn replace_multiple(&self, r: &[(usize, R)]) -> MultivariatePolynomial<R, E> {
         let mut res = MultivariatePolynomial::with_nvars(self.nvars);
         for t in 0..self.nterms {
@@ -718,6 +719,37 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                 e[n] = E::zero();
             }
 
+            res.append_monomial(c, e);
+        }
+
+        res
+    }
+
+    /// Replace all variables except `v` in the polynomial by elements from
+    /// the ring.
+    pub fn replace_all_except(&self, v: usize, r: &[(usize, R)]) -> MultivariatePolynomial<R, E> {
+        let mut tm: HashMap<E, R> = HashMap::new();
+
+        for t in 0..self.nterms {
+            let mut c = self.coefficients[t].clone();
+            for &(n, ref vv) in r {
+                c *= vv.clone().pow(self.exponents(t)[n].as_());
+            }
+
+            match tm.entry(self.exponents(t)[v]) {
+                Entry::Occupied(mut e) => {
+                    *e.get_mut() = mem::replace(e.get_mut(), R::zero()) + c;
+                }
+                Entry::Vacant(mut e) => {
+                    e.insert(c);
+                }
+            }
+        }
+
+        let mut res = MultivariatePolynomial::with_nvars(self.nvars);
+        for (k, c) in tm {
+            let mut e = vec![E::zero(); self.nvars];
+            e[v] = k;
             res.append_monomial(c, e);
         }
 

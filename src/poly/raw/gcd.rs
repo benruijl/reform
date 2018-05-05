@@ -109,8 +109,8 @@ fn construct_new_image<E: Exponent>(
                 .map(|i| (i.clone(), FiniteField::new(range.sample(&mut rng), p)))
                 .collect();
 
-            let a1 = ap.replace_multiple(&r);
-            let b1 = bp.replace_multiple(&r);
+            let a1 = ap.replace_all_except(var, &r);
+            let b1 = bp.replace_all_except(var, &r);
 
             if a1.ldegree(var) == aldegree && b1.ldegree(var) == bldegree {
                 break (r, a1, b1);
@@ -451,11 +451,11 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                     .map(|i| (*i, FiniteField::new(range.sample(&mut rng), p)))
                     .collect();
 
-                let g1 = gc.replace_multiple(&r);
+                let g1 = gc.replace_all_except(vars[0], &r);
 
                 if g1.ldegree(vars[0]) == gc.ldegree(vars[0]) {
-                    let a1 = a.replace_multiple(&r);
-                    let b1 = b.replace_multiple(&r);
+                    let a1 = a.replace_all_except(vars[0], &r);
+                    let b1 = b.replace_all_except(vars[0], &r);
                     break (g1, a1, b1);
                 }
             };
