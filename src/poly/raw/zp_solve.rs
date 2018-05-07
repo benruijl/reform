@@ -69,7 +69,10 @@ pub fn solve<S1: Data<Elem = ufield>, S2: Data<Elem = ufield>>(
         for k in i + 1..neqs {
             if m[(k, j)] != 0 {
                 let s = zp::mul(m[(k, j)], inv_x, p);
-                m[(k, j)] = 0;
+                #[cfg(debug_assertions)]
+                {
+                    m[(k, j)] = 0;
+                }
                 for l in j + 1..nvars + 1 {
                     m[(k, l)] = zp::sub(m[(k, l)], zp::mul(m[(i, l)], s, p), p);
                 }
@@ -105,15 +108,18 @@ pub fn solve<S1: Data<Elem = ufield>, S2: Data<Elem = ufield>>(
         if m[(i, j)] != 1 {
             let x = m[(i, j)];
             let inv_x = zp::inv(x, p);
-            m[(i, j)] = 1;
+            #[cfg(debug_assertions)]
+            {
+                m[(i, j)] = 1;
+            }
             m[(i, nvars)] = zp::mul(m[(i, nvars)], inv_x, p);
         }
         for k in 0..i {
             if m[(k, j)] != 0 {
-                let s = m[(k, j)];
-                m[(k, j)] = 0;
-                for l in j + 1..nvars + 1 {
-                    m[(k, l)] = zp::sub(m[(k, l)], zp::mul(m[(i, l)], s, p), p);
+                m[(k, nvars)] = zp::sub(m[(k, nvars)], zp::mul(m[(i, nvars)], m[(k, j)], p), p);
+                #[cfg(debug_assertions)]
+                {
+                    m[(k, j)] = 0;
                 }
             }
         }
