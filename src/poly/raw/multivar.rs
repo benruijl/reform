@@ -12,6 +12,7 @@ use poly::exponent::Exponent;
 use poly::ring::Ring;
 
 use poly::raw::finitefield::FiniteField;
+use poly::raw::gcd::POW_CACHE_SIZE;
 use poly::raw::zp::ufield;
 
 /// Multivariate polynomial with a degree sparse and variable dense representation.
@@ -510,9 +511,8 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         i: usize,
     ) {
         new_coefficients.push(mem::replace(&mut source.coefficients[i], R::zero()));
-        new_exponents.reserve(source.nvars);
         for e in source.exponents_mut(i) {
-            new_exponents.push(mem::replace(e, E::zero()));
+            new_exponents.push(*e);
         }
         *new_nterms += 1;
     }
@@ -727,13 +727,28 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
     /// Replace all variables except `v` in the polynomial by elements from
     /// the ring.
-    pub fn replace_all_except(&self, v: usize, r: &[(usize, R)]) -> MultivariatePolynomial<R, E> {
+    pub fn replace_all_except(
+        &self,
+        v: usize,
+        r: &[(usize, R)],
+        cache: &mut [[R; POW_CACHE_SIZE]],
+    ) -> MultivariatePolynomial<R, E> {
         let mut tm: HashMap<E, R> = HashMap::new();
 
         for t in 0..self.nterms {
             let mut c = self.coefficients[t].clone();
             for &(n, ref vv) in r {
-                c *= vv.clone().pow(self.exponents(t)[n].as_());
+                let p = self.exponents(t)[n].as_() as usize;
+                if p > 0 {
+                    if n < POW_CACHE_SIZE {
+                        if cache[p][n].is_zero() {
+                            cache[p][n] = vv.clone().pow(p as u32);
+                        }
+                        c *= cache[p][n].clone();
+                    } else {
+                        c *= vv.clone().pow(p as u32);
+                    }
+                }
             }
 
             match tm.entry(self.exponents(t)[v]) {

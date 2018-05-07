@@ -36,6 +36,9 @@ pub const LARGE_U32_PRIMES: [ufield; 100] = [
     4293491591, 4293492169, 4293492821, 4293493487,
 ];
 
+// The maximum power of a variable that is cached
+pub const POW_CACHE_SIZE: usize = 20;
+
 enum GCDError {
     BadOriginalImage,
     BadCurrentImage,
@@ -101,16 +104,28 @@ fn construct_new_image<E: Exponent>(
 
     let mut rank_failure_count = 0;
     let mut last_rank = (0, 0);
+
     'newimage: loop {
         // generate random numbers for all non-leading variables
         // TODO: apply a Horner scheme to speed up the substitution?
         let (r, a1, b1) = loop {
+            // store a table for variables raised to a certain power
+            let mut cache = vec![[FiniteField::zero(); POW_CACHE_SIZE]; ap.nvars];
+
             let r: Vec<(usize, FiniteField)> = vars.iter()
                 .map(|i| (i.clone(), FiniteField::new(range.sample(&mut rng), p)))
                 .collect();
 
-            let a1 = ap.replace_all_except(var, &r);
-            let b1 = bp.replace_all_except(var, &r);
+            /*for &(n, ref vv) in &r {
+                cache[n].insert(1, vv.clone());
+                for i in 2..12 {
+                    let k = cache[n][&(i - 1)].clone();
+                    cache[n].insert(i, k * vv.clone());
+                }
+            }*/
+
+            let a1 = ap.replace_all_except(var, &r, &mut cache);
+            let b1 = bp.replace_all_except(var, &r, &mut cache);
 
             if a1.ldegree(var) == aldegree && b1.ldegree(var) == bldegree {
                 break (r, a1, b1);
@@ -129,7 +144,6 @@ fn construct_new_image<E: Exponent>(
 
         if g1.ldegree(var).as_() > bounds[var] {
             failure_count += 1;
-
             if failure_count > 2 || failure_count > ni {
                 // p is likely unlucky
                 return Err(GCDError::BadCurrentImage);
@@ -446,16 +460,19 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
 
             // do a probabilistic division test
             let (g1, a1, b1) = loop {
+                // store a table for variables raised to a certain power
+                let mut cache = vec![[FiniteField::zero(); POW_CACHE_SIZE]; a.nvars];
+
                 let r: Vec<(usize, FiniteField)> = vars.iter()
                     .skip(1)
                     .map(|i| (*i, FiniteField::new(range.sample(&mut rng), p)))
                     .collect();
 
-                let g1 = gc.replace_all_except(vars[0], &r);
+                let g1 = gc.replace_all_except(vars[0], &r, &mut cache);
 
                 if g1.ldegree(vars[0]) == gc.ldegree(vars[0]) {
-                    let a1 = a.replace_all_except(vars[0], &r);
-                    let b1 = b.replace_all_except(vars[0], &r);
+                    let a1 = a.replace_all_except(vars[0], &r, &mut cache);
+                    let b1 = b.replace_all_except(vars[0], &r, &mut cache);
                     break (g1, a1, b1);
                 }
             };
@@ -496,7 +513,7 @@ where
         assert!(f.len() > 0);
 
         if f.len() == 1 {
-            return f[0].clone();
+            return f.swap_remove(0);
         }
 
         if f.len() == 2 {
@@ -507,10 +524,10 @@ where
         let mut gcd;
 
         loop {
-            let a = f[0].clone(); // TODO: take the smallest?
+            let a = f.swap_remove(0); // TODO: take the smallest?
             let mut b = MultivariatePolynomial::with_nvars(a.nvars);
 
-            for p in f.iter().skip(1) {
+            for p in f.iter() {
                 for v in p.into_iter() {
                     b.append_monomial(v.coefficient.mul_num(k), v.exponents.to_vec());
                 }
@@ -519,10 +536,10 @@ where
 
             gcd = MultivariatePolynomial::gcd(&a, &b);
 
-            let mut newf: Vec<MultivariatePolynomial<R, E>> = vec![];
-            for x in &f {
+            let mut newf: Vec<MultivariatePolynomial<R, E>> = Vec::with_capacity(f.len());
+            for x in f.drain(..) {
                 if !x.long_division(&gcd).1.is_zero() {
-                    newf.push(x.clone());
+                    newf.push(x);
                 }
             }
 
