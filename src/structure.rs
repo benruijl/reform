@@ -1,7 +1,7 @@
 use num_traits::One;
 use number::Number;
-use poly::convert::PolyPrinter;
-use poly::raw::MultivariatePolynomial;
+use poly::polynomial::PolyPrinter;
+use poly::polynomial::Polynomial;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt;
@@ -299,13 +299,7 @@ pub enum Element<ID: Id = VarName> {
     Term(bool, Vec<Element<ID>>),
     SubExpr(bool, Vec<Element<ID>>),
     Num(bool, Number),
-    RationalPolynomialCoefficient(
-        bool,
-        Box<(
-            MultivariatePolynomial<Number, u32>,
-            MultivariatePolynomial<Number, u32>,
-        )>,
-    ),
+    RationalPolynomialCoefficient(bool, Box<(Polynomial, Polynomial)>),
 }
 
 impl<ID: Id> Default for Element<ID> {

@@ -1,7 +1,6 @@
 use num_traits::{One, Pow, Zero};
 use number::Number;
-use poly::convert::{to_expression, to_rational_polynomial};
-use poly::raw::MultivariatePolynomial;
+use poly::polynomial::Polynomial;
 use std::cmp::Ordering;
 use std::mem;
 use std::ptr;
@@ -74,28 +73,23 @@ impl Element {
                         // TODO: what to do with variable mappings?
                         // we don't want an enormous array
                         if a.len() == 1 {
-                            if let Ok(prf) = to_rational_polynomial(&a[0], var_info.num_vars()) {
-                                Element::RationalPolynomialCoefficient(
-                                    false,
-                                    Box::new((
-                                        prf,
-                                        MultivariatePolynomial::from_constant_with_nvars(
-                                            Number::one(),
-                                            var_info.num_vars(),
-                                        ),
-                                    )),
-                                )
+                            if let Ok(mut prf) = Polynomial::from(&a[0]) {
+                                let mut one = prf.cloned_one();
+                                prf.unify_varmaps(&mut one); // make sure the variables are shared
+                                Element::RationalPolynomialCoefficient(false, Box::new((prf, one)))
                             } else {
                                 return false;
                             }
                         } else {
-                            match to_rational_polynomial(&a[0], var_info.num_vars()) {
-                                Ok(num) => match to_rational_polynomial(&a[1], var_info.num_vars())
-                                {
-                                    Ok(den) => Element::RationalPolynomialCoefficient(
-                                        false,
-                                        Box::new((num, den)),
-                                    ),
+                            match Polynomial::from(&a[0]) {
+                                Ok(mut num) => match Polynomial::from(&a[1]) {
+                                    Ok(mut den) => {
+                                        num.unify_varmaps(&mut den); // make sure the variables are shared
+                                        Element::RationalPolynomialCoefficient(
+                                            false,
+                                            Box::new((num, den)),
+                                        )
+                                    }
                                     _ => return false,
                                 },
                                 _ => return false,
@@ -107,14 +101,14 @@ impl Element {
                             return false;
                         }
 
-                        let ar = to_rational_polynomial(&a[0], var_info.num_vars());
-                        let br = to_rational_polynomial(&a[1], var_info.num_vars());
+                        let mut ar = Polynomial::from(&a[0]);
+                        let mut br = Polynomial::from(&a[1]);
 
-                        if let (Ok(a1), Ok(a2)) = (ar, br) {
-                            let gcd = MultivariatePolynomial::gcd(&a1, &a2);
+                        if let (Ok(mut a1), Ok(mut a2)) = (ar, br) {
+                            let gcd = a1.gcd(&mut a2);
 
                             // TODO: convert back to a subexpression
-                            let mut res = to_expression(gcd);
+                            let mut res = gcd.to_expression();
                             res.normalize_inplace(var_info);
                             res
                         } else {
@@ -470,23 +464,17 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
         if let Element::Num(ref _dirty, ref mut n) = *sec {
             let (ref mut num, ref mut den) = &mut **p;
             match n {
-                Number::SmallInt(_) => {
-                    *num = mem::replace(num, MultivariatePolynomial::new()) * n.clone()
-                } // TODO: improve
-                Number::BigInt(_) => {
-                    *num = mem::replace(num, MultivariatePolynomial::new()) * n.clone()
-                }
+                Number::SmallInt(_) => *num = mem::replace(num, Polynomial::new()) * n.clone(), // TODO: improve
+                Number::BigInt(_) => *num = mem::replace(num, Polynomial::new()) * n.clone(),
                 Number::SmallRat(ref num1, ref den1) => {
-                    *num = mem::replace(num, MultivariatePolynomial::new())
-                        * Number::SmallInt(num1.clone());
-                    *den = mem::replace(den, MultivariatePolynomial::new())
-                        * Number::SmallInt(den1.clone());
+                    *num = mem::replace(num, Polynomial::new()) * Number::SmallInt(num1.clone());
+                    *den = mem::replace(den, Polynomial::new()) * Number::SmallInt(den1.clone());
                 }
                 Number::BigRat(ref nd) => {
-                    *num = mem::replace(num, MultivariatePolynomial::new())
-                        * Number::BigInt(nd.numer().clone());
-                    *den = mem::replace(den, MultivariatePolynomial::new())
-                        * Number::BigInt(nd.denom().clone());
+                    *num =
+                        mem::replace(num, Polynomial::new()) * Number::BigInt(nd.numer().clone());
+                    *den =
+                        mem::replace(den, Polynomial::new()) * Number::BigInt(nd.denom().clone());
                 }
             }
 
@@ -498,21 +486,21 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
             let (ref mut num, ref mut den) = &mut **p;
             let (ref mut num1, ref mut den1) = &mut **p1;
 
-            let g1 = MultivariatePolynomial::gcd(num, den1);
-            let g2 = MultivariatePolynomial::gcd(num1, den);
+            let mut g1 = num.gcd(den1);
+            let mut g2 = num1.gcd(den);
 
-            let numnew = num.long_division(&g1).0;
-            let num1new = num1.long_division(&g2).0;
-            let dennew = den.long_division(&g2).0;
-            let den1new = den1.long_division(&g1).0;
+            let numnew = num.long_division(&mut g1).0;
+            let num1new = num1.long_division(&mut g2).0;
+            let dennew = den.long_division(&mut g2).0;
+            let den1new = den1.long_division(&mut g1).0;
 
             *num = numnew * num1new;
             *den = dennew * den1new;
 
-            let g = MultivariatePolynomial::gcd(num, den);
+            let mut g = num.gcd(den);
 
-            *num = num.long_division(&g).0;
-            *den = den.long_division(&g).0;
+            *num = num.long_division(&mut g).0;
+            *den = den.long_division(&mut g).0;
 
             return true;
         }
@@ -679,12 +667,12 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
                     let (ref mut num1, ref mut den1) = &mut **p;
 
                     // TODO: improve!
-                    let newnum = num.clone() * den1.clone() + num1.clone() * den.clone();
-                    let newden = den.clone() * den1.clone();
-                    let g1 = MultivariatePolynomial::gcd(&newnum, &newden);
+                    let mut newnum = num.clone() * den1.clone() + num1.clone() * den.clone();
+                    let mut newden = den.clone() * den1.clone();
+                    let mut g1 = newnum.gcd(&mut newden);
 
-                    *num = newnum.long_division(&g1).0;
-                    *den = newden.long_division(&g1).0;
+                    *num = newnum.long_division(&mut g1).0;
+                    *den = newden.long_division(&mut g1).0;
 
                     if num.is_zero() {
                         is_zero = true;
@@ -771,12 +759,12 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
             let (ref mut num1, ref mut den1) = &mut **p;
 
             // TODO: improve!
-            let newnum = num.clone() * den1.clone() + num1.clone() * den.clone();
-            let newden = den.clone() * den1.clone();
-            let g1 = MultivariatePolynomial::gcd(&newnum, &newden);
+            let mut newnum = num.clone() * den1.clone() + num1.clone() * den.clone();
+            let mut newden = den.clone() * den1.clone();
+            let mut g1 = newnum.gcd(&mut newden);
 
-            *num = newnum.long_division(&g1).0;
-            *den = newden.long_division(&g1).0;
+            *num = newnum.long_division(&mut g1).0;
+            *den = newden.long_division(&mut g1).0;
 
             if num.is_zero() {
                 is_zero = true;

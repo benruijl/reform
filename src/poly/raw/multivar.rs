@@ -662,7 +662,11 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
     /// Get the highest degree of the leading monomial.
     pub fn ldegree_max(&self) -> E {
-        self.last_exponents().iter().max().unwrap().clone()
+        self.last_exponents()
+            .iter()
+            .max()
+            .unwrap_or(&E::zero())
+            .clone()
     }
 
     /// Get the leading coefficient.

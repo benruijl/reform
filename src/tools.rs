@@ -1,8 +1,7 @@
 use num_traits::sign::abs;
 use num_traits::{One, Signed, Zero};
 use number::Number;
-use poly::exponent::Exponent;
-use poly::raw::MultivariatePolynomial;
+use poly::polynomial::Polynomial;
 use std::cmp::Ordering;
 use std::mem;
 use std::ops::Rem;
@@ -357,17 +356,13 @@ pub fn exponentiate(factors: &[Element], pow: u64) -> Element {
     Element::SubExpr(true, res)
 }
 
-pub fn add_num_poly<E: Exponent>(
-    n: &mut Number,
-    num: &mut MultivariatePolynomial<Number, E>,
-    den: &mut MultivariatePolynomial<Number, E>,
-) {
+pub fn add_num_poly(n: &mut Number, num: &mut Polynomial, den: &mut Polynomial) {
     match n {
         Number::SmallInt(_) => {
-            *num = mem::replace(num, MultivariatePolynomial::new()) + den.clone() * n.clone();
+            *num = mem::replace(num, Polynomial::new()) + den.clone() * n.clone();
         } // TODO: improve
         Number::BigInt(_) => {
-            *num = mem::replace(num, MultivariatePolynomial::new()) + den.clone() * n.clone();
+            *num = mem::replace(num, Polynomial::new()) + den.clone() * n.clone();
         }
         Number::SmallRat(ref num1, ref den1) => {
             let newden = den.clone() * Number::SmallInt(den1.clone());

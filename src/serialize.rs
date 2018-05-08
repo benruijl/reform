@@ -1,6 +1,7 @@
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use gmp_mpfr_sys::gmp;
 use number::Number;
+use poly::polynomial::Polynomial;
 use poly::raw::MultivariatePolynomial;
 use rug::{Integer, Rational};
 use std::cmp::Ordering;
@@ -251,8 +252,8 @@ impl Element {
                 Element::Pow(false, Box::new((b, e)))
             }
             PRF_ID => {
-                let num = MultivariatePolynomial::deserialize(buffer)?;
-                let den = MultivariatePolynomial::deserialize(buffer)?;
+                let num = Polynomial::deserialize(buffer)?;
+                let den = Polynomial::deserialize(buffer)?;
                 Element::RationalPolynomialCoefficient(false, Box::new((num, den)))
             }
             _ => unreachable!(),
