@@ -63,7 +63,7 @@ impl Mul for FiniteField {
     type Output = Self;
 
     fn mul(self, other: Self) -> Self::Output {
-        assert_eq!(self.p, other.p);
+        debug_assert_eq!(self.p, other.p);
         FiniteField {
             n: zp::mul(self.n, other.n, self.p),
             p: self.p,
@@ -73,7 +73,7 @@ impl Mul for FiniteField {
 
 impl MulAssign for FiniteField {
     fn mul_assign(&mut self, other: Self) {
-        assert_eq!(self.p, other.p);
+        debug_assert_eq!(self.p, other.p);
         self.n = zp::mul(self.n, other.n, self.p);
     }
 }
@@ -82,7 +82,7 @@ impl Add for FiniteField {
     type Output = Self;
 
     fn add(self, other: Self) -> Self::Output {
-        assert_eq!(self.p, other.p);
+        debug_assert_eq!(self.p, other.p);
         FiniteField {
             n: zp::add(self.n, other.n, self.p),
             p: self.p,
@@ -94,7 +94,7 @@ impl Sub for FiniteField {
     type Output = Self;
 
     fn sub(self, other: Self) -> Self::Output {
-        assert_eq!(self.p, other.p);
+        debug_assert_eq!(self.p, other.p);
 
         FiniteField {
             n: zp::sub(self.n, other.n, self.p),
@@ -138,7 +138,7 @@ impl Div for FiniteField {
     type Output = Self;
 
     fn div(self, other: FiniteField) -> Self::Output {
-        assert_eq!(self.p, other.p);
+        debug_assert_eq!(self.p, other.p);
         FiniteField {
             n: zp::mul(self.n, zp::inv(other.n % self.p, self.p), self.p),
             p: self.p,
@@ -212,7 +212,7 @@ impl AsPrimitive<ufield> for FiniteField {
 
 impl GCD for FiniteField {
     fn gcd(a: FiniteField, b: FiniteField) -> FiniteField {
-        assert_eq!(a.p, b.p);
+        debug_assert_eq!(a.p, b.p);
         if a == b {
             a
         } else {

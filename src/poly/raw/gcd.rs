@@ -191,7 +191,7 @@ fn construct_new_image<E: Exponent>(
             for (j, &(ref r, ref g, ref scale_factor)) in system.iter().enumerate() {
                 let mut row = vec![];
 
-                assert_eq!(g.nterms, gfu.len());
+                debug_assert_eq!(g.nterms, gfu.len());
 
                 // the first elements in the row come from the shape
                 for ii in 0..gfu.len() {
@@ -590,7 +590,7 @@ where
         a: &MultivariatePolynomial<R, E>,
         b: &MultivariatePolynomial<R, E>,
     ) -> MultivariatePolynomial<R, E> {
-        assert_eq!(a.nvars, b.nvars);
+        debug_assert_eq!(a.nvars, b.nvars);
 
         debug!("Compute gcd({}, {})", a, b);
 
