@@ -8,7 +8,7 @@ use number;
 use number::Number;
 use poly::raw::finitefield::FiniteField;
 use poly::raw::zp;
-use poly::raw::zp::ufield;
+use poly::raw::zp::{ufield, FastModulus};
 use poly::raw::MultivariatePolynomial;
 use poly::ring::MulModNum;
 use poly::ring::ToFiniteField;
@@ -243,7 +243,7 @@ fn construct_new_image<E: Exponent>(
         let cols = gfm.len() / rows;
         let m = Array::from_shape_vec((rows, cols), gfm).unwrap();
 
-        match solve(&m, &arr1(&rhs), p) {
+        match solve(&m, &arr1(&rhs), &FastModulus::from(p)) {
             Ok(x) => {
                 debug!("Solution: {:?}", x);
                 // construct the gcd
