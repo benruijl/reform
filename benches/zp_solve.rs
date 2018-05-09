@@ -10,7 +10,7 @@ use test::Bencher;
 use ndarray::{ArrayView, ArrayView1, ArrayView2};
 
 use reform::poly::raw::zp;
-use reform::poly::raw::zp::ufield;
+use reform::poly::raw::zp::{ufield, FastModulus};
 
 /*
 n = 8;
@@ -44,6 +44,7 @@ fn zp_solve8x8(b: &mut Bencher) {
         ],
     ).unwrap();
     let p: ufield = 1073741789;
+    let p = &FastModulus::from(p);
     let x: ArrayView1<ufield> = ArrayView::from_shape(
         (8,),
         &[
@@ -105,6 +106,7 @@ fn zp_solve16x16(b: &mut Bencher) {
         ],
     ).unwrap();
     let p: ufield = 1073741789;
+    let p = &FastModulus::from(p);
     let x: ArrayView1<ufield> = ArrayView::from_shape(
         (16,),
         &[
@@ -269,6 +271,7 @@ fn zp_solve32x32(b: &mut Bencher) {
         ],
     ).unwrap();
     let p: ufield = 1073741789;
+    let p = &FastModulus::from(p);
     let x: ArrayView1<ufield> = ArrayView::from_shape(
         (32,),
         &[

@@ -13,6 +13,9 @@ pub type ufield = u32;
 #[allow(non_camel_case_types)]
 pub type ucomp = u64;
 
+/// Fast modulo operation for `ucomp % ufield`.
+pub type FastModulus = super::zp_mod::FastModulus6432;
+
 /// Computes `x + y` in Zp.
 #[inline]
 pub fn add<M: Modulus<ucomp, ufield>>(x: ufield, y: ufield, p: M) -> ufield {
