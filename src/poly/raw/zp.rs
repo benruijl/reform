@@ -2,7 +2,8 @@
 //! `0 <= x < p < 2^N`, where p is a prime number and x is stored in an N-bit unsigned integer
 //! whose type is declared as `ufield`.
 
-pub use poly::raw::zp_solve::{solve, LinearSolverError};
+pub use super::zp_mod::Modulus;
+pub use super::zp_solve::{solve, LinearSolverError};
 
 /// Type for numbers in Zp.
 #[allow(non_camel_case_types)]
@@ -10,17 +11,17 @@ pub type ufield = u32;
 
 /// Type used in intermediate stages. Must have twice the size of `ufield`.
 #[allow(non_camel_case_types)]
-type ucomp = u64;
+pub type ucomp = u64;
 
 /// Computes `x + y` in Zp.
 #[inline]
-pub fn add(x: ufield, y: ufield, p: ufield) -> ufield {
-    debug_assert!(p > 0);
-    debug_assert!(x < p);
-    debug_assert!(y < p);
+pub fn add<M: Modulus<ucomp, ufield>>(x: ufield, y: ufield, p: M) -> ufield {
+    debug_assert!(p.value() > 0);
+    debug_assert!(x < p.value());
+    debug_assert!(y < p.value());
     let xx = ucomp::from(x);
     let yy = ucomp::from(y);
-    let pp = ucomp::from(p);
+    let pp = ucomp::from(p.value());
     let mut zz = xx + yy;
     if zz >= pp {
         zz -= pp;
@@ -31,13 +32,13 @@ pub fn add(x: ufield, y: ufield, p: ufield) -> ufield {
 
 /// Computes `x - y` in Zp.
 #[inline]
-pub fn sub(x: ufield, y: ufield, p: ufield) -> ufield {
-    debug_assert!(p > 0);
-    debug_assert!(x < p);
-    debug_assert!(y < p);
+pub fn sub<M: Modulus<ucomp, ufield>>(x: ufield, y: ufield, p: M) -> ufield {
+    debug_assert!(p.value() > 0);
+    debug_assert!(x < p.value());
+    debug_assert!(y < p.value());
     let xx = ucomp::from(x);
     let yy = ucomp::from(y);
-    let pp = ucomp::from(p);
+    let pp = ucomp::from(p.value());
     let zz = if xx >= yy { xx - yy } else { xx + pp - yy };
     debug_assert!(zz < pp);
     zz as ufield
@@ -45,36 +46,35 @@ pub fn sub(x: ufield, y: ufield, p: ufield) -> ufield {
 
 /// Computes `x * y` in Zp.
 #[inline]
-pub fn mul(x: ufield, y: ufield, p: ufield) -> ufield {
-    debug_assert!(p > 0);
-    debug_assert!(x < p);
-    debug_assert!(y < p);
+pub fn mul<M: Modulus<ucomp, ufield>>(x: ufield, y: ufield, p: M) -> ufield {
+    debug_assert!(p.value() > 0);
+    debug_assert!(x < p.value());
+    debug_assert!(y < p.value());
     let xx = ucomp::from(x);
     let yy = ucomp::from(y);
-    let pp = ucomp::from(p);
-    let zz = (xx * yy) % pp;
-    debug_assert!(zz < pp);
+    let zz = p.modulous(xx * yy);
+    debug_assert!(zz < ucomp::from(p.value()));
     zz as ufield
 }
 
 /// Computes `-x` in Zp.
 #[inline]
-pub fn neg(x: ufield, p: ufield) -> ufield {
-    debug_assert!(p > 0);
-    debug_assert!(x < p);
+pub fn neg<M: Modulus<ucomp, ufield>>(x: ufield, p: M) -> ufield {
+    debug_assert!(p.value() > 0);
+    debug_assert!(x < p.value());
     if x == 0 {
         0
     } else {
-        p - x
+        p.value() - x
     }
 }
 
 /// Computes `1/x` in Zp.
 #[inline]
-pub fn inv(x: ufield, p: ufield) -> ufield {
+pub fn inv<M: Modulus<ucomp, ufield>>(x: ufield, p: M) -> ufield {
     debug_assert!(x > 0);
-    debug_assert!(p > 0);
-    debug_assert!(x < p);
+    debug_assert!(p.value() > 0);
+    debug_assert!(x < p.value());
     assert!(x != 0, "0 is not invertible");
     // by the extended Euclidean algorithm: a x + b p = gcd(x, p) = 1 or a x = 1 (mod p)
     // taken from https://www.di-mgt.com.au/euclidean.html#code-modinv, which is based on Knuth
@@ -82,7 +82,7 @@ pub fn inv(x: ufield, p: ufield) -> ufield {
     let mut u1: ufield = 1;
     let mut u3 = x;
     let mut v1: ufield = 0;
-    let mut v3 = p;
+    let mut v3 = p.value();
     let mut even_iter: bool = true;
     while v3 != 0 {
         let q = u3 / v3;
@@ -98,14 +98,14 @@ pub fn inv(x: ufield, p: ufield) -> ufield {
     if even_iter {
         u1
     } else {
-        p - u1
+        p.value() - u1
     }
 }
 
 /// Computes `x^n` in Zp.
-pub fn pow(x: ufield, mut n: u32, p: ufield) -> ufield {
-    debug_assert!(p > 0);
-    debug_assert!(x < p);
+pub fn pow<M: Modulus<ucomp, ufield>>(x: ufield, mut n: u32, p: M) -> ufield {
+    debug_assert!(p.value() > 0);
+    debug_assert!(x < p.value());
     if x == 0 {
         if n == 0 {
             return 1;
@@ -133,12 +133,11 @@ pub fn pow(x: ufield, mut n: u32, p: ufield) -> ufield {
     // naive exponentiation by squaring
     let mut r: ucomp = 1;
     let mut b = ucomp::from(x);
-    let pp = ucomp::from(p);
     while n != 0 {
         if n & 1 != 0 {
-            r = (r * b) % pp;
+            r = p.modulous(r * b);
         }
-        b = (b * b) % pp;
+        b = p.modulous(b * b);
         n >>= 1;
     }
     r as ufield

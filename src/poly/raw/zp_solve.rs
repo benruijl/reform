@@ -2,8 +2,8 @@
 
 use ndarray::{Array1, Array2, ArrayBase, Data, Ix1, Ix2};
 
-use poly::raw::zp;
-use poly::raw::zp::ufield;
+use super::zp;
+use super::zp::{ucomp, ufield, Modulus};
 
 /// Error from linear solver.
 #[derive(Debug, Eq, PartialEq)]
@@ -13,10 +13,10 @@ pub enum LinearSolverError {
 }
 
 /// Solves `a * x = b` in Zp.
-pub fn solve<S1: Data<Elem = ufield>, S2: Data<Elem = ufield>>(
+pub fn solve<S1: Data<Elem = ufield>, S2: Data<Elem = ufield>, M: Modulus<ucomp, ufield>>(
     a: &ArrayBase<S1, Ix2>,
     b: &ArrayBase<S2, Ix1>,
-    p: ufield,
+    p: M,
 ) -> Result<Array1<ufield>, LinearSolverError> {
     assert!(a.shape()[0] == b.shape()[0]);
 
