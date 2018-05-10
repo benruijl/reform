@@ -47,8 +47,9 @@ impl TermStreamWrapper {
 }
 
 impl Element {
-    // TODO: mutate self to prevent unnecessary cloning
-    fn expand(&self, var_info: &GlobalVarInfo) -> Element {
+    /// Expands products and positive powers in the element.
+    pub fn expand(&self, var_info: &GlobalVarInfo) -> Element {
+        // TODO: mutate self (or moving) to prevent unnecessary cloning
         match *self {
             Element::Fn(_, ref name, ref args) => {
                 let mut f = Element::Fn(

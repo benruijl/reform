@@ -5,9 +5,8 @@ extern crate reform;
 
 use test::Bencher;
 
-use reform::structure::Element;
-use reform::structure::VarInfo;
-use reform::structure::VarName;
+use reform::number::Number;
+use reform::structure::{Element, VarInfo, VarName};
 
 #[bench]
 fn add_two_expr_empty(b: &mut Bencher) {
@@ -60,4 +59,32 @@ fn add_two_expr_setup(n: usize) -> (Element<VarName>, Element<VarName>, VarInfo)
     e1.normalize_inplace(&var_info.global_info);
     e2.normalize_inplace(&var_info.global_info);
     (e1, e2, var_info)
+}
+
+#[bench]
+fn expand_expr_empty(b: &mut Bencher) {
+    let (e, _) = expand_expr_setup(8, 4);
+    b.iter(|| {
+        let e = e.clone();
+        // do nothing; only overheads for cloning
+        e
+    });
+}
+
+#[bench]
+fn expand_expr(b: &mut Bencher) {
+    let (e, var_info) = expand_expr_setup(8, 4);
+    b.iter(|| {
+        let e = e.clone();
+        // expand the expression
+        e.expand(&var_info.global_info);
+        e
+    });
+}
+
+fn expand_expr_setup(n: usize, p: isize) -> (Element<VarName>, VarInfo) {
+    // create a power of a polynomial
+    let (e, _, var_info) = add_two_expr_setup(n);
+    let e = Element::Pow(true, Box::new((e, Element::Num(true, Number::SmallInt(p)))));
+    (e, var_info)
 }
