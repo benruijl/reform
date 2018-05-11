@@ -16,7 +16,7 @@ use id::{MatchIterator, MatchKind};
 use streaming::MAXTERMMEM;
 use streaming::{InputTermStreamer, OutputTermStreamer};
 use structure::*;
-use tools::exponentiate;
+use tools;
 
 /*
 Abstract away the difference between a threaded term streamer
@@ -108,7 +108,23 @@ impl Element {
                 if let Element::Num(_, Number::SmallInt(n)) = ee {
                     if n > 0 {
                         if let Element::SubExpr(_, ref t) = eb {
-                            let mut e = exponentiate(t, n as u64);
+                            // compute the exponent of a list, without generating double entries
+                            let it = tools::CombinationsWithReplacement::new(t, n as usize);
+
+                            let mut terms_out = Vec::with_capacity(tools::ncr(
+                                t.len() as u64 + n as u64 - 1,
+                                t.len() as u64 - 1,
+                            )
+                                as usize);
+
+                            for (c, mut newt) in it {
+                                newt.push(Element::Num(false, c));
+                                let mut nt = Element::Term(true, newt);
+                                nt.normalize_inplace(var_info);
+                                terms_out.push(nt);
+                            }
+
+                            let mut e = Element::SubExpr(true, terms_out);
                             e.normalize_inplace(var_info);
                             return e.expand(var_info);
                         }
@@ -331,6 +347,7 @@ impl Statement {
                         if f.len() == 1 {
                             StatementIter::Simple(f.swap_remove(0), false)
                         } else {
+                            f.reverse(); // the multiple iterator pops from the back, so reverse the array
                             StatementIter::Multiple(f, true)
                         }
                     }

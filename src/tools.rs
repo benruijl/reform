@@ -5,7 +5,7 @@ use poly::polynomial::Polynomial;
 use std::cmp::Ordering;
 use std::mem;
 use std::ops::Rem;
-use structure::{Element, NumOrder};
+use structure::NumOrder;
 
 // a SliceRef has either a borrowed slice,
 // or a vector of borrowed arguments.
@@ -307,53 +307,70 @@ pub fn ncr(n: u64, mut k: u64) -> u64 {
     res
 }
 
-// return unnormalized exponentiated form
-pub fn exponentiate(factors: &[Element], pow: u64) -> Element {
-    if factors.is_empty() {
-        return Element::SubExpr(
-            true,
-            vec![Element::Term(
-                true,
-                vec![Element::Num(false, Number::one())],
-            )],
-        );
-    }
+pub struct CombinationsWithReplacement<'a, T: 'a> {
+    data: &'a [T],
+    indices: Vec<usize>,
+    init: bool,
+}
 
-    let exp = |i: u64, res: &mut Vec<_>| {
-        let cmb = ncr(pow, i);
-        match exponentiate(&factors[1..], pow - i) {
-            Element::SubExpr(_, ts) => for x in ts {
-                match x {
-                    Element::Term(_, mut fs) => {
-                        if i > 0 {
-                            fs.push(Element::Pow(
-                                true,
-                                Box::new((
-                                    factors[0].clone(),
-                                    Element::Num(false, Number::SmallInt(i as isize)),
-                                )),
-                            ));
-                            fs.push(Element::Num(false, Number::SmallInt(cmb as isize)));
-                        }
-                        res.push(Element::Term(true, fs));
-                    }
-                    _ => unreachable!(),
+impl<'a, T: Clone> CombinationsWithReplacement<'a, T> {
+    pub fn new(data: &'a [T], r: usize) -> CombinationsWithReplacement<T> {
+        CombinationsWithReplacement {
+            data: data,
+            indices: vec![0; r],
+            init: true,
+        }
+    }
+}
+
+impl<'a, T: Clone> Iterator for CombinationsWithReplacement<'a, T> {
+    type Item = (Number, Vec<T>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.data.len() == 0 {
+            return None;
+        }
+
+        if self.init {
+            self.init = false;
+            return Some((
+                Number::one(),
+                self.indices.iter().map(|i| self.data[*i].clone()).collect(),
+            ));
+        }
+
+        let mut i = self.indices.len() - 1;
+        loop {
+            if self.indices[i] != self.data.len() - 1 {
+                let p = self.indices[i];
+                for j in i..self.indices.len() {
+                    self.indices[j] = p + 1;
                 }
-            },
-            _ => unreachable!(),
-        }
-    };
 
-    let mut res = vec![];
-    if factors.len() == 1 {
-        exp(pow, &mut res);
-    } else {
-        for i in 0..pow + 1 {
-            exp(i as u64, &mut res);
+                // count the number of duplicates
+                let mut counter = vec![0; self.data.len()];
+                for j in &self.indices {
+                    counter[*j] += 1;
+                }
+
+                let mut factor = Number::SmallInt(self.indices.len() as isize).factorial();
+
+                for x in counter {
+                    factor = factor / Number::SmallInt(x as isize).factorial();
+                }
+
+                return Some((
+                    factor,
+                    self.indices.iter().map(|i| self.data[*i].clone()).collect(),
+                ));
+            }
+
+            if i == 0 {
+                return None;
+            }
+            i -= 1;
         }
     }
-
-    Element::SubExpr(true, res)
 }
 
 pub fn add_num_poly(n: &mut Number, num: &mut Polynomial, den: &mut Polynomial) {

@@ -69,6 +69,21 @@ impl Number {
         self.normalize_inplace();
         self
     }
+
+    pub fn factorial(self) -> Number {
+        match self {
+            Number::SmallInt(n) => {
+                let mut r = Number::SmallInt(1);
+                for k in 2..n + 1 {
+                    r *= Number::SmallInt(k);
+                }
+                r
+            }
+            Number::SmallRat(..) => panic!("Cannot take factorial of fraction"),
+            Number::BigInt(..) => unimplemented!(), // rug does not support it?
+            Number::BigRat(..) => panic!("Cannot take factorial of fraction"),
+        }
+    }
 }
 
 impl fmt::Display for Number {
