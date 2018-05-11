@@ -77,8 +77,7 @@ fn expand_expr(b: &mut Bencher) {
     b.iter(|| {
         let e = e.clone();
         // expand the expression
-        e.expand(&var_info.global_info);
-        e
+        e.expand(&var_info.global_info)
     });
 }
 
