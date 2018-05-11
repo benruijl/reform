@@ -355,7 +355,7 @@ impl<'a, T: Clone> Iterator for CombinationsWithReplacement<'a, T> {
 
                 let mut factor = Number::SmallInt(self.indices.len() as isize).factorial();
 
-                for x in counter {
+                for x in counter.into_iter().filter(|&x| x >= 2) {
                     factor = factor / Number::SmallInt(x as isize).factorial();
                 }
 

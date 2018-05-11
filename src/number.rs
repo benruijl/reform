@@ -70,9 +70,30 @@ impl Number {
         self
     }
 
+    /// Returns the factorial of the number.
     pub fn factorial(self) -> Number {
         match self {
             Number::SmallInt(n) => {
+                #[cfg(target_pointer_width = "32")]
+                {
+                    if n <= 12 {
+                        let mut r = 1;
+                        for k in 2..=n {
+                            r *= k;
+                        }
+                        return Number::SmallInt(r);
+                    }
+                }
+                #[cfg(target_pointer_width = "64")]
+                {
+                    if n <= 20 {
+                        let mut r = 1;
+                        for k in 2..=n {
+                            r *= k;
+                        }
+                        return Number::SmallInt(r);
+                    }
+                }
                 let mut r = Number::SmallInt(1);
                 for k in 2..n + 1 {
                     r *= Number::SmallInt(k);
