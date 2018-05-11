@@ -48,25 +48,24 @@ impl TermStreamWrapper {
 
 impl Element {
     /// Expands products and positive powers in the element.
-    pub fn expand(&self, var_info: &GlobalVarInfo) -> Element {
-        // TODO: mutate self (or moving) to prevent unnecessary cloning
-        match *self {
-            Element::Fn(_, ref name, ref args) => {
+    pub fn expand(self, var_info: &GlobalVarInfo) -> Element {
+        match self {
+            Element::Fn(_, name, args) => {
                 let mut f = Element::Fn(
                     true,
-                    name.clone(),
-                    args.iter().map(|x| x.expand(var_info)).collect(),
+                    name,
+                    args.into_iter().map(|x| x.expand(var_info)).collect(),
                 );
                 f.normalize_inplace(var_info);
                 f
             } // TODO: only flag when changed
-            Element::Term(_, ref fs) => {
+            Element::Term(_, fs) => {
                 let mut r: Vec<Vec<Element>> = vec![vec![]];
 
                 for f in fs {
                     let fe = f.expand(var_info);
                     match fe {
-                        Element::SubExpr(_, ref s) => {
+                        Element::SubExpr(_, s) => {
                             // use cartesian product function?
                             r = r.iter()
                                 .flat_map(|x| {
@@ -95,13 +94,14 @@ impl Element {
                 e.normalize_inplace(var_info);
                 e
             }
-            Element::SubExpr(_, ref f) => {
-                let mut e = Element::SubExpr(true, f.iter().map(|x| x.expand(var_info)).collect());
+            Element::SubExpr(_, f) => {
+                let mut e =
+                    Element::SubExpr(true, f.into_iter().map(|x| x.expand(var_info)).collect());
                 e.normalize_inplace(var_info);
                 e
             }
-            Element::Pow(_, ref be) => {
-                let (ref b, ref e) = **be;
+            Element::Pow(_, be) => {
+                let (b, e) = { *be };
 
                 let (eb, ee) = (b.expand(var_info), e.expand(var_info));
 
@@ -155,7 +155,7 @@ impl Element {
                 e.normalize_inplace(var_info);
                 e
             }
-            _ => self.clone(),
+            _ => self,
         }
     }
 
@@ -342,7 +342,8 @@ impl Statement {
             Statement::Expand => {
                 // FIXME: treat ground level differently in the expand routine
                 // don't generate all terms in one go
-                match input.expand(var_info.global_info) {
+                let mut i = mem::replace(input, DUMMY_ELEM!());
+                match i.expand(var_info.global_info) {
                     Element::SubExpr(_, mut f) => {
                         if f.len() == 1 {
                             StatementIter::Simple(f.swap_remove(0), false)
