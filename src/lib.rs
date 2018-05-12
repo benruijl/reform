@@ -26,6 +26,7 @@ pub mod normalize;
 pub mod parser;
 pub mod poly;
 pub mod serialize;
+pub mod split;
 pub mod streaming;
 pub mod tools;
 
