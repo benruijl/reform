@@ -297,9 +297,11 @@ impl Element {
                     // normalize factors and flatten
                     // TODO: check for 0 here
                     let mut restructure = false;
+                    let mut newlen = ts.len();
                     for x in ts.iter_mut() {
                         changed |= x.normalize_inplace(var_info);
-                        if let Element::Term(..) = *x {
+                        if let Element::Term(_, ref a) = *x {
+                            newlen += a.len();
                             restructure = true;
                             changed = true;
                         }
@@ -307,11 +309,11 @@ impl Element {
 
                     // flatten the term
                     if restructure {
-                        let mut tmp = vec![];
-                        for x in ts.iter_mut() {
-                            match *x {
-                                Element::Term(_, ref mut tss) => tmp.append(tss),
-                                _ => tmp.push(mem::replace(x, DUMMY_ELEM!())),
+                        let mut tmp = Vec::with_capacity(newlen);
+                        for x in ts.drain(..) {
+                            match x {
+                                Element::Term(_, tss) => tmp.extend(tss),
+                                _ => tmp.push(x),
                             }
                         }
                         *ts = tmp;
@@ -375,9 +377,11 @@ impl Element {
 
                     // normalize factors and flatten
                     let mut restructure = false;
+                    let mut newlen = ts.len();
                     for x in ts.iter_mut() {
                         changed |= x.normalize_inplace(var_info);
-                        if let Element::SubExpr(..) = *x {
+                        if let Element::SubExpr(_, ref a) = *x {
+                            newlen += a.len();
                             restructure = true;
                             changed = true;
                         }
@@ -385,11 +389,11 @@ impl Element {
 
                     // flatten the expression
                     if restructure {
-                        let mut tmp = vec![];
-                        for x in ts.iter_mut() {
-                            match *x {
-                                Element::SubExpr(_, ref mut tss) => tmp.append(tss),
-                                _ => tmp.push(mem::replace(x, DUMMY_ELEM!())),
+                        let mut tmp = Vec::with_capacity(newlen);
+                        for x in ts.drain(..) {
+                            match x {
+                                Element::SubExpr(_, tss) => tmp.extend(tss),
+                                _ => tmp.push(x),
                             }
                         }
                         *ts = tmp;

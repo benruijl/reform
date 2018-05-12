@@ -47,6 +47,24 @@ impl TermStreamWrapper {
 }
 
 impl Element {
+    pub fn append_factors(self, other: Element) -> Element {
+        match (self, other) {
+            (Element::Term(_, mut t1), Element::Term(_, t2)) => {
+                t1.extend(t2);
+                Element::Term(true, t1)
+            }
+            (Element::Term(_, mut t1), x) => {
+                t1.push(x);
+                Element::Term(true, t1)
+            }
+            (x, Element::Term(_, mut t2)) => {
+                t2.push(x);
+                Element::Term(true, t2)
+            }
+            (x1, x2) => Element::Term(true, vec![x1, x2]),
+        }
+    }
+
     /// Expands products and positive powers in the element.
     pub fn expand(self, var_info: &GlobalVarInfo) -> Element {
         match self {
@@ -58,39 +76,29 @@ impl Element {
                 );
                 f.normalize_inplace(var_info);
                 f
-            } // TODO: only flag when changed
+            }
             Element::Term(_, fs) => {
-                let mut r: Vec<Vec<Element>> = vec![vec![]];
+                let mut r: Vec<Element> = vec![Element::Term(false, vec![])];
 
                 for f in fs {
                     let fe = f.expand(var_info);
                     match fe {
                         Element::SubExpr(_, s) => {
-                            // use cartesian product function?
-                            r = r.iter()
+                            r = r.into_iter()
                                 .flat_map(|x| {
                                     s.iter()
-                                        .map(|y| {
-                                            let mut k = x.clone();
-                                            k.push(y.clone());
-                                            k
-                                        })
+                                        .map(|y| x.clone().append_factors(y.clone()))
                                         .collect::<Vec<_>>()
                                 })
                                 .collect();
                         }
                         _ => for rr in &mut r {
-                            rr.push(fe.clone());
+                            *rr = mem::replace(rr, DUMMY_ELEM!()).append_factors(fe.clone());
                         },
                     }
                 }
 
-                // FIXME: this should not happen for the ground level
-                let mut e = Element::SubExpr(
-                    true,
-                    r.into_iter().map(|x| Element::Term(true, x)).collect(),
-                );
-
+                let mut e = Element::SubExpr(true, r);
                 e.normalize_inplace(var_info);
                 e
             }
