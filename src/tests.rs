@@ -352,4 +352,54 @@ mod tests {
         assert_eq!(a, res);
     }
 
+    #[test]
+    fn synthetic_division() {
+        // (x^3-2x-4) = (x-3)*(x^2+x+3)+5
+        let mut a = MultivariatePolynomial::from_monomial(1, vec![2]);
+        a.append_monomial(1, vec![1]);
+
+        let mut b = MultivariatePolynomial::from_monomial(1, vec![1]);
+        b.append_monomial(2, vec![0]);
+
+        let mut q = MultivariatePolynomial::from_monomial(1, vec![1]);
+        q.append_monomial(-1, vec![0]);
+
+        let r = MultivariatePolynomial::from_monomial(2, vec![0]);
+
+        assert_eq!(a.synthetic_division(&b, 0), (q, r));
+    }
+
+    #[test]
+    fn synthetic_division1() {
+        // (x^3-2x-4) = (x-3)*(x^2+x+3)+5
+        let mut a = MultivariatePolynomial::from_monomial(1, vec![3]);
+        a.append_monomial(-2, vec![2]);
+        a.append_monomial(-4, vec![0]);
+
+        let mut b = MultivariatePolynomial::from_monomial(1, vec![1]);
+        b.append_monomial(-3, vec![0]);
+
+        let mut q = MultivariatePolynomial::from_monomial(1, vec![2]);
+        q.append_monomial(1, vec![1]);
+        q.append_monomial(3, vec![0]);
+
+        let r = MultivariatePolynomial::from_monomial(5, vec![0]);
+
+        assert_eq!(a.synthetic_division(&b, 0), (q, r));
+    }
+
+    #[test]
+    fn synthetic_division2() {
+        let mut a = MultivariatePolynomial::from_monomial(FiniteField::new(2, 31), vec![1]);
+        a.append_monomial(FiniteField::new(1, 31), vec![0]);
+
+        let mut b = MultivariatePolynomial::from_monomial(FiniteField::new(20, 31), vec![1]);
+        b.append_monomial(FiniteField::new(11, 31), vec![0]);
+
+        let mut q = MultivariatePolynomial::from_monomial(FiniteField::new(28, 31), vec![0]);
+
+        let r = MultivariatePolynomial::from_monomial(FiniteField::new(3, 31), vec![0]);
+
+        assert_eq!(a.synthetic_division(&b, 0), (q, r));
+    }
 }

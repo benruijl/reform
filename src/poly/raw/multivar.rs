@@ -858,6 +858,78 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         tm
     }
 
+    pub fn synthetic_division(
+        &self,
+        div: &MultivariatePolynomial<R, E>,
+        var: usize,
+    ) -> (MultivariatePolynomial<R, E>, MultivariatePolynomial<R, E>) {
+        // Relevant formula [Q=A/B, P=SUM(p_i*x^i), n=deg(A), m=deg(B)]:
+        // q_k = [ a_{m+k} - SUM(i=k+1...n-m, b_{m+k-i}*q_i) ] / b_m
+        // negative k forms the remainder
+        // note: only for univariate polynomials
+
+        let mut dividendpos = self.nterms - 1; // should work downward?
+        let norm = div.coefficients.last().unwrap(); // TODO: cache inverse if we are in FF
+
+        let mut q = MultivariatePolynomial::<R, E>::with_nvars(self.nvars);
+        let mut r = MultivariatePolynomial::<R, E>::with_nvars(self.nvars);
+
+        //println!("{:?} {:?}", self, div);
+
+        let m = div.ldegree_max();
+        let mut pow = self.ldegree_max();
+
+        while pow >= E::zero() {
+            // find the power in the dividend if it exists
+            let mut coeff = loop {
+                if self.exponents(dividendpos)[var] == pow {
+                    break self.coefficients[dividendpos].clone();
+                }
+                if dividendpos == 0 || self.exponents(dividendpos)[var] < pow {
+                    break R::zero();
+                }
+                dividendpos -= 1;
+            };
+
+            let mut qindex = q.nterms; // TODO: better bound?
+            let mut bindex = 0;
+            while bindex < div.nterms && qindex > 0 {
+                qindex -= 1;
+
+                while bindex < div.nterms - 1
+                    && div.exponents(bindex)[var] + q.exponents(qindex)[var] < pow
+                {
+                    bindex += 1;
+                }
+
+                if div.exponents(bindex)[var] + q.exponents(qindex)[var] == pow {
+                    coeff = coeff
+                        + -(div.coefficients[bindex].clone() * q.coefficients[qindex].clone());
+                }
+            }
+
+            // can the division be performed?
+            // TODO: find an alternative for this
+            if !(coeff.clone() % norm.clone()).is_zero() {
+                return (q, r);
+            }
+
+            let mut e = vec![E::zero(); self.nvars];
+            if pow >= m {
+                e[var] = pow - m;
+                q.append_monomial(coeff.clone() / norm.clone(), e);
+            } else {
+                // FIXME: are elements from r not used to compute others? if so, move to q
+                e[var] = pow;
+                r.append_monomial(coeff, e);
+            }
+
+            pow = pow - E::one();
+        }
+
+        (q, r)
+    }
+
     /// Long division for univariate polynomial.
     /// FIXME: what to do for multivariate polynomials? We are mostly interested in divide-if-divisible
     pub fn long_division(
