@@ -1,11 +1,14 @@
 use num_traits::{One, Pow, Zero};
 use number::Number;
 use poly::polynomial::Polynomial;
+use split::split_merge;
 use std::cmp::Ordering;
 use std::mem;
 use std::ptr;
-use structure::{Element, FunctionAttributes, GlobalVarInfo, FUNCTION_DELTA, FUNCTION_GCD,
-                FUNCTION_MUL, FUNCTION_NARGS, FUNCTION_RAT, FUNCTION_SUM};
+use structure::{
+    Element, FunctionAttributes, GlobalVarInfo, FUNCTION_DELTA, FUNCTION_GCD, FUNCTION_MUL,
+    FUNCTION_NARGS, FUNCTION_RAT, FUNCTION_SUM,
+};
 use tools::add_num_poly;
 
 impl Element {
@@ -400,8 +403,17 @@ impl Element {
                     }
 
                     // sort and merge the terms at the same time
-                    if false {
-                        changed |= expr_sort(ts, merge_terms, var_info, true);
+                    if true {
+                        // TODO: only set changed if row is not 1..n
+                        changed = true;
+                        let map = split_merge(ts, var_info);
+
+                        let mut res = Vec::with_capacity(map.len());
+
+                        for i in 0..map.len() {
+                            res.push(mem::replace(&mut ts[map[i]], DUMMY_ELEM!()));
+                        }
+                        mem::swap(&mut res, ts);
                     } else {
                         changed = true; // TODO: tell if changed?
                         ts.sort_unstable_by(|l, r| l.partial_cmp(r, var_info, true).unwrap()); // TODO: slow!
