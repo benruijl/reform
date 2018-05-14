@@ -297,23 +297,28 @@ pub fn ncr(n: u64, mut k: u64) -> u64 {
     res
 }
 
-pub struct CombinationsWithReplacement<'a, T: 'a> {
-    data: &'a [T],
+#[derive(Debug)]
+pub struct CombinationsWithReplacement<T> {
+    data: Vec<T>,
     indices: Vec<usize>,
     init: bool,
 }
 
-impl<'a, T: Clone> CombinationsWithReplacement<'a, T> {
-    pub fn new(data: &'a [T], r: usize) -> CombinationsWithReplacement<T> {
+impl<T: Clone> CombinationsWithReplacement<T> {
+    pub fn new(data: Vec<T>, r: usize) -> CombinationsWithReplacement<T> {
         CombinationsWithReplacement {
             data: data,
             indices: vec![0; r],
             init: true,
         }
     }
+
+    pub fn get_inner(&mut self) -> &mut Vec<T> {
+        &mut self.data
+    }
 }
 
-impl<'a, T: Clone> Iterator for CombinationsWithReplacement<'a, T> {
+impl<T: Clone> Iterator for CombinationsWithReplacement<T> {
     type Item = (Number, Vec<T>);
 
     fn next(&mut self) -> Option<Self::Item> {
