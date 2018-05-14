@@ -47,6 +47,212 @@ impl TermStreamWrapper {
     }
 }
 
+#[derive(Debug)]
+struct ExpandIterator<'a> {
+    subiter: ExpandSubIterator<'a>,
+    var_info: &'a GlobalVarInfo,
+    ground_level: bool,
+    done: bool,
+}
+
+#[derive(Debug)]
+enum ExpandSubIterator<'a> {
+    SubExpr(Vec<ExpandIterator<'a>>),
+    Term(Vec<ExpandIterator<'a>>, Vec<Element>),
+    Exp(tools::CombinationsWithReplacement<Element>, usize),
+    Yield(Element),
+}
+
+impl<'a> ExpandIterator<'a> {
+    fn new(mut element: Element, var_info: &GlobalVarInfo, ground_level: bool) -> ExpandIterator {
+        let subiter =
+        // modify the element so that all substructures are expanded
+        match &mut element {
+            // TODO: for terms, first check if no factor has to be expanded.
+            // this processing way is slow but we need it to handle
+            // ((1+x)^5+..)*(...)
+            Element::SubExpr(_, ref mut ts) => {
+                let mut seqiter = vec![];
+                for x in mem::replace(ts, vec![]) {
+                    seqiter.push(ExpandIterator::new(x, var_info, ground_level));
+                }
+                ExpandSubIterator::SubExpr(seqiter)
+            }
+            Element::Term(_, ref mut ts) => {
+                // TODO: only use a seqiter for factors that can are not simple. Group the rest together
+                let mut seqiter = vec![];
+                for x in mem::replace(ts, vec![]) {
+                    seqiter.push(ExpandIterator::new(x, var_info, ground_level));
+                }
+
+                // disable all but the first iterator
+                for x in seqiter.iter_mut().skip(1) {
+                    x.done = true;
+                }
+
+                let l = seqiter.len();
+                ExpandSubIterator::Term(seqiter, vec![DUMMY_ELEM!(); l])
+            }
+            Element::Fn(_dirty, ref name, ref mut args) => {
+                let newargs = mem::replace(args, vec![])
+                    .into_iter()
+                    .map(|x| ExpandIterator::new(x, var_info, false).to_element())
+                    .collect();
+                // TODO: normalize?
+
+                // FIXME: we need a dirty flag
+                ExpandSubIterator::Yield(Element::Fn(true, *name, newargs))
+            }
+            Element::Pow(_, be) => {
+                let (b, e) = { *mem::replace(be, Box::new((DUMMY_ELEM!(), DUMMY_ELEM!()))) }; // TODO: improve
+
+                // TODO: in principle expansions in the base and exponent could also be iterator over
+                // instead of collected
+                let (mut eb, ee) = (ExpandIterator::new(b, var_info, false).to_element(),
+                                ExpandIterator::new(e, var_info, false).to_element());
+
+                if let Element::Num(_, Number::SmallInt(n)) = ee {
+                    if n > 0 {
+                        if let Element::SubExpr(_, ref mut t) = eb {
+                            // compute the exponent of a list, without generating double entries
+                            let it = tools::CombinationsWithReplacement::new(mem::replace(t, vec![]), n as usize);
+                            ExpandSubIterator::Exp(it, n as usize)
+                        }
+                        else if let Element::Term(_, t) = eb {
+                            //  (x*y)^z -> x^z*y^z
+                            let mut e = Element::Term(
+                                true,
+                                t.iter()
+                                    .map(|x| {
+                                        Element::Pow(
+                                            true,
+                                            Box::new((
+                                                x.clone(),
+                                                Element::Num(false, Number::SmallInt(n)),
+                                            )),
+                                        )
+                                    })
+                                    .collect(),
+                            );
+                            ExpandSubIterator::Yield(e)
+                        }
+                        else {
+                            ExpandSubIterator::Yield(Element::Pow(true, Box::new((eb, ee))))
+                        }
+                    } else {
+                         ExpandSubIterator::Yield(Element::Pow(true, Box::new((eb, ee))))
+                    }
+                } else {
+                     ExpandSubIterator::Yield(Element::Pow(true, Box::new((eb, ee))))
+                }
+            }
+            e => ExpandSubIterator::Yield(mem::replace(e, DUMMY_ELEM!()))
+        };
+
+        ExpandIterator {
+            subiter,
+            var_info,
+            ground_level,
+            done: false,
+        }
+    }
+
+    fn reset(&mut self) {
+        self.done = false;
+
+        match self.subiter {
+            ExpandSubIterator::SubExpr(ref mut i) => {
+                for x in i {
+                    x.reset();
+                }
+            }
+            ExpandSubIterator::Term(ref mut i, _) => {
+                for x in i.iter_mut() {
+                    x.reset();
+                }
+
+                // disable all but the first iterator
+                for x in i.iter_mut().skip(1) {
+                    x.done = true;
+                }
+            }
+            ExpandSubIterator::Exp(ref mut it, n) => {
+                *it = tools::CombinationsWithReplacement::new(
+                    mem::replace(it.get_inner(), vec![]),
+                    n,
+                );
+            }
+            _ => {}
+        }
+    }
+
+    fn to_element(&mut self) -> Element {
+        let mut e = Element::SubExpr(true, self.collect());
+        e.normalize_inplace(self.var_info);
+        e
+    }
+}
+
+impl<'a> Iterator for ExpandIterator<'a> {
+    type Item = Element;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            return None;
+        }
+
+        match &mut self.subiter {
+            ExpandSubIterator::SubExpr(seqiter) => {
+                // for subexpressions, yield each iterator one by one
+                for si in seqiter.iter_mut() {
+                    if let Some(x) = si.next() {
+                        return Some(x);
+                    }
+                }
+                None
+            }
+            ExpandSubIterator::Term(seqiter, state) => {
+                let mut i = seqiter.len() - 1;
+                loop {
+                    if let Some(x) = seqiter[i].next() {
+                        state[i] = x;
+
+                        if i == seqiter.len() - 1 {
+                            let mut nt = Element::Term(true, state.clone());
+                            nt.normalize_inplace(self.var_info);
+                            return Some(nt);
+                        }
+
+                        // reset the next iterator
+                        i += 1;
+                        seqiter[i].reset();
+                        continue;
+                    }
+
+                    if i == 0 {
+                        return None;
+                    }
+
+                    i -= 1;
+                }
+            }
+            ExpandSubIterator::Exp(ref mut it, ..) => match it.next() {
+                Some((c, mut newt)) => {
+                    newt.push(Element::Num(false, c));
+                    let mut nt = Element::Term(true, newt);
+                    nt.normalize_inplace(self.var_info);
+                    Some(nt)
+                }
+                None => None,
+            },
+            ExpandSubIterator::Yield(e) => {
+                self.done = true;
+                Some(e.clone())
+            }
+        }
+    }
+}
+
 impl Element {
     pub fn append_factors(self, other: Element) -> Element {
         match (self, other) {
@@ -113,13 +319,16 @@ impl Element {
             Element::Pow(_, be) => {
                 let (b, e) = { *be };
 
-                let (eb, ee) = (b.expand(var_info), e.expand(var_info));
+                let (mut eb, ee) = (b.expand(var_info), e.expand(var_info));
 
                 if let Element::Num(_, Number::SmallInt(n)) = ee {
                     if n > 0 {
-                        if let Element::SubExpr(_, ref t) = eb {
+                        if let Element::SubExpr(_, ref mut t) = eb {
                             // compute the exponent of a list, without generating double entries
-                            let it = tools::CombinationsWithReplacement::new(t, n as usize);
+                            let it = tools::CombinationsWithReplacement::new(
+                                mem::replace(t, vec![]),
+                                n as usize,
+                            );
 
                             let mut terms_out = Vec::with_capacity(tools::ncr(
                                 t.len() as u64 + n as u64 - 1,
@@ -246,6 +455,7 @@ impl Element {
 #[derive(Debug)]
 enum StatementIter<'a> {
     IdentityStatement(MatchIterator<'a>),
+    ExpandIterator(ExpandIterator<'a>),
     Multiple(Vec<Element>, bool),
     Simple(Element, bool), // yield a term once
     None,
@@ -255,6 +465,12 @@ impl<'a> StatementIter<'a> {
     fn next(&mut self) -> StatementResult<Element> {
         match *self {
             StatementIter::IdentityStatement(ref mut id) => id.next(),
+            StatementIter::ExpandIterator(ref mut it) => {
+                match it.next() {
+                    Some(x) => StatementResult::Executed({ x }), // FIXME: it is not always executed!
+                    None => StatementResult::Done,
+                }
+            }
             StatementIter::Multiple(ref mut f, m) => {
                 // FIXME: this pops the last term instead of the first
                 match f.pop() {
@@ -337,6 +553,10 @@ impl Statement {
                 }
             }
             Statement::Expand => {
+                let mut i = mem::replace(input, DUMMY_ELEM!());
+                StatementIter::ExpandIterator(ExpandIterator::new(i, &var_info.global_info, true))
+
+                /*
                 // FIXME: treat ground level differently in the expand routine
                 // don't generate all terms in one go
                 let mut i = mem::replace(input, DUMMY_ELEM!());
@@ -350,7 +570,7 @@ impl Statement {
                         }
                     }
                     a => StatementIter::Simple(a, false),
-                }
+                }*/
             }
             Statement::Multiply(ref x) => {
                 // multiply to the right
