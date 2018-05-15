@@ -292,7 +292,7 @@ pub enum Element<ID: Id = VarName> {
     VariableArgument(ID),                       // ?a
     Wildcard(ID, Vec<Element<ID>>),             // x?{...}
     Dollar(ID, Option<Box<Element<ID>>>),       // $x[y]
-    Var(ID),                                    // x
+    Var(ID, Number),                            // x^n
     Pow(bool, Box<(Element<ID>, Element<ID>)>), // (1+x)^3; dirty, base, exponent
     NumberRange(Number, NumOrder),              // >0, <=-5/2
     Fn(bool, ID, Vec<Element<ID>>),             // f(...)
@@ -381,6 +381,7 @@ impl PartialEq for Element {
 impl Element {
     /// A custom partial order that ignores coefficients for
     /// the ground level, i.e., x and x*2 are considered equal.
+    /// TODO: implement a partial_cmp for sorting factors
     pub fn partial_cmp(
         &self,
         other: &Element,
@@ -525,7 +526,12 @@ impl Element {
                 Some(Ordering::Equal)
             }
             (&Element::SubExpr(..), _) => Some(Ordering::Less),
-            (&Element::Var(ref a), &Element::Var(ref b)) => a.partial_cmp(b),
+            (&Element::Var(ref a, ref e1), &Element::Var(ref b, ref e2)) => {
+                match a.partial_cmp(b) {
+                    Some(Ordering::Equal) => e1.partial_cmp(e2),
+                    x => x,
+                }
+            }
             _ => Some(Ordering::Less),
         }
     }
@@ -825,7 +831,14 @@ impl Element {
                 }
                 write!(f, "}}")
             },
-            &Element::Var(ref name) => fmt_varname(name, f, var_info),
+            &Element::Var(ref name, ref e) => {
+                if !e.is_one() {
+                    fmt_varname(name, f, var_info)?;
+                    write!(f, "^{}", e)
+                } else {
+                    fmt_varname(name, f, var_info)
+                }
+            }
             &Element::Dollar(ref name, ..) => {
                 // TODO: print the index too
                 fmt_varname(name, f, var_info)
@@ -987,7 +1000,9 @@ impl Element<String> {
                     }
                 })
             }
-            Element::Var(ref mut name) => Element::Var(var_info.get_name(name)),
+            Element::Var(ref mut name, ref mut e) => {
+                Element::Var(var_info.get_name(name), e.clone())
+            }
             Element::VariableArgument(ref mut name) => {
                 Element::VariableArgument(var_info.get_name(name))
             }
@@ -1027,7 +1042,7 @@ impl Element {
     pub fn replace_vars(&mut self, map: &HashMap<VarName, Element>, dollar_only: bool) -> bool {
         let mut changed = false;
         *self = match *self {
-            Element::Var(ref mut name) => {
+            Element::Var(ref mut name, _) => {
                 if dollar_only {
                     return false;
                 }
@@ -1068,7 +1083,7 @@ impl Element {
             Element::Fn(ref mut dirty, ref mut name, ref mut args) => {
                 if !dollar_only {
                     if let Some(x) = map.get(name) {
-                        if let &Element::Var(ref y) = x {
+                        if let &Element::Var(ref y, _) = x {
                             *name = y.clone();
                             changed = true
                         } else {
@@ -1245,7 +1260,7 @@ impl Statement {
             | Statement::Symmetrize(ref mut name)
             | Statement::Collect(ref mut name) => {
                 if let Some(x) = map.get(name) {
-                    if let &Element::Var(ref y) = x {
+                    if let &Element::Var(ref y, _) = x {
                         *name = y.clone();
                     } else {
                         panic!("Cannot replace function name by generic expression");
@@ -1255,7 +1270,7 @@ impl Statement {
             Statement::Extract(ref mut names) => {
                 for name in names {
                     if let Some(x) = map.get(name) {
-                        if let &Element::Var(ref y) = x {
+                        if let &Element::Var(ref y, _) = x {
                             *name = y.clone();
                         } else {
                             panic!("Cannot replace function name by generic expression");

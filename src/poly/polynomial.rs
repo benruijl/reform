@@ -35,16 +35,16 @@ impl Polynomial {
         varcount: &mut usize,
     ) -> Result<Number, String> {
         match *e {
-            Element::Var(ref x) => {
+            Element::Var(ref x, Number::SmallInt(e)) if e > 0 => {
                 match varmap.entry(*x) {
                     Entry::Occupied(v) => {
-                        exp[*v.get()] = 1;
+                        exp[*v.get()] = e as u32;
                     }
                     Entry::Vacant(mut v) => {
                         v.insert(*varcount);
                         inv_varmap.push(*x);
                         *varcount += 1;
-                        exp.push(1);
+                        exp.push(e as u32);
                     }
                 }
 
@@ -54,18 +54,18 @@ impl Polynomial {
             | Element::Num(_, ref nn @ Number::BigInt(_)) => Ok(nn.clone()),
             Element::Pow(_, ref p) => {
                 let (ref b, ref ex) = **p;
-                if let Element::Var(ref x) = *b {
+                if let Element::Var(ref x, Number::SmallInt(ee1)) = *b {
                     if let Element::Num(_, Number::SmallInt(n)) = *ex {
                         if n > 0 {
                             match varmap.entry(*x) {
                                 Entry::Occupied(v) => {
-                                    exp[*v.get()] = n as u32;
+                                    exp[*v.get()] = (n * ee1) as u32;
                                 }
                                 Entry::Vacant(mut v) => {
                                     v.insert(*varcount);
                                     inv_varmap.push(*x);
                                     *varcount += 1;
-                                    exp.push(n as u32);
+                                    exp.push((n * ee1) as u32);
                                 }
                             }
                             return Ok(Number::one());
@@ -121,8 +121,8 @@ impl Polynomial {
                     varcount,
                 })
             }
-            Element::Var(ref x) => {
-                let mut exp = vec![1];
+            Element::Var(ref x, Number::SmallInt(e)) if e > 0 => {
+                let mut exp = vec![e as u32];
                 varmap.insert(*x, 0);
                 Ok(Polynomial {
                     poly: MultivariatePolynomial::from_monomial(Number::one(), exp),
@@ -173,18 +173,11 @@ impl Polynomial {
         for v in self.poly.into_iter() {
             let mut factors = vec![];
             for (name, pow) in v.exponents.iter().enumerate() {
-                if *pow == 1 {
-                    factors.push(Element::Var(self.inv_varmap[name]));
-                } else {
-                    if *pow > 1 {
-                        factors.push(Element::Pow(
-                            false,
-                            Box::new((
-                                Element::Var(self.inv_varmap[name]),
-                                Element::Num(false, Number::SmallInt(*pow as isize)),
-                            )),
-                        ));
-                    }
+                if *pow >= 1 {
+                    factors.push(Element::Var(
+                        self.inv_varmap[name],
+                        Number::SmallInt(*pow as isize),
+                    ));
                 }
             }
 
