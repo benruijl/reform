@@ -183,17 +183,17 @@ impl Element {
                         for f in fs {
                             match &f {
                                 Element::Pow(_, be) => {
-                                    if let Element::Var(n) = be.0 {
+                                    if let Element::Var(n, Number::SmallInt(e)) = be.0 {
                                         if n == names[0] {
                                             if let Element::Num(_, Number::SmallInt(en)) = be.1 {
-                                                pow = en;
+                                                pow = en * e;
                                                 continue;
                                             }
                                         }
                                     }
                                 }
-                                Element::Var(n) if n == &names[0] => {
-                                    pow = 1;
+                                Element::Var(n, Number::SmallInt(e)) if n == &names[0] => {
+                                    pow = *e;
                                     continue;
                                 }
                                 _ => {}
@@ -202,15 +202,15 @@ impl Element {
                         }
                         newterm.push(Element::Term(true, newfacs));
                     }
-                    Element::Var(n) if n == names[0] => {
-                        pow = 1;
+                    Element::Var(n, Number::SmallInt(e)) if n == names[0] => {
+                        pow = e;
                         newterm.push(Element::Num(false, Number::one()));
                     }
                     Element::Pow(_, ref be) => {
-                        if let Element::Var(n) = be.0 {
+                        if let Element::Var(n, Number::SmallInt(e)) = be.0 {
                             if n == names[0] {
                                 if let Element::Num(_, Number::SmallInt(en)) = be.1 {
-                                    pow = en;
+                                    pow = en * e;
                                     newterm.push(Element::Num(false, Number::one()));
                                 }
                             }
@@ -232,16 +232,7 @@ impl Element {
 
                 ts.push(Element::Term(
                     true,
-                    vec![
-                        Element::Pow(
-                            true,
-                            Box::new((
-                                Element::Var(names[0].clone()),
-                                Element::Num(false, Number::SmallInt(k)),
-                            )),
-                        ),
-                        newv,
-                    ],
+                    vec![Element::Var(names[0].clone(), Number::SmallInt(k)), newv],
                 ));
                 ts.last_mut().unwrap().normalize_inplace(var_info);
             }
@@ -552,7 +543,7 @@ fn do_module_rec(
         // for every function, execute the statements
         // this will create a subrecursion
         Statement::Argument(ref func, ref sts) => {
-            if let Element::Var(name) = *func {
+            if let Element::Var(name, _) = *func {
                 match input {
                     Element::Fn(_, name1, ref mut args) => {
                         if name == name1 {
@@ -981,7 +972,7 @@ impl Module {
                             // add the map for the procedure arguments
                             let mut map = HashMap::new();
                             for (k, v) in p.args.iter().zip(args.iter()) {
-                                if let Element::Var(map_source) = *k {
+                                if let Element::Var(map_source, _) = *k {
                                     map.insert(map_source.clone(), v.clone());
                                 } else {
                                     panic!("Argument in procedure header should be a variable");
@@ -990,10 +981,10 @@ impl Module {
 
                             for lv in &p.local_args {
                                 // create unique variable
-                                if let Element::Var(name) = *lv {
+                                if let Element::Var(name, _) = *lv {
                                     map.insert(
                                         name.clone(),
-                                        Element::Var(var_info.add_local(&name)),
+                                        Element::Var(var_info.add_local(&name), Number::one()),
                                     );
                                 }
                             }
@@ -1265,7 +1256,7 @@ impl Program {
                     }
                 }
                 Statement::Attrib(ref f, ref attribs) => match *f {
-                    Element::Var(ref name) | Element::Dollar(ref name, _) => {
+                    Element::Var(ref name, _) | Element::Dollar(ref name, _) => {
                         self.var_info
                             .global_info
                             .func_attribs

@@ -1,7 +1,9 @@
 use std::fmt;
 use std::mem;
-use structure::{BorrowedVarInfo, Element, FunctionAttributes, IdentityStatement,
-                IdentityStatementMode, StatementResult, VarName};
+use structure::{
+    BorrowedVarInfo, Element, FunctionAttributes, IdentityStatement, IdentityStatementMode,
+    StatementResult, VarName,
+};
 use tools::{is_number_in_range, Heap, SliceRef};
 
 pub const MAXMATCH: usize = 1_000_000; // maximum number of matches
@@ -307,6 +309,17 @@ impl Element {
         var_info: &'a BorrowedVarInfo<'a>,
     ) -> ElementIterSingle<'a> {
         match (target, self) {
+            (&Element::Var(ref i1, ref e1), &Element::Pow(_, ref be2)) => {
+                // match x^x1? to x^2
+                let (ref b2, ref e2) = **be2;
+
+                /*ElementIterSingle::SeqIt(
+                    vec![target, &Element::Num(false, e1.clone())],
+                    SequenceIter::new(&SliceRef::OwnedSlice(vec![b2, e2]), target, var_info),
+                )*/
+                ElementIterSingle::None
+            }
+
             (&Element::Pow(_, ref be1), &Element::Pow(_, ref be2)) => {
                 let (ref b1, ref e1) = **be1;
                 let (ref b2, ref e2) = **be2;
@@ -322,7 +335,11 @@ impl Element {
                     ElementIterSingle::None
                 }
             }
-            (&Element::Var(ref i1), &Element::Var(ref i2)) if i1 == i2 => ElementIterSingle::Once,
+            (&Element::Var(ref i1, ref e1), &Element::Var(ref i2, ref e2))
+                if i1 == i2 && e1 == e2 =>
+            {
+                ElementIterSingle::Once
+            }
             (&Element::Num(_, ref n1), &Element::Num(_, ref n2)) if n1 == n2 => {
                 ElementIterSingle::Once
             }

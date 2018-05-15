@@ -206,10 +206,10 @@ impl Element {
                 buffer.write_u32::<LittleEndian>(*name).unwrap();
                 9 + serialize_list(args, buffer)
             }
-            Element::Var(ref name) => {
+            Element::Var(ref name, ref e) => {
                 buffer.write_u8(VAR_ID).unwrap();
                 buffer.write_u32::<LittleEndian>(*name).unwrap();
-                9
+                9 + e.serialize(buffer)
             }
             Element::Term(false, ref args) => {
                 buffer.write_u8(TERM_ID).unwrap();
@@ -243,7 +243,10 @@ impl Element {
                 buffer.read_u32::<LittleEndian>()?,
                 deserialize_list(buffer),
             ),
-            VAR_ID => Element::Var(buffer.read_u32::<LittleEndian>()?),
+            VAR_ID => Element::Var(
+                buffer.read_u32::<LittleEndian>()?,
+                Number::deserialize(buffer)?,
+            ),
             TERM_ID => Element::Term(false, deserialize_list(buffer)),
             EXPR_ID => Element::SubExpr(false, deserialize_list(buffer)),
             POW_ID => {

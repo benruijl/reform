@@ -3,8 +3,10 @@ use rug::{Integer, Rational};
 use std::fs::File;
 use std::io::prelude::*;
 use std::str::FromStr;
-use structure::{Element, FunctionAttributes, IdentityStatement, IdentityStatementMode, Module,
-                NumOrder, PrintMode, Procedure, Program, Statement};
+use structure::{
+    Element, FunctionAttributes, IdentityStatement, IdentityStatementMode, Module, NumOrder,
+    PrintMode, Procedure, Program, Statement,
+};
 
 use combine::char::*;
 use combine::primitives::Stream;
@@ -380,11 +382,11 @@ parser!{
                 .and(optional(set).map(|x| x.unwrap_or(vec![])))
                 .map(|(_, s)| Element::Wildcard(String::new(), s)),
             funcarg.map(|fa| Element::Fn(true, String::new(), fa)),
-            value(1).map(|_| Element::Var(String::new()))
+            value(1).map(|_| Element::Var(String::new(), Number::SmallInt(1)))
         ))
         .map(|(name, mut res)| {
             match res {
-                Element::Wildcard(ref mut n, ..) | Element::Var(ref mut n) => *n = name,
+                Element::Wildcard(ref mut n, ..) | Element::Var(ref mut n, _) => *n = name,
                 Element::Fn(_, ref mut n, ..) => *n = name,
                 _ => unreachable!(),
             }

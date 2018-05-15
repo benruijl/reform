@@ -318,11 +318,17 @@ mod tests {
     fn serialize1() {
         let a = Element::Term(
             false,
-            vec![Element::Var(1), Element::Num(false, SmallInt(5))],
+            vec![
+                Element::Var(1, SmallInt(1)),
+                Element::Num(false, SmallInt(5)),
+            ],
         );
         let b = Element::Term(
             false,
-            vec![Element::Var(1), Element::Num(false, SmallInt(6))],
+            vec![
+                Element::Var(1, SmallInt(1)),
+                Element::Num(false, SmallInt(6)),
+            ],
         );
 
         let mut a1 = vec![];

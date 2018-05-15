@@ -142,6 +142,9 @@ impl Element {
             Element::NumberRange(ref mut n1, ..) => {
                 changed |= n1.normalize_inplace();
             }
+            Element::Var(_, ref _e) => {
+                // TODO: x^0 = 1
+            }
             Element::Pow(dirty, ..) => {
                 if !dirty {
                     return false;
@@ -175,6 +178,12 @@ impl Element {
                                     break Element::Num(false, num.clone().pow(*n as u32));
                                 }
 
+                                // downgrade to variable with power
+                                if let Element::Var(_, ref mut mutexp) = b {
+                                    *mutexp *= Number::SmallInt(*n);
+                                    break mem::replace(b, DUMMY_ELEM!());
+                                }
+
                                 // simplify x^a^b = x^(a*b) where x is a variable
                                 // and a and b are positive integers
                                 // In general, this may be mathematically wrong, e.g.,
@@ -183,10 +192,10 @@ impl Element {
                                 // We need to add more detailed conditions for such a reduction.
                                 let mut newbase = DUMMY_ELEM!();
                                 if let Element::Pow(_, ref mut be1) = *b {
-                                    if let Element::Var(_) = be1.0 {
+                                    if let Element::Var(_, Number::SmallInt(ee1)) = be1.0 {
                                         if let Element::Num(_, Number::SmallInt(n1)) = be1.1 {
                                             newbase = be1.0.clone();
-                                            *n *= n1;
+                                            *n *= n1 * ee1;
                                             changed = true;
                                         }
                                     }
@@ -203,6 +212,19 @@ impl Element {
                                         false,
                                         Number::one() / num.clone().pow(-n as u32),
                                     );
+                                }
+
+                                // downgrade to variable with power
+                                if let Element::Var(_, ref mut mutexp) = b {
+                                    *mutexp *= Number::SmallInt(*n);
+                                    break mem::replace(b, DUMMY_ELEM!());
+                                }
+                            }
+                            Element::Num(_, ref mut n) => {
+                                // downgrade to variable with power
+                                if let Element::Var(_, ref mut mutexp) = b {
+                                    *mutexp *= mem::replace(n, Number::zero());
+                                    break mem::replace(b, DUMMY_ELEM!());
                                 }
                             }
                             _ => {}
