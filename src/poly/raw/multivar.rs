@@ -12,7 +12,6 @@ use poly::exponent::Exponent;
 use poly::ring::Ring;
 
 use poly::raw::finitefield::FiniteField;
-use poly::raw::gcd::POW_CACHE_SIZE;
 use poly::raw::zp::ufield;
 
 /// Multivariate polynomial with a degree sparse and variable dense representation.
@@ -735,7 +734,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         &self,
         v: usize,
         r: &[(usize, R)],
-        cache: &mut [[R; POW_CACHE_SIZE]],
+        cache: &mut [Vec<R>],
     ) -> MultivariatePolynomial<R, E> {
         let mut tm: HashMap<E, R> = HashMap::new();
 
@@ -744,7 +743,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             for &(n, ref vv) in r {
                 let p = self.exponents(t)[n].as_() as usize;
                 if p > 0 {
-                    if n < POW_CACHE_SIZE {
+                    if n < cache[n].len() {
                         if cache[n][p].is_zero() {
                             cache[n][p] = vv.clone().pow(p as u32);
                         }

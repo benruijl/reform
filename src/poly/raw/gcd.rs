@@ -1,4 +1,4 @@
-use num_traits::{One, Pow, Zero};
+use num_traits::{One, Zero};
 use std::mem;
 
 use poly::exponent::Exponent;
@@ -9,11 +9,15 @@ use number::Number;
 use poly::raw::finitefield::FiniteField;
 use poly::raw::zp;
 use poly::raw::zp::{ufield, FastModulus};
+use poly::raw::zp_mod::Modulus;
 use poly::raw::MultivariatePolynomial;
 use poly::ring::MulModNum;
 use poly::ring::ToFiniteField;
 use rand;
 use rand::distributions::{Range, Sample};
+use std::cmp::{max, min};
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use tools::GCD;
 
 use ndarray::{arr1, Array};
@@ -37,7 +41,7 @@ pub const LARGE_U32_PRIMES: [ufield; 100] = [
 ];
 
 // The maximum power of a variable that is cached
-pub const POW_CACHE_SIZE: usize = 20;
+pub const POW_CACHE_SIZE: usize = 1000;
 
 enum GCDError {
     BadOriginalImage,
@@ -95,6 +99,7 @@ fn construct_new_image<E: Exponent>(
     gfu: &[(MultivariatePolynomial<FiniteField, E>, u32)],
 ) -> Result<MultivariatePolynomial<FiniteField, E>, GCDError> {
     let p = ap.coefficients[0].p;
+    let fastp = FastModulus::from(ap.coefficients[0].p);
     let mut rng = rand::thread_rng();
     let mut range = Range::new(1, p);
 
@@ -105,27 +110,35 @@ fn construct_new_image<E: Exponent>(
     let mut rank_failure_count = 0;
     let mut last_rank = (0, 0);
 
+    // store a table for variables raised to a certain power
+    let mut cache = (0..ap.nvars)
+        .map(|i| {
+            vec![
+                0;
+                min(
+                    max(ap.degree(i), bp.degree(i)).as_() as usize + 1,
+                    POW_CACHE_SIZE
+                )
+            ]
+        })
+        .collect::<Vec<_>>();
+
     'newimage: loop {
         // generate random numbers for all non-leading variables
         // TODO: apply a Horner scheme to speed up the substitution?
         let (r, a1, b1) = loop {
-            // store a table for variables raised to a certain power
-            let mut cache = vec![[FiniteField::zero(); POW_CACHE_SIZE]; ap.nvars];
+            for v in &mut cache {
+                for vi in v {
+                    *vi = 0;
+                }
+            }
 
-            let r: Vec<(usize, FiniteField)> = vars.iter()
-                .map(|i| (i.clone(), FiniteField::new(range.sample(&mut rng), p)))
+            let r: Vec<(usize, ufield)> = vars.iter()
+                .map(|i| (i.clone(), range.sample(&mut rng)))
                 .collect();
 
-            /*for &(n, ref vv) in &r {
-                cache[n].insert(1, vv.clone());
-                for i in 2..12 {
-                    let k = cache[n][&(i - 1)].clone();
-                    cache[n].insert(i, k * vv.clone());
-                }
-            }*/
-
-            let a1 = ap.replace_all_except(var, &r, &mut cache);
-            let b1 = bp.replace_all_except(var, &r, &mut cache);
+            let a1 = ap.sample_polynomial(var, &fastp, &r, &mut cache);
+            let b1 = bp.sample_polynomial(var, &fastp, &r, &mut cache);
 
             if a1.ldegree(var) == aldegree && b1.ldegree(var) == bldegree {
                 break (r, a1, b1);
@@ -158,7 +171,7 @@ fn construct_new_image<E: Exponent>(
             let mut coeff = FiniteField::new(1, p);
             let (ref c, ref d) = gfu[scaling_index];
             for &(n, v) in r.iter() {
-                coeff = coeff * v.clone().pow(c.exponents(0)[n].as_());
+                coeff = coeff * zp::pow(v, c.exponents(0)[n].as_(), &fastp);
             }
 
             let mut found = false;
@@ -201,19 +214,19 @@ fn construct_new_image<E: Exponent>(
                     for t in 0..c.nterms {
                         let mut coeff = FiniteField::new(1, p);
                         for &(n, v) in r.iter() {
-                            coeff = coeff * v.clone().pow(c.exponents(t)[n].as_());
+                            coeff = coeff * zp::pow(v, c.exponents(t)[n].as_(), &fastp);
                         }
                         row.push(coeff.n);
                     }
 
                     // move the coefficients of the image to the rhs
-                    rhs[j] = zp::sub(rhs[j], (g.coefficients[i] * scale_factor.clone()).n, p);
+                    rhs[j] = zp::sub(rhs[j], (g.coefficients[i] * scale_factor.clone()).n, &fastp);
                     gfm.extend(row);
                 }
 
                 let m = Array::from_shape_vec((system.len(), c.nterms), gfm).unwrap();
 
-                match solve(&m, &arr1(&rhs), &FastModulus::from(p)) {
+                match solve(&m, &arr1(&rhs), &fastp) {
                     Ok(x) => {
                         debug!("Solution: {:?}", x);
 
@@ -271,7 +284,7 @@ fn construct_new_image<E: Exponent>(
                             for t in 0..c.nterms {
                                 let mut coeff = FiniteField::new(1, p);
                                 for &(n, v) in r.iter() {
-                                    coeff = coeff * v.clone().pow(c.exponents(t)[n].as_());
+                                    coeff = coeff * zp::pow(v, c.exponents(t)[n].as_(), &fastp);
                                 }
                                 row.push(coeff.n);
                             }
@@ -285,7 +298,7 @@ fn construct_new_image<E: Exponent>(
                     // the scaling of the first image is fixed to 1
                     if j == 0 {
                         let currow = i * system.len();
-                        rhs[currow] = zp::sub(rhs[currow], g.coefficients[i].n, p);
+                        rhs[currow] = zp::sub(rhs[currow], g.coefficients[i].n, &fastp);
                     }
 
                     for ii in 1..system.len() {
@@ -304,7 +317,7 @@ fn construct_new_image<E: Exponent>(
             let cols = gfm.len() / rows;
             let m = Array::from_shape_vec((rows, cols), gfm).unwrap();
 
-            match solve(&m, &arr1(&rhs), &FastModulus::from(p)) {
+            match solve(&m, &arr1(&rhs), &fastp) {
                 Ok(x) => {
                     debug!("Solution: {:?}", x);
                     // construct the gcd
@@ -378,6 +391,54 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
         }
 
         d
+    }
+
+    /// Replace all variables except `v` in the polynomial by elements from
+    /// a finite field of size `p`.
+    pub fn sample_polynomial(
+        &self,
+        v: usize,
+        p: &FastModulus,
+        r: &[(usize, ufield)],
+        cache: &mut [Vec<ufield>],
+    ) -> MultivariatePolynomial<FiniteField, E> {
+        let mut tm: HashMap<E, ufield> = HashMap::new();
+
+        for t in 0..self.nterms {
+            let mut c = self.coefficients[t].n;
+            for &(n, vv) in r {
+                let exp = self.exponents(t)[n].as_() as usize;
+                if exp > 0 {
+                    if n < cache[n].len() {
+                        if cache[n][exp].is_zero() {
+                            cache[n][exp] = zp::pow(vv, exp as u32, p);
+                        }
+
+                        c = zp::mul(c, cache[n][exp], p)
+                    } else {
+                        c = zp::mul(c, zp::pow(vv, exp as u32, p), p);
+                    }
+                }
+            }
+
+            match tm.entry(self.exponents(t)[v]) {
+                Entry::Occupied(mut e) => {
+                    *e.get_mut() = zp::add(*e.get(), c, p);
+                }
+                Entry::Vacant(mut e) => {
+                    e.insert(c);
+                }
+            }
+        }
+
+        let mut res = MultivariatePolynomial::with_nvars(self.nvars);
+        for (k, c) in tm {
+            let mut e = vec![E::zero(); self.nvars];
+            e[v] = k;
+            res.append_monomial(FiniteField::new(c, p.value()), e);
+        }
+
+        res
     }
 
     /// Compute the gcd shape of two polynomials in a finite field by filling in random
@@ -523,7 +584,17 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             // do a probabilistic division test
             let (g1, a1, b1) = loop {
                 // store a table for variables raised to a certain power
-                let mut cache = vec![[FiniteField::zero(); POW_CACHE_SIZE]; a.nvars];
+                let mut cache = (0..a.nvars)
+                    .map(|i| {
+                        vec![
+                            FiniteField::zero();
+                            min(
+                                max(a.degree(i), b.degree(i)).as_() as usize + 1,
+                                POW_CACHE_SIZE
+                            )
+                        ]
+                    })
+                    .collect::<Vec<_>>();
 
                 let r: Vec<(usize, FiniteField)> = vars.iter()
                     .skip(1)

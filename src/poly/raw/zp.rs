@@ -55,7 +55,7 @@ pub fn mul<M: Modulus<ucomp, ufield>>(x: ufield, y: ufield, p: M) -> ufield {
     debug_assert!(y < p.value());
     let xx = ucomp::from(x);
     let yy = ucomp::from(y);
-    let zz = p.modulous(xx * yy);
+    let zz = p.modulus(xx * yy);
     debug_assert!(zz < ucomp::from(p.value()));
     zz as ufield
 }
@@ -138,9 +138,9 @@ pub fn pow<M: Modulus<ucomp, ufield>>(x: ufield, mut n: u32, p: M) -> ufield {
     let mut b = ucomp::from(x);
     while n != 0 {
         if n & 1 != 0 {
-            r = p.modulous(r * b);
+            r = p.modulus(r * b);
         }
-        b = p.modulous(b * b);
+        b = p.modulus(b * b);
         n >>= 1;
     }
     r as ufield

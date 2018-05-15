@@ -8,7 +8,7 @@ pub trait Modulus<N, M>: Copy {
     fn value(&self) -> M;
 
     /// Modulo operation giving `x % modulo`.
-    fn modulous(&self, x: N) -> N;
+    fn modulus(&self, x: N) -> N;
 }
 
 // Implementation for primitives.
@@ -20,7 +20,7 @@ impl Modulus<u64, u32> for u32 {
     }
 
     #[inline]
-    fn modulous(&self, x: u64) -> u64 {
+    fn modulus(&self, x: u64) -> u64 {
         x % u64::from(*self)
     }
 }
@@ -49,7 +49,7 @@ impl<'a> Modulus<u64, u32> for &'a FastModulus6432 {
     }
 
     #[inline]
-    fn modulous(&self, x: u64) -> u64 {
+    fn modulus(&self, x: u64) -> u64 {
         // TODO: for now DividerU64 is used, but is it possible to make use of the fact that
         // the modulo fits in u32?
         let division = self.magic.divide(x);
