@@ -1,11 +1,12 @@
 use num_traits::{One, Pow, Zero};
 use number::Number;
 use poly::polynomial::Polynomial;
-use std::cmp::Ordering;
+use sort::split_merge;
 use std::mem;
-use std::ptr;
-use structure::{Element, FunctionAttributes, GlobalVarInfo, FUNCTION_DELTA, FUNCTION_GCD,
-                FUNCTION_MUL, FUNCTION_NARGS, FUNCTION_RAT, FUNCTION_SUM};
+use structure::{
+    Element, FunctionAttributes, GlobalVarInfo, FUNCTION_DELTA, FUNCTION_GCD, FUNCTION_MUL,
+    FUNCTION_NARGS, FUNCTION_RAT, FUNCTION_SUM,
+};
 use tools::add_num_poly;
 
 impl Element {
@@ -341,40 +342,31 @@ impl Element {
                         *ts = tmp;
                     }
 
-                    // sort and merge the terms at the same time
-                    if false {
-                        if ts.len() > 1 {
-                            changed |= expr_sort(ts, merge_factors, var_info, true);
-                        }
-                    } else {
-                        // TODO: this is faster than expr_sort. presumable because there are fewer
-                        // merge_factor calls
-                        ts.sort_unstable_by(|l, r| l.partial_cmp(r, var_info, true).unwrap());
+                    ts.sort_unstable_by(|l, r| l.partial_cmp(r, var_info, true).unwrap());
 
-                        // now merge pows: x^a*x^b = x^(a*b)
-                        // x*x^a and x*x, all should be side by side now
-                        let mut lastindex = 0;
+                    // now merge pows: x^a*x^b = x^(a*b)
+                    // x*x^a and x*x, all should be side by side now
+                    let mut lastindex = 0;
 
-                        for i in 1..ts.len() {
-                            let (a, b) = ts.split_at_mut(i);
-                            if !merge_factors(&mut a[lastindex], &mut b[0], var_info) {
-                                if lastindex + 1 < i {
-                                    a[lastindex + 1] = mem::replace(&mut b[0], DUMMY_ELEM!());
-                                }
-                                lastindex += 1;
+                    for i in 1..ts.len() {
+                        let (a, b) = ts.split_at_mut(i);
+                        if !merge_factors(&mut a[lastindex], &mut b[0], var_info) {
+                            if lastindex + 1 < i {
+                                a[lastindex + 1] = mem::replace(&mut b[0], DUMMY_ELEM!());
                             }
+                            lastindex += 1;
                         }
-                        ts.truncate(lastindex + 1);
+                    }
+                    ts.truncate(lastindex + 1);
 
-                        if let Some(Element::Num(..)) = ts.last() {
-                            if let Some(Element::Num(_, num)) = ts.last().cloned() {
-                                match num {
-                                    Number::SmallInt(0) => ts.clear(),
-                                    Number::SmallInt(1) if ts.len() > 1 => {
-                                        ts.pop();
-                                    } // don't add a factor
-                                    _ => {}
-                                }
+                    if let Some(Element::Num(..)) = ts.last() {
+                        if let Some(Element::Num(_, num)) = ts.last().cloned() {
+                            match num {
+                                Number::SmallInt(0) => ts.clear(),
+                                Number::SmallInt(1) if ts.len() > 1 => {
+                                    ts.pop();
+                                } // don't add a factor
+                                _ => {}
                             }
                         }
                     }
@@ -422,8 +414,22 @@ impl Element {
                     }
 
                     // sort and merge the terms at the same time
-                    if false {
-                        changed |= expr_sort(ts, merge_terms, var_info, true);
+                    if true {
+                        let map = split_merge(ts, var_info);
+                        let mut res = Vec::with_capacity(map.len());
+
+                        if map.len() != ts.len() {
+                            changed = true;
+                        }
+
+                        for i in 0..map.len() {
+                            if i != map[i] {
+                                changed = true;
+                            }
+
+                            res.push(mem::replace(&mut ts[map[i]], DUMMY_ELEM!()));
+                        }
+                        mem::swap(&mut res, ts);
                     } else {
                         changed = true; // TODO: tell if changed?
                         ts.sort_unstable_by(|l, r| l.partial_cmp(r, var_info, true).unwrap()); // TODO: slow!
@@ -813,221 +819,4 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
     }
 
     true
-}
-
-/// Sorts a vector `a`, using the `merger` function to merge identical terms.
-/// This function can be used to sort subexpressions and terms.
-/// Returns true if the vector has been changed.
-pub fn expr_sort<F>(
-    a: &mut Vec<Element>,
-    merger: F,
-    var_info: &GlobalVarInfo,
-    ground_level: bool,
-) -> bool
-where
-    F: Fn(&mut Element, &mut Element, &GlobalVarInfo) -> bool,
-{
-    if a.is_empty() {
-        return false;
-    }
-
-    // count descending runs and merge adjacent terms if possible
-    // also count ascending runs and reverse them
-    // this is safe for non-commutative functions, since they will
-    // always be treated as in-order
-    let mut changed = false;
-    let mut grouplen = vec![];
-    let mut groupcount = 1;
-    let mut writepos = 1;
-    let mut ascenddescendmode = 0; // 0: no direction, 1: desc, 2: asc
-    for x in 1..a.len() {
-        {
-            let (old, new) = a.split_at_mut(x);
-            if merger(&mut old[writepos - 1], &mut new[0], var_info) {
-                changed = true;
-                continue;
-            }
-        }
-
-        a.swap(writepos, x);
-        writepos += 1;
-
-        match a[writepos - 2].partial_cmp(&a[writepos - 1], var_info, ground_level) {
-            Some(Ordering::Greater) => {
-                if ascenddescendmode == 1 {
-                    grouplen.push(groupcount);
-                    ascenddescendmode = 0;
-                    groupcount = 1;
-                } else {
-                    if ascenddescendmode == 0 {
-                        ascenddescendmode = 2;
-                    }
-                    groupcount += 1;
-                }
-            }
-            _ => {
-                if ascenddescendmode == 2 {
-                    // TODO: first check if the reversed array can join the last group?
-                    grouplen.push(groupcount);
-                    // change direction of last group, problem: writepos not included in this array
-                    // yet..
-                    a[writepos - groupcount - 1..writepos - 1].reverse();
-                    ascenddescendmode = 0;
-                    groupcount = 1;
-                } else {
-                    if ascenddescendmode == 0 {
-                        ascenddescendmode = 1;
-                    }
-                    groupcount += 1;
-                }
-            }
-        }
-    }
-
-    if !changed && groupcount == 1 && ascenddescendmode == 1 {
-        return false;
-    }
-
-    // reverse last group if ascending
-    if ascenddescendmode == 2 {
-        a[writepos - groupcount..writepos].reverse();
-    }
-
-    a.truncate(writepos);
-
-    // allocate buffer, TODO: could be half the size
-    let mut b: Vec<Element> = Vec::with_capacity(a.len());
-    grouplen.push(groupcount);
-
-    //a.shrink_to_fit(); // slow!
-    //b.shrink_to_fit();
-
-    // Make successively longer sorted runs until whole array is sorted.
-    while grouplen.len() > 1 {
-        let mut newlen = 0;
-        let mut groupindex = 0;
-        let mut startpos = 0;
-        let mut writepos = a.as_mut_ptr();
-        while groupindex * 2 < grouplen.len() {
-            let newsize;
-            unsafe {
-                if groupindex * 2 + 1 == grouplen.len() {
-                    // only one group left, so just copy to writepos
-                    newsize = sub_merge_sort(
-                        a,
-                        startpos,
-                        startpos + grouplen[groupindex * 2],
-                        startpos + grouplen[groupindex * 2],
-                        &mut b,
-                        writepos,
-                        &merger,
-                        var_info,
-                        ground_level,
-                    );
-                } else {
-                    newsize = sub_merge_sort(
-                        a,
-                        startpos,
-                        startpos + grouplen[groupindex * 2],
-                        startpos + grouplen[groupindex * 2] + grouplen[groupindex * 2 + 1],
-                        &mut b,
-                        writepos,
-                        &merger,
-                        var_info,
-                        ground_level,
-                    );
-                    startpos += grouplen[groupindex * 2] + grouplen[groupindex * 2 + 1];
-                }
-
-                writepos = writepos.offset(newsize as isize);
-            }
-            grouplen[groupindex] = newsize;
-            newlen += newsize;
-            groupindex += 1;
-        }
-
-        grouplen.truncate(groupindex);
-        unsafe {
-            // resize without dropping
-            a.set_len(newlen);
-        }
-    }
-    true
-}
-
-unsafe fn sub_merge_sort<F>(
-    a: &mut [Element],
-    left: usize,
-    right: usize,
-    end: usize,
-    buf: &mut [Element],
-    mut writepos: *mut Element,
-    merger: &F,
-    var_info: &GlobalVarInfo,
-    ground_level: bool,
-) -> usize
-where
-    F: Fn(&mut Element, &mut Element, &GlobalVarInfo) -> bool,
-{
-    let mut i = left;
-    let mut j = right;
-    let mut lastsource = 0; // 0: none, 1: left, 2: right
-    let origwritepos = writepos;
-
-    // copy left part to array
-    let mut leftp = buf.as_mut_ptr();
-    let mut rightp = a.get_unchecked_mut(right) as *mut Element;
-
-    ptr::copy_nonoverlapping(&a[left], buf.as_mut_ptr(), right - left);
-
-    while i < right || j < end {
-        if i < right && j < end {
-            match (*leftp).partial_cmp(&*rightp, var_info, ground_level) {
-                Some(Ordering::Greater) => {
-                    if lastsource != 1 || !merger(&mut *writepos.offset(-1), &mut *rightp, var_info)
-                    {
-                        // FIXME: it should drop at writep! does this cause leaks?
-                        assert!(writepos != rightp);
-                        ptr::copy_nonoverlapping(rightp, writepos, 1);
-                        writepos = writepos.offset(1);
-                        lastsource = 2;
-                    }
-                    j += 1;
-                    rightp = rightp.offset(1);
-                }
-                // TODO: special case if they are equal/mergeable
-                _ => {
-                    if lastsource != 2 || !merger(&mut *writepos.offset(-1), &mut *leftp, var_info)
-                    {
-                        ptr::copy_nonoverlapping(leftp, writepos, 1);
-                        writepos = writepos.offset(1);
-                        lastsource = 1;
-                    }
-                    i += 1;
-                    leftp = leftp.offset(1);
-                }
-            }
-        } else {
-            if i < right {
-                if lastsource != 2 || !merger(&mut *writepos.offset(-1), &mut *leftp, var_info) {
-                    ptr::copy_nonoverlapping(leftp, writepos, 1);
-                    writepos = writepos.offset(1);
-                    lastsource = 1;
-                }
-                i += 1;
-                leftp = leftp.offset(1);
-            } else {
-                if lastsource != 1 || !merger(&mut *writepos.offset(-1), &mut *rightp, var_info) {
-                    assert!(writepos != rightp);
-                    ptr::copy_nonoverlapping(rightp, writepos, 1);
-                    writepos = writepos.offset(1);
-                    lastsource = 2;
-                }
-                j += 1;
-                rightp = rightp.offset(1);
-            }
-        }
-    }
-
-    (writepos as usize - origwritepos as usize) / mem::size_of::<Element>()
 }
