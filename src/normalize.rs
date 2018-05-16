@@ -142,8 +142,14 @@ impl Element {
             Element::NumberRange(ref mut n1, ..) => {
                 changed |= n1.normalize_inplace();
             }
-            Element::Var(_, ref _e) => {
-                // TODO: x^0 = 1
+            Element::Var(..) => {
+                // x^0 = 1
+                if let Element::Var(_, e) = self {
+                    if e.is_zero() {
+                        *self = Element::Num(false, Number::one());
+                        return true;
+                    }
+                }
             }
             Element::Pow(dirty, ..) => {
                 if !dirty {
@@ -535,6 +541,20 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
             *den = den.long_division(&mut g).0;
 
             return true;
+        }
+    }
+
+    // x^n1*x^n2 => x^(n1+n2)
+    if let Element::Var(n1, p1) = first {
+        if let Element::Var(n2, p2) = sec {
+            if n1 == n2 {
+                *p1 = mem::replace(p1, Number::one()) + mem::replace(p2, Number::one());
+
+                if p1.is_zero() {
+                    *first = Element::Num(false, Number::SmallInt(1));
+                }
+                return true;
+            }
         }
     }
 

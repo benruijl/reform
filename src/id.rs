@@ -1,3 +1,5 @@
+use num_traits::One;
+use number::Number;
 use std::fmt;
 use std::mem;
 use structure::{
@@ -11,6 +13,7 @@ pub const MAXMATCH: usize = 1_000_000; // maximum number of matches
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum MatchOpt<'a> {
     Single(&'a Element),
+    SingleOwned(Element),
     Multiple(&'a [Element]),
 }
 
@@ -24,6 +27,7 @@ impl<'a> MatchOpt<'a> {
     fn to_owned(&self) -> MatchOptOwned {
         match *self {
             MatchOpt::Single(x) => MatchOptOwned::Single(x.clone(), true),
+            MatchOpt::SingleOwned(ref x) => MatchOptOwned::Single(x.clone(), true),
             MatchOpt::Multiple(x) => {
                 MatchOptOwned::Multiple(x.iter().map(|y| (*y).clone()).collect())
             }
@@ -44,6 +48,7 @@ impl<'a> fmt::Display for MatchOpt<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             MatchOpt::Single(x) => write!(f, "{}", x),
+            MatchOpt::SingleOwned(ref x) => write!(f, "{}", x),
             MatchOpt::Multiple(x) => {
                 if let Some(u) = x.first() {
                     write!(f, "{}", u)?
@@ -66,12 +71,29 @@ fn push_match<'a>(m: &mut MatchObject<'a>, k: &'a VarName, v: &'a Element) -> Op
         if *rk == *k {
             match *rv {
                 MatchOpt::Single(ref vv) if *v == **vv => return Some(m.len()),
+                MatchOpt::SingleOwned(ref vv) if v == vv => return Some(m.len()),
                 _ => return None,
             }
         }
     }
 
     m.push((k, MatchOpt::Single(v)));
+    Some(m.len() - 1)
+}
+
+// push something to the match object, keeping track of the old length
+fn push_match_owned<'a>(m: &mut MatchObject<'a>, k: &'a VarName, v: Element) -> Option<usize> {
+    for &(rk, ref rv) in m.iter() {
+        if *rk == *k {
+            match *rv {
+                MatchOpt::Single(ref vv) if v == **vv => return Some(m.len()),
+                MatchOpt::SingleOwned(ref vv) if v == *vv => return Some(m.len()),
+                _ => return None,
+            }
+        }
+    }
+
+    m.push((k, MatchOpt::SingleOwned(v)));
     Some(m.len() - 1)
 }
 
@@ -170,6 +192,13 @@ pub enum ElementIterSingle<'a> {
     SymFuncIter(SubSequenceIter<'a>), // match a symmetric function without variable argument wildcards
     Once,                             // matching without wildcard, ie number vs number
     OnceMatch(&'a VarName, &'a Element), // simple match of variable
+    VarPowerMatch(
+        VarName,
+        &'a Number,
+        &'a Element,
+        &'a Element,
+        &'a BorrowedVarInfo<'a>,
+    ), // match a variable x^n to x?^y?
     PermIter(
         &'a [Element],
         Heap<&'a Element>,
@@ -205,6 +234,132 @@ impl<'a> ElementIterSingle<'a> {
                 mem::swap(self, &mut to_swap);
                 match to_swap {
                     ElementIterSingle::OnceMatch(name, target) => push_match(m, name, target),
+                    _ => panic!(), // never reached
+                }
+            }
+            ElementIterSingle::VarPowerMatch(..) => {
+                let mut to_swap = ElementIterSingle::None;
+                mem::swap(self, &mut to_swap);
+                match to_swap {
+                    ElementIterSingle::VarPowerMatch(b1, p1, b2, p2, var_info) => {
+                        let oldlen = m.len();
+                        let mut newlen = oldlen;
+
+                        // match the base
+                        let r = Element::Var(b1, Number::one());
+
+                        match b2 {
+                            Element::Wildcard(vn, rest) => {
+                                let mut found = false;
+                                for restriction in rest {
+                                    match restriction {
+                                        _ if restriction == &r => {
+                                            match push_match_owned(m, vn, r.clone()) {
+                                                Some(x) => {
+                                                    found = true;
+                                                    newlen = x;
+                                                    break;
+                                                }
+                                                None => return None,
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+
+                                if rest.len() == 0 {
+                                    match push_match_owned(m, vn, r.clone()) {
+                                        Some(x) => {
+                                            newlen = x;
+                                        }
+                                        None => return None,
+                                    }
+                                } else {
+                                    if !found {
+                                        return None;
+                                    }
+                                }
+                            }
+                            Element::Var(i, v) => {
+                                if *i != b1 || !v.is_one() {
+                                    return None;
+                                }
+                            }
+                            Element::Dollar(ref i2, _) => {
+                                if var_info.local_info.variables.get(i2) != Some(&r) {
+                                    return None;
+                                }
+                            }
+                            _ => return None,
+                        }
+
+                        let r1 = Element::Num(false, p1.clone());
+                        // match the power
+                        match p2 {
+                            Element::Wildcard(vn, rest) => {
+                                for restriction in rest {
+                                    match restriction {
+                                        &Element::NumberRange(ref num1, ref rel) => {
+                                            // see if the number is in the range
+                                            if is_number_in_range(p1, num1, rel) {
+                                                match push_match_owned(m, vn, r1) {
+                                                    Some(x) => {
+                                                        return Some(x);
+                                                    }
+                                                    None => {
+                                                        m.truncate(oldlen);
+                                                        return None;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        _ if restriction == &r1 => {
+                                            match push_match_owned(m, vn, r1) {
+                                                Some(x) => {
+                                                    return Some(x);
+                                                }
+                                                None => {
+                                                    m.truncate(oldlen);
+                                                    return None;
+                                                }
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+
+                                if rest.len() == 0 {
+                                    match push_match_owned(m, vn, r1) {
+                                        Some(y) => Some(y),
+                                        None => {
+                                            m.truncate(oldlen);
+                                            None
+                                        }
+                                    }
+                                } else {
+                                    None
+                                }
+                            }
+                            Element::Dollar(ref i2, _) => {
+                                if var_info.local_info.variables.get(i2) != Some(&r1) {
+                                    return None;
+                                }
+                                Some(newlen)
+                            }
+                            Element::Num(_, i) => {
+                                if i != p1 {
+                                    m.truncate(oldlen);
+                                    None
+                                } else {
+                                    Some(newlen)
+                                }
+                            }
+                            _ => {
+                                m.truncate(oldlen);
+                                None
+                            }
+                        }
+                    }
                     _ => panic!(), // never reached
                 }
             }
@@ -312,14 +467,8 @@ impl Element {
             (&Element::Var(ref i1, ref e1), &Element::Pow(_, ref be2)) => {
                 // match x^x1? to x^2
                 let (ref b2, ref e2) = **be2;
-
-                /*ElementIterSingle::SeqIt(
-                    vec![target, &Element::Num(false, e1.clone())],
-                    SequenceIter::new(&SliceRef::OwnedSlice(vec![b2, e2]), target, var_info),
-                )*/
-                ElementIterSingle::None
+                ElementIterSingle::VarPowerMatch(*i1, e1, b2, e2, var_info)
             }
-
             (&Element::Pow(_, ref be1), &Element::Pow(_, ref be2)) => {
                 let (ref b1, ref e1) = **be1;
                 let (ref b2, ref e2) = **be2;
