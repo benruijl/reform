@@ -1,3 +1,5 @@
+use num_traits::One;
+use number::Number;
 use std::fmt;
 use std::mem;
 use structure::{
@@ -11,6 +13,7 @@ pub const MAXMATCH: usize = 1_000_000; // maximum number of matches
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum MatchOpt<'a> {
     Single(&'a Element),
+    SingleOwned(Element),
     Multiple(&'a [Element]),
 }
 
@@ -24,6 +27,7 @@ impl<'a> MatchOpt<'a> {
     fn to_owned(&self) -> MatchOptOwned {
         match *self {
             MatchOpt::Single(x) => MatchOptOwned::Single(x.clone(), true),
+            MatchOpt::SingleOwned(ref x) => MatchOptOwned::Single(x.clone(), true),
             MatchOpt::Multiple(x) => {
                 MatchOptOwned::Multiple(x.iter().map(|y| (*y).clone()).collect())
             }
@@ -44,6 +48,7 @@ impl<'a> fmt::Display for MatchOpt<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             MatchOpt::Single(x) => write!(f, "{}", x),
+            MatchOpt::SingleOwned(ref x) => write!(f, "{}", x),
             MatchOpt::Multiple(x) => {
                 if let Some(u) = x.first() {
                     write!(f, "{}", u)?
@@ -72,6 +77,21 @@ fn push_match<'a>(m: &mut MatchObject<'a>, k: &'a VarName, v: &'a Element) -> Op
     }
 
     m.push((k, MatchOpt::Single(v)));
+    Some(m.len() - 1)
+}
+
+// push something to the match object, keeping track of the old length
+fn push_match_owned<'a>(m: &mut MatchObject<'a>, k: &'a VarName, v: Element) -> Option<usize> {
+    for &(rk, ref rv) in m.iter() {
+        if *rk == *k {
+            match *rv {
+                MatchOpt::SingleOwned(ref vv) if v == *vv => return Some(m.len()),
+                _ => return None,
+            }
+        }
+    }
+
+    m.push((k, MatchOpt::SingleOwned(v)));
     Some(m.len() - 1)
 }
 
@@ -170,6 +190,13 @@ pub enum ElementIterSingle<'a> {
     SymFuncIter(SubSequenceIter<'a>), // match a symmetric function without variable argument wildcards
     Once,                             // matching without wildcard, ie number vs number
     OnceMatch(&'a VarName, &'a Element), // simple match of variable
+    VarPowerMatch(
+        VarName,
+        &'a Number,
+        &'a Element,
+        &'a Element,
+        &'a BorrowedVarInfo<'a>,
+    ), // match a variable x^n to x?^y?
     PermIter(
         &'a [Element],
         Heap<&'a Element>,
@@ -205,6 +232,62 @@ impl<'a> ElementIterSingle<'a> {
                 mem::swap(self, &mut to_swap);
                 match to_swap {
                     ElementIterSingle::OnceMatch(name, target) => push_match(m, name, target),
+                    _ => panic!(), // never reached
+                }
+            }
+            ElementIterSingle::VarPowerMatch(..) => {
+                let mut to_swap = ElementIterSingle::None;
+                mem::swap(self, &mut to_swap);
+                match to_swap {
+                    ElementIterSingle::VarPowerMatch(b1, p1, b2, p2, _var_info) => {
+                        let oldlen = m.len();
+                        let mut newlen = oldlen;
+
+                        // TODO: support dollar variables and wildcard filters
+
+                        // match the base
+                        match b2 {
+                            Element::Wildcard(vn, ..) => {
+                                match push_match_owned(m, vn, Element::Var(b1, Number::one())) {
+                                    Some(x) => {
+                                        newlen = x;
+                                    }
+                                    None => return None,
+                                }
+                            }
+                            Element::Var(i, v) => {
+                                if *i != b1 || !v.is_one() {
+                                    return None;
+                                }
+                            }
+                            _ => return None,
+                        }
+
+                        // match the power
+                        match p2 {
+                            Element::Wildcard(vn, ..) => {
+                                match push_match_owned(m, vn, Element::Num(false, p1.clone())) {
+                                    Some(y) => Some(y),
+                                    None => {
+                                        m.truncate(oldlen);
+                                        None
+                                    }
+                                }
+                            }
+                            Element::Num(_, i) => {
+                                if i != p1 {
+                                    m.truncate(oldlen);
+                                    None
+                                } else {
+                                    Some(newlen)
+                                }
+                            }
+                            _ => {
+                                m.truncate(oldlen);
+                                None
+                            }
+                        }
+                    }
                     _ => panic!(), // never reached
                 }
             }
@@ -312,14 +395,8 @@ impl Element {
             (&Element::Var(ref i1, ref e1), &Element::Pow(_, ref be2)) => {
                 // match x^x1? to x^2
                 let (ref b2, ref e2) = **be2;
-
-                /*ElementIterSingle::SeqIt(
-                    vec![target, &Element::Num(false, e1.clone())],
-                    SequenceIter::new(&SliceRef::OwnedSlice(vec![b2, e2]), target, var_info),
-                )*/
-                ElementIterSingle::None
+                ElementIterSingle::VarPowerMatch(*i1, e1, b2, e2, var_info)
             }
-
             (&Element::Pow(_, ref be1), &Element::Pow(_, ref be2)) => {
                 let (ref b1, ref e1) = **be1;
                 let (ref b2, ref e2) = **be2;
