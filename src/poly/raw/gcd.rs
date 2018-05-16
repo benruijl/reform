@@ -577,9 +577,11 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
 
             // remove content in x_n
             let cont = gc.univariate_content(lastvar);
-            let cc = gc.long_division(&cont);
-            assert!(cc.1.is_zero());
-            gc = cc.0;
+            if !cont.is_one() {
+                let cc = gc.long_division(&cont);
+                debug_assert!(cc.1.is_zero());
+                gc = cc.0;
+            }
 
             // do a probabilistic division test
             let (g1, a1, b1) = loop {
@@ -610,7 +612,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                 }
             };
 
-            if a1.long_division(&g1).1.is_zero() && b1.long_division(&g1).1.is_zero() {
+            if g1.is_one() || (a1.long_division(&g1).1.is_zero() && b1.long_division(&g1).1.is_zero()) {
                 return Some(gc);
             }
 
@@ -668,6 +670,10 @@ where
             }
 
             gcd = MultivariatePolynomial::gcd(&a, &b);
+
+            if gcd.is_one() {
+                return gcd;
+            }
 
             let mut newf: Vec<MultivariatePolynomial<R, E>> = Vec::with_capacity(f.len());
             for x in f.drain(..) {
@@ -912,7 +918,9 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                         .collect();
 
                     debug!("Final suggested gcd: {}", gc);
-                    if a.long_division(&gc).1.is_zero() && b.long_division(&gc).1.is_zero() {
+                    if gc.is_one()
+                        || (a.long_division(&gc).1.is_zero() && b.long_division(&gc).1.is_zero())
+                    {
                         return gc;
                     }
 
