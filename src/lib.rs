@@ -11,6 +11,7 @@ extern crate num_integer;
 extern crate num_traits;
 extern crate rand;
 extern crate rug; // for gmp and bigint support
+extern crate fnv;
 
 #[macro_use]
 extern crate log;

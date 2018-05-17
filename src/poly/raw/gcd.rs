@@ -4,23 +4,23 @@ use std::mem;
 use poly::exponent::Exponent;
 use poly::ring::Ring;
 
+use fnv::FnvHashMap;
 use number;
 use number::Number;
+use poly::raw::MultivariatePolynomial;
 use poly::raw::finitefield::FiniteField;
 use poly::raw::zp;
 use poly::raw::zp::{ufield, FastModulus};
 use poly::raw::zp_mod::Modulus;
-use poly::raw::MultivariatePolynomial;
 use poly::ring::MulModNum;
 use poly::ring::ToFiniteField;
 use rand;
 use rand::distributions::{Range, Sample};
 use std::cmp::{max, min};
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
 use tools::GCD;
 
-use ndarray::{arr1, Array};
+use ndarray::{Array, arr1};
 use poly::raw::zp_solve::{solve, LinearSolverError};
 
 // 100 large u32 primes starting from the 203213901st prime number
@@ -42,6 +42,7 @@ pub const LARGE_U32_PRIMES: [ufield; 100] = [
 
 // The maximum power of a variable that is cached
 pub const POW_CACHE_SIZE: usize = 1000;
+pub const INITIAL_POW_MAP_SIZE: usize = 1000;
 
 enum GCDError {
     BadOriginalImage,
@@ -123,6 +124,10 @@ fn construct_new_image<E: Exponent>(
         })
         .collect::<Vec<_>>();
 
+    // store a power map for the univariate polynomials that will be sampled
+    // the sampling_polynomial routine will set the power to 0 after use
+    let mut tm = FnvHashMap::with_capacity_and_hasher(INITIAL_POW_MAP_SIZE, Default::default());
+
     'newimage: loop {
         // generate random numbers for all non-leading variables
         // TODO: apply a Horner scheme to speed up the substitution?
@@ -137,8 +142,8 @@ fn construct_new_image<E: Exponent>(
                 .map(|i| (i.clone(), range.sample(&mut rng)))
                 .collect();
 
-            let a1 = ap.sample_polynomial(var, &fastp, &r, &mut cache);
-            let b1 = bp.sample_polynomial(var, &fastp, &r, &mut cache);
+            let a1 = ap.sample_polynomial(var, &fastp, &r, &mut cache, &mut tm);
+            let b1 = bp.sample_polynomial(var, &fastp, &r, &mut cache, &mut tm);
 
             if a1.ldegree(var) == aldegree && b1.ldegree(var) == bldegree {
                 break (r, a1, b1);
@@ -401,9 +406,8 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
         p: &FastModulus,
         r: &[(usize, ufield)],
         cache: &mut [Vec<ufield>],
+        tm: &mut FnvHashMap<E, ufield>,
     ) -> MultivariatePolynomial<FiniteField, E> {
-        let mut tm: HashMap<E, ufield> = HashMap::new();
-
         for t in 0..self.nterms {
             let mut c = self.coefficients[t].n;
             for &(n, vv) in r {
@@ -434,8 +438,8 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
         let mut res = MultivariatePolynomial::with_nvars(self.nvars);
         for (k, c) in tm {
             let mut e = vec![E::zero(); self.nvars];
-            e[v] = k;
-            res.append_monomial(FiniteField::new(c, p.value()), e);
+            e[v] = *k;
+            res.append_monomial(FiniteField::new(mem::replace(c, 0), p.value()), e);
         }
 
         res
@@ -528,7 +532,9 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             }
 
             let mut lc = gv.lcoeff();
-            let mut gseq = vec![gv * (gamma.replace(lastvar, v).coefficients[0].clone() / lc)];
+            let mut gseq = vec![
+                gv * (gamma.replace(lastvar, v).coefficients[0].clone() / lc),
+            ];
             let mut vseq = vec![v];
 
             // sparse reconstruction
@@ -612,7 +618,9 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                 }
             };
 
-            if g1.is_one() || (a1.long_division(&g1).1.is_zero() && b1.long_division(&g1).1.is_zero()) {
+            if g1.is_one()
+                || (a1.long_division(&g1).1.is_zero() && b1.long_division(&g1).1.is_zero())
+            {
                 return Some(gc);
             }
 
