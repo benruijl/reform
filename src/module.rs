@@ -800,18 +800,30 @@ fn do_module_rec(
 
     // TODO: generate first two elements? performance doesnt seem too much affected though
     {
-        let oldvarinfo = local_var_info.clone(); // TODO: prevent clone somehow? if one term is in the output, the clone is unnecessary
+        // replace all dollar variables in current statement
+        // this prevents copying of dollar variables
+        // TODO: use Cow in replace_vars to prevent cloning the statement?
+        let mut ns = statements[current_index].clone();
+        if ns.replace_vars(&local_var_info.variables, true) {
+            ns.normalize(global_var_info);
+        }
+
+        // now we can pass an empty list of variables, since they are all replaced
+        let oldvarinfo = LocalVarInfo {
+            variables: HashMap::new(),
+            global_variables: HashMap::new(),
+        };
         let var_info = BorrowedVarInfo {
             global_info: global_var_info,
             local_info: &oldvarinfo,
         };
 
-        let mut it = statements[current_index].to_iter(&mut input, &var_info);
+        let mut it = ns.to_iter(&mut input, &var_info);
         loop {
             match it.next() {
                 StatementResult::Executed(f) => {
                     // make sure every new term has its own local variables
-                    for (var, e) in &oldvarinfo.variables {
+                    /*for (var, e) in &oldvarinfo.variables {
                         if let Some(attribs) = global_var_info.func_attribs.get(var) {
                             if attribs.contains(&FunctionAttributes::NonLocal) {
                                 continue;
@@ -826,7 +838,7 @@ fn do_module_rec(
                         } else {
                             unreachable!("Dollar variable disappeared");
                         }
-                    }
+                    }*/
 
                     *term_affected.last_mut().unwrap() = true;
                     let d = term_affected.len(); // store the depth of the stack
