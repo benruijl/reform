@@ -1,9 +1,9 @@
 use num_traits::{One, Zero};
 use number::Number;
 use std::cmp::Ordering;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::collections::VecDeque;
+use std::collections::hash_map::Entry;
 use std::mem;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -680,16 +680,32 @@ fn do_module_rec(
                             .expect("Dollar variable is uninitialized"),
                         DUMMY_ELEM!(),
                     );
+
                     let mut tsr = TermStreamWrapper::Owned(vec![]);
-                    do_module_rec(
-                        dollar,
-                        sts,
-                        local_var_info,
-                        global_var_info,
-                        0,
-                        &mut vec![false],
-                        &mut tsr,
-                    );
+                    match dollar {
+                        Element::SubExpr(_, se) => {
+                            for x in se {
+                                do_module_rec(
+                                    x,
+                                    sts,
+                                    local_var_info,
+                                    global_var_info,
+                                    0,
+                                    &mut vec![false],
+                                    &mut tsr,
+                                );
+                            }
+                        }
+                        _ => do_module_rec(
+                            dollar,
+                            sts,
+                            local_var_info,
+                            global_var_info,
+                            0,
+                            &mut vec![false],
+                            &mut tsr,
+                        ),
+                    }
 
                     if let TermStreamWrapper::Owned(mut nfa) = tsr {
                         local_var_info.variables.insert(
@@ -1228,15 +1244,31 @@ impl Program {
                             );
 
                             let mut tsr = TermStreamWrapper::Owned(vec![]);
-                            do_module_rec(
-                                dollar,
-                                sts,
-                                &mut self.var_info.local_info,
-                                &self.var_info.global_info,
-                                0,
-                                &mut vec![false],
-                                &mut tsr,
-                            );
+
+                            match dollar {
+                                Element::SubExpr(_, se) => {
+                                    for x in se {
+                                        do_module_rec(
+                                            x,
+                                            sts,
+                                            &mut self.var_info.local_info,
+                                            &self.var_info.global_info,
+                                            0,
+                                            &mut vec![false],
+                                            &mut tsr,
+                                        );
+                                    }
+                                }
+                                _ => do_module_rec(
+                                    dollar,
+                                    sts,
+                                    &mut self.var_info.local_info,
+                                    &self.var_info.global_info,
+                                    0,
+                                    &mut vec![false],
+                                    &mut tsr,
+                                ),
+                            }
 
                             if let TermStreamWrapper::Owned(mut nfa) = tsr {
                                 self.var_info.local_info.variables.insert(
