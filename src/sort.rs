@@ -7,49 +7,44 @@ use std::ptr;
 use structure::{Element, GlobalVarInfo};
 
 ///
-/// Gets a vector terms of Term's, sorts them according to compare, adds
-/// equal Term's according to add_term and returns a vector of usize
-/// elements giving the numbers of vector elements in terms in the proper
-/// order. We allocate the necessary vectors once and use a separate
-/// recursive routine after that. Reading the output properly is done with
-/// for i in ..row.len() { ..... terms[row[i]] ..... }
+/// Gets a vector elements of Element's, sorts them according to compare, adds
+/// equal Element's according to add_Element and returns the number of elements
+/// remaining.
+/// We allocate the necessary vector once and use a separate
+/// recursive routine after that. The output overwrites the input.
 ///
-pub fn split_merge(mut terms: &mut [Element], var_info: &GlobalVarInfo) -> Vec<usize> {
-    let n = terms.len();
-    let mut row: Vec<usize> = (0..n).collect();
-
-    let mut sbuf = vec![0; n / 2];
-    unsafe {
-        let n_out = split_merge_rec(&mut terms, &mut row, &mut sbuf, n, var_info);
-        row.truncate(n_out);
+/// The function returns the new number of terms, but does not resize the vector.
+///
+pub fn split_merge(mut elements: &mut [Element], var_info: &GlobalVarInfo) -> usize {
+    let n = elements.len();
+    if n < 2 {
+        return n;
     }
-    row
+
+    let mut sbuf: Vec<Element> = Vec::with_capacity(n / 2);
+
+    unsafe { split_merge_rec(&mut elements, &mut sbuf, n, var_info) }
 }
 
 unsafe fn split_merge_rec(
-    mut terms: &mut [Element],
-    row: &mut [usize],
-    mut sbuf: &mut [usize],
+    elements: &mut [Element],
+    mut sbuf: &mut [Element],
     n: usize,
     var_info: &GlobalVarInfo,
 ) -> usize {
     //==================================================================
     #[inline]
     unsafe fn add_one(
-        terms: &mut [Element],
-        row: &mut [usize],
+        elements: &mut [Element],
         one: usize,
         two: usize,
         var_info: &GlobalVarInfo,
     ) -> bool {
-        let mut term = mem::replace(
-            terms.get_unchecked_mut(*row.get_unchecked(two)),
-            DUMMY_ELEM!(),
-        );
+        let mut element = mem::replace(elements.get_unchecked_mut(two), DUMMY_ELEM!());
 
-        let v = terms.get_unchecked_mut(*row.get_unchecked(one));
+        let v = elements.get_unchecked_mut(one);
 
-        normalize::merge_terms(v, &mut term, var_info);
+        normalize::merge_terms(v, &mut element, var_info);
         *v == Element::Num(false, Number::zero())
     }
     //==================================================================
@@ -69,17 +64,17 @@ unsafe fn split_merge_rec(
     if n < 2 {
         return n;
     } else if n == 2 {
-        match terms
-            .get_unchecked(*row.get_unchecked(0))
-            .partial_cmp(terms.get_unchecked(*row.get_unchecked(1)), var_info, true)
+        match elements
+            .get_unchecked(0)
+            .partial_cmp(elements.get_unchecked(1), var_info, true)
             .unwrap()
         {
             Greater => {
-                ptr::swap(row.get_unchecked_mut(0), row.get_unchecked_mut(1));
+                ptr::swap(elements.get_unchecked_mut(0), elements.get_unchecked_mut(1));
             }
             Less => (),
             Equal => {
-                if add_one(terms, row, 0, 1, var_info) {
+                if add_one(elements, 0, 1, var_info) {
                     return 0;
                 }
                 return 1;
@@ -88,20 +83,8 @@ unsafe fn split_merge_rec(
         return 2;
     }
     let split = n / 2;
-    let mut len1 = split_merge_rec(
-        &mut terms,
-        row.get_unchecked_mut(0..split),
-        &mut sbuf,
-        split,
-        var_info,
-    );
-    let len2 = split_merge_rec(
-        &mut terms,
-        row.get_unchecked_mut(split..n),
-        &mut sbuf,
-        n - split,
-        var_info,
-    );
+    let mut len1 = split_merge_rec(&mut elements[0..split], &mut sbuf, split, var_info);
+    let len2 = split_merge_rec(&mut elements[split..n], &mut sbuf, n - split, var_info);
     if len1 > 0 && len2 > 0 {
         //------------------------------------------------------------
         //
@@ -109,31 +92,31 @@ unsafe fn split_merge_rec(
         //  first part in its entirety. This ensures that when there is
         //  a very high degree of order, things will go at top speed.
         //
-        match terms
-            .get_unchecked(*row.get_unchecked(len1 - 1))
-            .partial_cmp(
-                terms.get_unchecked(*row.get_unchecked(split)),
-                var_info,
-                true,
-            )
+        match elements
+            .get_unchecked(len1 - 1)
+            .partial_cmp(elements.get_unchecked(split), var_info, true)
             .unwrap()
         {
             Greater => (), // Out of order. Do it the hard way!
             Less => {
                 // lucky
                 if len1 < split {
-                    ptr::copy(row.get_unchecked(split), row.get_unchecked_mut(len1), len2);
+                    ptr::copy(
+                        elements.get_unchecked(split),
+                        elements.get_unchecked_mut(len1),
+                        len2,
+                    );
                 }
                 return len1 + len2;
             }
             Equal => {
                 // (lucky)^2
-                if add_one(terms, row, len1 - 1, split, var_info) {
+                if add_one(elements, len1 - 1, split, var_info) {
                     len1 -= 1;
                 }
                 ptr::copy(
-                    row.get_unchecked(split + 1),
-                    row.get_unchecked_mut(len1),
+                    elements.get_unchecked(split + 1),
+                    elements.get_unchecked_mut(len1),
                     len2 - 1,
                 );
                 return len1 + len2 - 1;
@@ -142,9 +125,8 @@ unsafe fn split_merge_rec(
 
         //------------------------------------------------------------
         //
-        // Now we have to merge row and row+split. This cannot happen in place
-        // and hence we need the sbuf. We have to copy the pointers
-        // in row to the sbuf, after which the merge should be easy.
+        // Now we have to merge elements and elements+split. This cannot happen in
+        // place and hence we need the sbuf.
         //
         let mut i1: usize = 0;
         let mut i2: usize = 0;
@@ -161,13 +143,9 @@ unsafe fn split_merge_rec(
         let mut size1 = len1;
         while size1 > 8 {
             let ins = size1 / 2;
-            match terms
-                .get_unchecked(*row.get_unchecked(i1 + ins - 1))
-                .partial_cmp(
-                    terms.get_unchecked(*row.get_unchecked(split)),
-                    var_info,
-                    true,
-                )
+            match elements
+                .get_unchecked(i1 + ins - 1)
+                .partial_cmp(elements.get_unchecked(split), var_info, true)
                 .unwrap()
             {
                 Greater => {
@@ -179,7 +157,7 @@ unsafe fn split_merge_rec(
                     ifill = i1;
                 }
                 Equal => {
-                    if add_one(terms, row, i1 + ins - 1, split, var_info) {
+                    if add_one(elements, i1 + ins - 1, split, var_info) {
                         i1 += ins;
                         ifill = i1 - 1;
                     } else {
@@ -197,21 +175,23 @@ unsafe fn split_merge_rec(
         //  inside an sbuf that is at most N/2 long because the split is
         //  always equal (at N/2).
         //
-        ptr::copy_nonoverlapping(row.get_unchecked(i1), sbuf.get_unchecked_mut(i1), len1 - i1);
+        ptr::copy_nonoverlapping(
+            elements.get_unchecked(i1),
+            sbuf.get_unchecked_mut(i1),
+            len1 - i1,
+        );
         //------------------------------------------------------------
         if i2 < len2 {
             loop {
-                match terms
-                    .get_unchecked(*sbuf.get_unchecked(i1))
-                    .partial_cmp(
-                        terms.get_unchecked(*row.get_unchecked(i2 + split)),
-                        var_info,
-                        true,
-                    )
+                match sbuf.get_unchecked(i1)
+                    .partial_cmp(elements.get_unchecked(i2 + split), var_info, true)
                     .unwrap()
                 {
                     Greater => {
-                        *row.get_unchecked_mut(ifill) = *row.get_unchecked(i2 + split);
+                        ptr::swap(
+                            elements.get_unchecked_mut(ifill),
+                            elements.get_unchecked_mut(i2 + split),
+                        );
                         i2 += 1;
                         ifill += 1;
                         if i2 >= len2 {
@@ -219,7 +199,10 @@ unsafe fn split_merge_rec(
                         }
                     }
                     Less => {
-                        *row.get_unchecked_mut(ifill) = *sbuf.get_unchecked(i1);
+                        ptr::swap(
+                            elements.get_unchecked_mut(ifill),
+                            sbuf.get_unchecked_mut(i1),
+                        );
                         i1 += 1;
                         ifill += 1;
                         if i1 >= len1 {
@@ -227,8 +210,11 @@ unsafe fn split_merge_rec(
                         }
                     }
                     Equal => {
-                        *row.get_unchecked_mut(ifill) = *sbuf.get_unchecked(i1);
-                        if !add_one(terms, row, ifill, i2 + split, var_info) {
+                        ptr::swap(
+                            elements.get_unchecked_mut(ifill),
+                            sbuf.get_unchecked_mut(i1),
+                        );
+                        if !add_one(elements, ifill, i2 + split, var_info) {
                             ifill += 1;
                         }
                         i1 += 1;
@@ -243,14 +229,14 @@ unsafe fn split_merge_rec(
         if i1 < len1 {
             ptr::copy_nonoverlapping(
                 sbuf.get_unchecked(i1),
-                row.get_unchecked_mut(ifill),
+                elements.get_unchecked_mut(ifill),
                 len1 - i1,
             );
             ifill += len1 - i1;
         } else if i2 < len2 {
             ptr::copy(
-                row.get_unchecked(split + i2),
-                row.get_unchecked_mut(ifill),
+                elements.get_unchecked(split + i2),
+                elements.get_unchecked_mut(ifill),
                 len2 - i2,
             );
             ifill += len2 - i2;
@@ -259,7 +245,11 @@ unsafe fn split_merge_rec(
     } else if len1 > 0 {
         len1
     } else if len2 > 0 {
-        ptr::copy(row.get_unchecked(split), row.get_unchecked_mut(0), len2);
+        ptr::copy(
+            elements.get_unchecked(split),
+            elements.get_unchecked_mut(0),
+            len2,
+        );
         len2
     } else {
         0

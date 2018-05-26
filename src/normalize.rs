@@ -421,21 +421,13 @@ impl Element {
 
                     // sort and merge the terms at the same time
                     if true {
-                        let map = split_merge(ts, var_info);
-                        let mut res = Vec::with_capacity(map.len());
-
-                        if map.len() != ts.len() {
-                            changed = true;
+                        let newsize = split_merge(ts, var_info);
+                        changed = true; // TODO: how to truly detect a change?
+                        unsafe {
+                            ts.set_len(newsize);
                         }
-
-                        for i in 0..map.len() {
-                            if i != map[i] {
-                                changed = true;
-                            }
-
-                            res.push(mem::replace(&mut ts[map[i]], DUMMY_ELEM!()));
-                        }
-                        mem::swap(&mut res, ts);
+                    //ts.truncate(newsize);
+                    //ts.shrink_to_fit();
                     } else {
                         changed = true; // TODO: tell if changed?
                         ts.sort_unstable_by(|l, r| l.partial_cmp(r, var_info, true).unwrap()); // TODO: slow!
