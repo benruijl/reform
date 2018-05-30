@@ -492,6 +492,21 @@ impl Element {
 pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVarInfo) -> bool {
     let mut changed = false;
 
+    // x^n1*x^n2 => x^(n1+n2)
+    if let Element::Var(n1, p1) = first {
+        if let Element::Var(n2, p2) = sec {
+            if n1 == n2 {
+                *p1 = mem::replace(p1, Number::one()) + mem::replace(p2, Number::one());
+
+                if p1.is_zero() {
+                    *first = Element::Num(false, Number::SmallInt(1));
+                }
+                return true;
+            }
+            return false;
+        }
+    }
+
     if let Element::Num(_, ref mut num) = *first {
         if let Element::Num(_, ref mut num1) = *sec {
             *num *= mem::replace(num1, DUMMY_NUM!());
@@ -563,20 +578,6 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
         }
     }
 
-    // x^n1*x^n2 => x^(n1+n2)
-    if let Element::Var(n1, p1) = first {
-        if let Element::Var(n2, p2) = sec {
-            if n1 == n2 {
-                *p1 = mem::replace(p1, Number::one()) + mem::replace(p2, Number::one());
-
-                if p1.is_zero() {
-                    *first = Element::Num(false, Number::SmallInt(1));
-                }
-                return true;
-            }
-        }
-    }
-
     // x*x => x^2
     if first == sec {
         *first = Element::Pow(
@@ -644,7 +645,10 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
             changed = true;
         }
     };
-    first.normalize_inplace(var_info);
+
+    if first.should_normalize() {
+        first.normalize_inplace(var_info);
+    }
     changed
 }
 
