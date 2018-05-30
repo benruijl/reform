@@ -1,5 +1,5 @@
 use normalize;
-use num_traits::{One, Zero};
+use num_traits::One;
 use number::Number;
 use std::cmp::Ordering::*;
 use std::mem;
@@ -50,7 +50,11 @@ unsafe fn split_merge_rec(
         let v = terms.get_unchecked_mut(*row.get_unchecked(one));
 
         normalize::merge_terms(v, &mut term, var_info);
-        *v == Element::Num(false, Number::zero())
+
+        match v {
+            Element::Num(false, Number::SmallInt(0)) => true,
+            _ => false,
+        }
     }
     //==================================================================
     //
