@@ -126,6 +126,19 @@ impl Element {
         true
     }
 
+    #[inline]
+    pub fn should_normalize(&self) -> bool {
+        match *self {
+            Element::Var(_, ref e) => e.is_zero(),
+            Element::Num(dirty, ..)
+            | Element::Pow(dirty, ..)
+            | Element::Fn(dirty, ..)
+            | Element::SubExpr(dirty, ..)
+            | Element::Term(dirty, ..) => dirty,
+            _ => true,
+        }
+    }
+
     /// Normalize an element in-place. Returns true if element changed.
     pub fn normalize_inplace(&mut self, var_info: &GlobalVarInfo) -> bool {
         let mut changed = false;
@@ -252,7 +265,9 @@ impl Element {
 
                     if let Element::Fn(ref mut dirty, ref name, ref mut args) = *self {
                         for x in args.iter_mut() {
-                            changed |= x.normalize_inplace(var_info);
+                            if x.should_normalize() {
+                                changed |= x.normalize_inplace(var_info);
+                            }
                         }
 
                         newvalue = loop {
@@ -328,7 +343,9 @@ impl Element {
                     let mut restructure = false;
                     let mut newlen = ts.len();
                     for x in ts.iter_mut() {
-                        changed |= x.normalize_inplace(var_info);
+                        if x.should_normalize() {
+                            changed |= x.normalize_inplace(var_info);
+                        }
                         if let Element::Term(_, ref a) = *x {
                             newlen += a.len();
                             restructure = true;
@@ -399,7 +416,9 @@ impl Element {
                     let mut restructure = false;
                     let mut newlen = ts.len();
                     for x in ts.iter_mut() {
-                        changed |= x.normalize_inplace(var_info);
+                        if x.should_normalize() {
+                            changed |= x.normalize_inplace(var_info);
+                        }
                         if let Element::SubExpr(_, ref a) = *x {
                             newlen += a.len();
                             restructure = true;
