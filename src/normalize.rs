@@ -3,10 +3,8 @@ use number::Number;
 use poly::polynomial::Polynomial;
 use sort::split_merge;
 use std::mem;
-use structure::{
-    Element, FunctionAttributes, GlobalVarInfo, FUNCTION_DELTA, FUNCTION_GCD, FUNCTION_MUL,
-    FUNCTION_NARGS, FUNCTION_RAT, FUNCTION_SUM,
-};
+use structure::{Element, FunctionAttributes, GlobalVarInfo, FUNCTION_DELTA, FUNCTION_GCD,
+                FUNCTION_MUL, FUNCTION_NARGS, FUNCTION_RAT, FUNCTION_SUM};
 use tools::add_num_poly;
 
 impl Element {
@@ -143,17 +141,86 @@ impl Element {
     pub fn normalize_inplace(&mut self, var_info: &GlobalVarInfo) -> bool {
         let mut changed = false;
         match *self {
+            Element::Term(dirty, _) => {
+                if !dirty {
+                    return false;
+                }
+
+                *self = if let Element::Term(ref mut dirty, ref mut ts) = *self {
+                    *dirty = false;
+
+                    // normalize factors and flatten
+                    // TODO: check for 0 here
+                    let mut restructure = false;
+                    let mut newlen = ts.len();
+                    for x in ts.iter_mut() {
+                        if x.should_normalize() {
+                            changed |= x.normalize_inplace(var_info);
+                        }
+                        if let Element::Term(_, ref a) = *x {
+                            newlen += a.len();
+                            restructure = true;
+                            changed = true;
+                        }
+                    }
+
+                    // flatten the term
+                    if restructure {
+                        let mut tmp = Vec::with_capacity(newlen);
+                        for x in ts.drain(..) {
+                            match x {
+                                Element::Term(_, tss) => tmp.extend(tss),
+                                _ => tmp.push(x),
+                            }
+                        }
+                        *ts = tmp;
+                    }
+
+                    ts.sort_unstable_by(|l, r| l.partial_cmp(r, var_info, true).unwrap());
+
+                    // now merge pows: x^a*x^b = x^(a*b)
+                    // x*x^a and x*x, all should be side by side now
+                    let mut lastindex = 0;
+
+                    for i in 1..ts.len() {
+                        let (a, b) = ts.split_at_mut(i);
+                        if !merge_factors(&mut a[lastindex], &mut b[0], var_info) {
+                            if lastindex + 1 < i {
+                                a[lastindex + 1] = mem::replace(&mut b[0], DUMMY_ELEM!());
+                            }
+                            lastindex += 1;
+                        }
+                    }
+                    ts.truncate(lastindex + 1);
+
+                    if let Some(Element::Num(..)) = ts.last() {
+                        if let Some(Element::Num(_, num)) = ts.last().cloned() {
+                            match num {
+                                Number::SmallInt(0) => ts.clear(),
+                                Number::SmallInt(1) if ts.len() > 1 => {
+                                    ts.pop();
+                                } // don't add a factor
+                                _ => {}
+                            }
+                        }
+                    }
+
+                    //ts.shrink_to_fit(); // make sure we keep memory in check
+
+                    match ts.len() {
+                        0 => Element::Num(false, Number::zero()),
+                        1 => ts.swap_remove(0), // downgrade
+                        _ => return changed,
+                    }
+                } else {
+                    unreachable!()
+                }
+            }
             Element::Num(ref mut dirty, ref mut num) => {
                 if *dirty {
                     *dirty = false;
                     changed |= num.normalize_inplace()
                 }
-            }
-            Element::Wildcard(_, ref mut restriction) => for x in restriction {
-                changed |= x.normalize_inplace(var_info);
-            },
-            Element::NumberRange(ref mut n1, ..) => {
-                changed |= n1.normalize_inplace();
             }
             Element::Var(..) => {
                 // x^0 = 1
@@ -330,81 +397,6 @@ impl Element {
                 // TODO: only call when the function does not contain wildcards
                 changed |= self.apply_builtin_functions(var_info, false);
             }
-            Element::Term(dirty, _) => {
-                if !dirty {
-                    return false;
-                }
-
-                *self = if let Element::Term(ref mut dirty, ref mut ts) = *self {
-                    *dirty = false;
-
-                    // normalize factors and flatten
-                    // TODO: check for 0 here
-                    let mut restructure = false;
-                    let mut newlen = ts.len();
-                    for x in ts.iter_mut() {
-                        if x.should_normalize() {
-                            changed |= x.normalize_inplace(var_info);
-                        }
-                        if let Element::Term(_, ref a) = *x {
-                            newlen += a.len();
-                            restructure = true;
-                            changed = true;
-                        }
-                    }
-
-                    // flatten the term
-                    if restructure {
-                        let mut tmp = Vec::with_capacity(newlen);
-                        for x in ts.drain(..) {
-                            match x {
-                                Element::Term(_, tss) => tmp.extend(tss),
-                                _ => tmp.push(x),
-                            }
-                        }
-                        *ts = tmp;
-                    }
-
-                    ts.sort_unstable_by(|l, r| l.partial_cmp(r, var_info, true).unwrap());
-
-                    // now merge pows: x^a*x^b = x^(a*b)
-                    // x*x^a and x*x, all should be side by side now
-                    let mut lastindex = 0;
-
-                    for i in 1..ts.len() {
-                        let (a, b) = ts.split_at_mut(i);
-                        if !merge_factors(&mut a[lastindex], &mut b[0], var_info) {
-                            if lastindex + 1 < i {
-                                a[lastindex + 1] = mem::replace(&mut b[0], DUMMY_ELEM!());
-                            }
-                            lastindex += 1;
-                        }
-                    }
-                    ts.truncate(lastindex + 1);
-
-                    if let Some(Element::Num(..)) = ts.last() {
-                        if let Some(Element::Num(_, num)) = ts.last().cloned() {
-                            match num {
-                                Number::SmallInt(0) => ts.clear(),
-                                Number::SmallInt(1) if ts.len() > 1 => {
-                                    ts.pop();
-                                } // don't add a factor
-                                _ => {}
-                            }
-                        }
-                    }
-
-                    //ts.shrink_to_fit(); // make sure we keep memory in check
-
-                    match ts.len() {
-                        0 => Element::Num(false, Number::zero()),
-                        1 => ts.swap_remove(0), // downgrade
-                        _ => return changed,
-                    }
-                } else {
-                    unreachable!()
-                }
-            }
             Element::SubExpr(dirty, _) => {
                 if !dirty {
                     return false;
@@ -481,6 +473,12 @@ impl Element {
                 } else {
                     unreachable!();
                 }
+            }
+            Element::Wildcard(_, ref mut restriction) => for x in restriction {
+                changed |= x.normalize_inplace(var_info);
+            },
+            Element::NumberRange(ref mut n1, ..) => {
+                changed |= n1.normalize_inplace();
             }
             _ => {}
         };
