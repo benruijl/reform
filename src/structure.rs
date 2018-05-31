@@ -384,7 +384,7 @@ impl Element {
     fn simple_partial_cmp(
         &self,
         other: &Element,
-        var_info: &GlobalVarInfo,
+        _var_info: &GlobalVarInfo,
         ground_level: bool,
     ) -> Option<Ordering> {
         match (self, other) {
@@ -456,6 +456,51 @@ impl Element {
                 }
             }
             (&Element::Term(_, ref ta), &Element::Term(_, ref tb)) => {
+                //
+                // The next code is a bit simpler for the compiler and makes
+                // the benchmark gcd almost 3% faster than the code that
+                // follows and is commented out. It seems that the compiler
+                // cannot optimize the main match in the loop very well.
+                // Possibly the packing into an Option and then unpacking may
+                // not be optimal? The for loop avoids this for one iterator.
+                //
+                let mut tbi = tb.iter();
+                for taa in ta.iter() {
+                    if let Some(tbb) = tbi.next() {
+                        let k = taa.simple_partial_cmp(tbb, var_info, ground_level)
+                            .or_else(|| taa.partial_cmp(tbb, var_info, ground_level));
+            
+                        match k {
+                            Some(Ordering::Equal) => {}
+                            _ => return k,
+                        }
+                    } else {
+                        if ground_level {
+                            match taa {
+                                Element::Num(..)
+                                | Element::RationalPolynomialCoefficient(..) => {
+                                    return Some(Ordering::Equal);
+                                }
+                                _ => {}
+                            }
+                        }
+                        return Some(Ordering::Greater);
+                    };
+                }
+                if let Some(tbb) = tbi.next() {
+                    if ground_level {
+                        match tbb {
+                            Element::Num(..)
+                            | Element::RationalPolynomialCoefficient(..) => {
+                                return Some(Ordering::Equal);
+                            }
+                            _ => {}
+                        }
+                    }
+                    return Some(Ordering::Less);
+                };
+                return Some(Ordering::Equal)
+/*
                 let mut tai = ta.iter();
                 let mut tbi = tb.iter();
 
@@ -498,6 +543,7 @@ impl Element {
                         (None, None) => return Some(Ordering::Equal),
                     }
                 }
+*/
             }
             (&Element::Num(_, ref n1), &Element::Num(_, ref n2)) => if ground_level {
                 Some(Ordering::Equal)

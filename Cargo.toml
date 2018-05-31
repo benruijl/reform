@@ -6,6 +6,7 @@ authors = ["Ben Ruijl <benruyl@gmail.com>"]
 
 [profile.release]
 codegen-units = 1
+debug = true
 
 [features]
 profile = ["cpuprofiler"]
