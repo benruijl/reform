@@ -189,6 +189,7 @@ impl Inv for Number {
 }
 
 impl PartialOrd for Number {
+    #[inline]
     fn partial_cmp(&self, rhs: &Number) -> Option<Ordering> {
         use self::Number::*;
         match (self, rhs) {
@@ -196,7 +197,7 @@ impl PartialOrd for Number {
             (&SmallInt(ref i1), BigInt(ref i2)) => Integer::from(i1.clone()).partial_cmp(i2),
             (&SmallInt(ref i1), SmallRat(n2, d2)) => (i1 * d2).partial_cmp(n2), // TODO: check for overflow
             (&SmallInt(ref i1), BigRat(ref f2)) => Rational::from(*i1).partial_cmp(&**f2),
-            (&BigInt(ref i1), SmallInt(i2)) => i1.partial_cmp(&Integer::from(*i2)),
+            (&BigInt(ref i1), SmallInt(i2)) => i1.partial_cmp(i2),
             (&BigInt(ref i1), BigInt(ref i2)) => i1.partial_cmp(i2),
             (&BigInt(ref i1), SmallRat(n2, d2)) => (i1 * Integer::from(*d2)).partial_cmp(n2),
             (&BigInt(ref i1), BigRat(ref f2)) => i1.partial_cmp(&**f2),
@@ -236,17 +237,15 @@ impl Add for Number {
             (SmallInt(i1), BigInt(i2)) | (BigInt(i2), SmallInt(i1)) => {
                 BigInt(Integer::from(i1) + i2)
             }
-            (SmallInt(i1), SmallRat(n2, d2)) | (SmallRat(n2, d2), SmallInt(i1)) => {
-                match i1.checked_mul(d2) {
-                    Some(num1) => match n2.checked_add(num1) {
-                        Some(num) => Number::SmallRat(num, d2),
-                        None => {
-                            Number::BigRat(Box::new(Rational::from(i1) + Rational::from((n2, d2))))
-                        }
-                    },
+            (SmallInt(i1), SmallRat(n2, d2)) | (SmallRat(n2, d2), SmallInt(i1)) => match i1
+                .checked_mul(d2)
+            {
+                Some(num1) => match n2.checked_add(num1) {
+                    Some(num) => Number::SmallRat(num, d2),
                     None => Number::BigRat(Box::new(Rational::from(i1) + Rational::from((n2, d2)))),
-                }
-            }
+                },
+                None => Number::BigRat(Box::new(Rational::from(i1) + Rational::from((n2, d2)))),
+            },
             (SmallRat(n1, d1), SmallRat(n2, d2)) => match d2.checked_mul(d1 / GCD::gcd(d1, d2)) {
                 Some(lcm) => match n2.checked_mul(lcm / d2) {
                     Some(num2) => match n1.checked_mul(lcm / d1) {
