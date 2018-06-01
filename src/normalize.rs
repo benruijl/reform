@@ -503,30 +503,26 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
             }
             return false;
         }
+
+        // TODO: merge x^n with x^(...) ?
+        return false;
     }
 
+    let mut swap = false;
     if let Element::Num(_, ref mut num) = *first {
         if let Element::Num(_, ref mut num1) = *sec {
             *num *= mem::replace(num1, DUMMY_NUM!());
             return true;
         }
 
-        if !var_info.polyratfun {
-            return false;
-        }
-    }
-
-    if !var_info.polyratfun {
-        if let Element::Num(..) = *sec {
-            return false;
+        if let Element::RationalPolynomialCoefficient(..) = *sec {
+            swap = true;
         }
     }
 
     // swap the number and polyratfun to make merging easier
-    if let Element::Num(..) = *first {
-        if let Element::RationalPolynomialCoefficient(..) = *sec {
-            mem::swap(first, sec);
-        }
+    if swap {
+        mem::swap(first, sec);
     }
 
     if let Element::RationalPolynomialCoefficient(ref mut _dirty, ref mut p) = *first {
