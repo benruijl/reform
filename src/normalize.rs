@@ -176,7 +176,7 @@ impl Element {
                         *ts = tmp;
                     }
 
-                    ts.sort_unstable_by(|l, r| l.partial_cmp(r, var_info, true).unwrap());
+                    ts.sort_unstable_by(|l, r| l.partial_cmp_factor(r, var_info).unwrap());
 
                     // now merge pows: x^a*x^b = x^(a*b)
                     // x*x^a and x*x, all should be side by side now
