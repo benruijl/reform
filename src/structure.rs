@@ -439,9 +439,89 @@ impl Element {
         }
     }
 
+    /// A custom partial order that is used to normalize a term.
+    /// TODO: check consistency with partial_cmp!
+    pub fn partial_cmp_factor(
+        &self,
+        other: &Element,
+        var_info: &GlobalVarInfo,
+    ) -> Option<Ordering> {
+        match (self, other) {
+            (&Element::Var(ref a, _), &Element::Var(ref b, _)) => a.partial_cmp(b),
+            (&Element::Num(..), &Element::Num(..)) => Some(Ordering::Equal),
+            (&Element::RationalPolynomialCoefficient(..), &Element::Num(..)) => {
+                Some(Ordering::Equal)
+            }
+            (&Element::Num(..), &Element::RationalPolynomialCoefficient(..)) => {
+                Some(Ordering::Equal)
+            }
+            (_, &Element::Num(..)) => Some(Ordering::Less),
+            (&Element::Num(..), _) => Some(Ordering::Greater),
+            (&Element::Fn(_, ref namea, ref argsa), &Element::Fn(_, ref nameb, ref argsb)) => {
+                let k = namea.partial_cmp(nameb);
+                match k {
+                    Some(Ordering::Equal) => {}
+                    _ => return k,
+                }
+
+                // for non-commutative functions, we keep the order
+                if let Some(attribs) = var_info.func_attribs.get(namea) {
+                    if attribs.contains(&FunctionAttributes::NonCommutative) {
+                        return Some(Ordering::Greater);
+                    }
+                }
+
+                if argsa.len() != argsb.len() {
+                    return argsa.len().partial_cmp(&argsb.len());
+                }
+
+                for (argsaa, argsbb) in argsa.iter().zip(argsb) {
+                    let k = argsaa
+                        .simple_partial_cmp(argsbb, var_info, false)
+                        .or_else(|| argsaa.partial_cmp(argsbb, var_info, false));
+                    match k {
+                        Some(Ordering::Equal) => {}
+                        _ => return k,
+                    }
+                }
+                Some(Ordering::Equal)
+            }
+            (
+                &Element::RationalPolynomialCoefficient(..),
+                &Element::RationalPolynomialCoefficient(..),
+            ) => Some(Ordering::Equal),
+            (_, &Element::RationalPolynomialCoefficient(..)) => Some(Ordering::Less),
+            (&Element::RationalPolynomialCoefficient(..), _) => Some(Ordering::Greater),
+            (&Element::Pow(_, ref be1), &Element::Pow(_, ref be2)) => {
+                be1.0.partial_cmp(&be2.0, var_info, false)
+            }
+            (&Element::Pow(..), _) => Some(Ordering::Less),
+            (_, &Element::Pow(..)) => Some(Ordering::Greater),
+            (&Element::Fn(..), _) => Some(Ordering::Less),
+            (_, &Element::Fn(..)) => Some(Ordering::Greater),
+            (&Element::SubExpr(_, ref ta), &Element::SubExpr(_, ref tb)) => {
+                if ta.len() != tb.len() {
+                    return ta.len().partial_cmp(&tb.len());
+                }
+
+                for (taa, tbb) in ta.iter().zip(tb) {
+                    let k = taa
+                        .simple_partial_cmp(tbb, var_info, false)
+                        .or_else(|| taa.partial_cmp(tbb, var_info, false));
+                    match k {
+                        Some(Ordering::Equal) => {}
+                        _ => return k,
+                    }
+                }
+                Some(Ordering::Equal)
+            }
+            (&Element::SubExpr(..), _) => Some(Ordering::Less),
+            _ => Some(Ordering::Less),
+        }
+    }
+
     /// A custom partial order that ignores coefficients for
     /// the ground level, i.e., x and x*2 are considered equal.
-    /// TODO: implement a partial_cmp for sorting factors
     pub fn partial_cmp(
         &self,
         other: &Element,
@@ -467,9 +547,10 @@ impl Element {
                 let mut tbi = tb.iter();
                 for taa in ta.iter() {
                     if let Some(tbb) = tbi.next() {
-                        let k = taa.simple_partial_cmp(tbb, var_info, ground_level)
+                        let k = taa
+                            .simple_partial_cmp(tbb, var_info, ground_level)
                             .or_else(|| taa.partial_cmp(tbb, var_info, ground_level));
-            
+
                         match k {
                             Some(Ordering::Equal) => {}
                             _ => return k,
@@ -477,8 +558,7 @@ impl Element {
                     } else {
                         if ground_level {
                             match taa {
-                                Element::Num(..)
-                                | Element::RationalPolynomialCoefficient(..) => {
+                                Element::Num(..) | Element::RationalPolynomialCoefficient(..) => {
                                     return Some(Ordering::Equal);
                                 }
                                 _ => {}
@@ -490,8 +570,7 @@ impl Element {
                 if let Some(tbb) = tbi.next() {
                     if ground_level {
                         match tbb {
-                            Element::Num(..)
-                            | Element::RationalPolynomialCoefficient(..) => {
+                            Element::Num(..) | Element::RationalPolynomialCoefficient(..) => {
                                 return Some(Ordering::Equal);
                             }
                             _ => {}
@@ -499,8 +578,8 @@ impl Element {
                     }
                     return Some(Ordering::Less);
                 };
-                return Some(Ordering::Equal)
-/*
+                return Some(Ordering::Equal);
+                /*
                 let mut tai = ta.iter();
                 let mut tbi = tb.iter();
 
@@ -508,7 +587,8 @@ impl Element {
                     match (tai.next(), tbi.next()) {
                         (Some(taa), Some(tbb)) => {
                             // since we keep ground_level the check of the coeff will yield equal
-                            let k = taa.simple_partial_cmp(tbb, var_info, ground_level)
+                            let k = taa
+                                .simple_partial_cmp(tbb, var_info, ground_level)
                                 .or_else(|| taa.partial_cmp(tbb, var_info, ground_level));
 
                             match k {
@@ -550,10 +630,42 @@ impl Element {
             } else {
                 n1.partial_cmp(n2)
             },
-            (_, &Element::Term(_, ref t)) => self.simple_partial_cmp(&t[0], var_info, false)
-                .or_else(|| self.partial_cmp(&t[0], var_info, false)),
-            (&Element::Term(_, ref t), _) => t[0].simple_partial_cmp(other, var_info, false)
-                .or_else(|| t[0].partial_cmp(other, var_info, false)),
+            (_, &Element::Term(_, ref t)) => match self
+                .simple_partial_cmp(&t[0], var_info, false)
+                .or_else(|| self.partial_cmp(&t[0], var_info, false))
+            {
+                Some(Ordering::Equal) => {
+                    if t.len() == 2 {
+                        match t[1] {
+                            Element::Num(..) | Element::RationalPolynomialCoefficient(..) => {
+                                Some(Ordering::Equal)
+                            }
+                            _ => Some(Ordering::Less),
+                        }
+                    } else {
+                        Some(Ordering::Less)
+                    }
+                }
+                x => x,
+            },
+            (&Element::Term(_, ref t), _) => match t[0]
+                .simple_partial_cmp(other, var_info, false)
+                .or_else(|| t[0].partial_cmp(other, var_info, false))
+            {
+                Some(Ordering::Equal) => {
+                    if t.len() == 2 {
+                        match t[1] {
+                            Element::Num(..) | Element::RationalPolynomialCoefficient(..) => {
+                                Some(Ordering::Equal)
+                            }
+                            _ => Some(Ordering::Greater),
+                        }
+                    } else {
+                        Some(Ordering::Greater)
+                    }
+                }
+                x => x,
+            },
             (&Element::RationalPolynomialCoefficient(..), &Element::Num(..)) => if ground_level {
                 Some(Ordering::Equal)
             } else {
@@ -569,13 +681,6 @@ impl Element {
                 match k {
                     Some(Ordering::Equal) => {}
                     _ => return k,
-                }
-
-                // for non-commutative functions, we keep the order
-                if let Some(attribs) = var_info.func_attribs.get(namea) {
-                    if attribs.contains(&FunctionAttributes::NonCommutative) {
-                        return Some(Ordering::Greater);
-                    }
                 }
 
                 if argsa.len() != argsb.len() {
@@ -635,7 +740,8 @@ impl Element {
                 }
 
                 for (taa, tbb) in ta.iter().zip(tb) {
-                    let k = taa.simple_partial_cmp(tbb, var_info, ground_level)
+                    let k = taa
+                        .simple_partial_cmp(tbb, var_info, ground_level)
                         .or_else(|| taa.partial_cmp(tbb, var_info, ground_level));
                     match k {
                         Some(Ordering::Equal) => {}
