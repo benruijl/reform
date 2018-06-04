@@ -7,11 +7,11 @@ use poly::ring::Ring;
 use fnv::FnvHashMap;
 use number;
 use number::Number;
-use poly::raw::MultivariatePolynomial;
 use poly::raw::finitefield::FiniteField;
 use poly::raw::zp;
 use poly::raw::zp::{ufield, FastModulus};
 use poly::raw::zp_mod::Modulus;
+use poly::raw::MultivariatePolynomial;
 use poly::ring::MulModNum;
 use poly::ring::ToFiniteField;
 use rand;
@@ -20,7 +20,7 @@ use std::cmp::{max, min};
 use std::collections::hash_map::Entry;
 use tools::GCD;
 
-use ndarray::{Array, arr1};
+use ndarray::{arr1, Array};
 use poly::raw::zp_solve::{solve, LinearSolverError};
 
 // 100 large u32 primes starting from the 203213901st prime number
@@ -138,7 +138,8 @@ fn construct_new_image<E: Exponent>(
                 }
             }
 
-            let r: Vec<(usize, ufield)> = vars.iter()
+            let r: Vec<(usize, ufield)> = vars
+                .iter()
                 .map(|i| (i.clone(), range.sample(&mut rng)))
                 .collect();
 
@@ -164,6 +165,7 @@ fn construct_new_image<E: Exponent>(
             failure_count += 1;
             if failure_count > 2 || failure_count > ni {
                 // p is likely unlucky
+                debug!("Bad current image");
                 return Err(GCDError::BadCurrentImage);
             }
             continue;
@@ -190,6 +192,7 @@ fn construct_new_image<E: Exponent>(
 
             if !found {
                 // the scaling term is missing, so the assumed form is wrong
+                debug!("Bad original image");
                 return Err(GCDError::BadOriginalImage);
             }
         }
@@ -532,9 +535,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             }
 
             let mut lc = gv.lcoeff();
-            let mut gseq = vec![
-                gv * (gamma.replace(lastvar, v).coefficients[0].clone() / lc),
-            ];
+            let mut gseq = vec![gv * (gamma.replace(lastvar, v).coefficients[0].clone() / lc)];
             let mut vseq = vec![v];
 
             // sparse reconstruction
@@ -564,8 +565,14 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                     Ok(r) => {
                         gv = r;
                     }
-                    Err(GCDError::BadOriginalImage) => continue 'newfirstnum,
-                    Err(GCDError::BadCurrentImage) => continue 'newnum,
+                    Err(GCDError::BadOriginalImage) => {
+                        debug!("Bad original image");
+                        continue 'newfirstnum;
+                    }
+                    Err(GCDError::BadCurrentImage) => {
+                        debug!("Bad current image");
+                        continue 'newnum;
+                    }
                 }
 
                 lc = gv.lcoeff();
@@ -581,9 +588,10 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             let mut gc = newton_interpolation(&vseq, &gseq, p, lastvar);
             debug!("Interpolated: {}", gc);
 
-            // remove content in x_n
-            let cont = gc.univariate_content(lastvar);
+            // remove content in x_n (wrt all other variables)
+            let cont = gc.multivariate_content(lastvar);
             if !cont.is_one() {
+                debug!("Removing content in x{}: {}", lastvar, cont);
                 let cc = gc.long_division(&cont);
                 debug_assert!(cc.1.is_zero());
                 gc = cc.0;
@@ -604,7 +612,8 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                     })
                     .collect::<Vec<_>>();
 
-                let r: Vec<(usize, FiniteField)> = vars.iter()
+                let r: Vec<(usize, FiniteField)> = vars
+                    .iter()
                     .skip(1)
                     .map(|i| (*i, FiniteField::new(range.sample(&mut rng), p)))
                     .collect();
@@ -644,6 +653,13 @@ where
         }
 
         MultivariatePolynomial::gcd_multiple(f)
+    }
+
+    /// Get the content of a multivariate polynomial viewed as a
+    /// multivariate polynomial in all variables except `x`.
+    pub fn multivariate_content(&self, x: usize) -> MultivariatePolynomial<R, E> {
+        let af = self.to_multivariate_polynomial(&[x], false);
+        MultivariatePolynomial::gcd_multiple(af.values().cloned().collect())
     }
 
     /// Compute the gcd of multiple polynomials efficiently.
@@ -791,7 +807,7 @@ where
             .filter_map(|(i, v)| if *v == 3 { Some(i) } else { None })
             .collect();
 
-        // remove the gcd of the content in the first variable
+        // remove the gcd of the content wrt the first variable
         // TODO: don't do for univariate poly
         let c = MultivariatePolynomial::univariate_content_gcd(a, b, vars[0]);
         debug!("GCD of content: {}", c);
@@ -903,7 +919,8 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
             let mut gm = MultivariatePolynomial::with_nvars(gp.nvars);
             gm.nterms = gp.nterms;
             gm.exponents = gp.exponents.clone();
-            gm.coefficients = gp.coefficients
+            gm.coefficients = gp
+                .coefficients
                 .iter()
                 .map(|x| Number::from_finite_field(&(x.clone() * gammap / gpc)))
                 .collect();
@@ -920,7 +937,8 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                     // divide by integer content
                     let gmc = gm.content();
                     let mut gc = gm.clone();
-                    gc.coefficients = gc.coefficients
+                    gc.coefficients = gc
+                        .coefficients
                         .iter()
                         .map(|x| x.clone() / gmc.clone())
                         .collect();
@@ -933,6 +951,7 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                     }
 
                     // if it does not divide, we need more primes
+                    debug!("Does not divide: more primes needed");
                 }
 
                 old_gm = gm.clone();
