@@ -79,7 +79,8 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     }
 
     pub fn to_finite_field(&self, p: ufield) -> MultivariatePolynomial<FiniteField, E> {
-        let newc = self.coefficients
+        let newc = self
+            .coefficients
             .iter()
             .map(|x| x.to_finite_field(p))
             .collect();
@@ -398,7 +399,8 @@ impl<R: Ring, E: Exponent> One for MultivariatePolynomial<R, E> {
 
     #[inline]
     fn is_one(&self) -> bool {
-        self.nterms == 1 && self.coefficients[0].is_one()
+        self.nterms == 1
+            && self.coefficients[0].is_one()
             && self.exponents.iter().all(|x| x.is_zero())
     }
 }
@@ -857,8 +859,9 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         tm
     }
 
-    /// Long division for univariate polynomial.
-    /// FIXME: what to do for multivariate polynomials? We are mostly interested in divide-if-divisible
+    /// Long division for multivarariate polynomial.
+    /// If the ring `R` is not a field, and the coefficient does not cleanly divide,
+    /// the division is stopped and the current quotient and rest term are returned.
     pub fn long_division(
         &self,
         div: &MultivariatePolynomial<R, E>,
@@ -867,13 +870,16 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             panic!("Cannot divide by 0 polynomial");
         }
 
-        // TODO: check for univariateness
-
         let mut q = MultivariatePolynomial::with_nvars(self.nvars);
         let mut r = self.clone();
-        let divdeg = div.ldegree_max();
+        let divdeg = div.last_exponents();
 
-        while !r.is_zero() && r.ldegree_max() >= divdeg {
+        while !r.is_zero()
+            && r.last_exponents()
+                .iter()
+                .zip(divdeg.iter())
+                .all(|(re, de)| re >= de)
+        {
             if !(r.coefficients.last().unwrap().clone() % div.coefficients.last().unwrap().clone())
                 .is_zero()
             {
@@ -885,9 +891,10 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             let tc =
                 r.coefficients.last().unwrap().clone() / div.coefficients.last().unwrap().clone();
 
-            let tp: Vec<E> = r.last_exponents()
+            let tp: Vec<E> = r
+                .last_exponents()
                 .iter()
-                .zip(div.last_exponents())
+                .zip(divdeg.iter())
                 .map(|(e1, e2)| e1.clone() - e2.clone())
                 .collect();
 

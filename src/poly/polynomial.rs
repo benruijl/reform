@@ -124,6 +124,7 @@ impl Polynomial {
             Element::Var(ref x, Number::SmallInt(e)) if e > 0 => {
                 let mut exp = vec![e as u32];
                 varmap.insert(*x, 0);
+                inv_varmap.push(*x);
                 Ok(Polynomial {
                     poly: MultivariatePolynomial::from_monomial(Number::one(), exp),
                     varmap: varmap,
@@ -231,20 +232,20 @@ impl Polynomial {
             self.varcount = varcount;
         }
 
-        // reconstruct 'other'
-        let mut newexp = vec![0; varcount * other.poly.nterms];
-
-        for t in 0..self.poly.nterms {
+        // reconstruct 'other' with correct monomial ordering
+        let mut newother = MultivariatePolynomial::with_nvars(varcount);
+        for t in 0..other.poly.nterms {
+            let mut newexp = vec![0; varcount];
             for e in 0..other.varcount {
-                newexp[t * varcount + *map.get(&e).unwrap()] = other.poly.exponents(t)[e];
+                newexp[*map.get(&e).unwrap()] = other.poly.exponents(t)[e];
             }
+            newother.append_monomial(other.poly.coefficients[t].clone(), newexp);
         }
 
         other.varmap = self.varmap.clone();
         other.inv_varmap = self.inv_varmap.clone();
-        other.poly.exponents = newexp;
+        other.poly = newother;
         other.varcount = varcount;
-        other.poly.nvars = varcount;
     }
 
     fn fmt_output(&self, f: &mut fmt::Formatter, var_info: &GlobalVarInfo) -> fmt::Result {
