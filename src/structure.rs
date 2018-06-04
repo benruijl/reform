@@ -505,7 +505,8 @@ impl Element {
                 }
 
                 for (taa, tbb) in ta.iter().zip(tb) {
-                    let k = taa.simple_partial_cmp(tbb, var_info, false)
+                    let k = taa
+                        .simple_partial_cmp(tbb, var_info, false)
                         .or_else(|| taa.partial_cmp(tbb, var_info, false));
                     match k {
                         Some(Ordering::Equal) => {}
@@ -546,7 +547,8 @@ impl Element {
                 let mut tbi = tb.iter();
                 for taa in ta.iter() {
                     if let Some(tbb) = tbi.next() {
-                        let k = taa.simple_partial_cmp(tbb, var_info, ground_level)
+                        let k = taa
+                            .simple_partial_cmp(tbb, var_info, ground_level)
                             .or_else(|| taa.partial_cmp(tbb, var_info, ground_level));
 
                         match k {
@@ -585,7 +587,8 @@ impl Element {
                     match (tai.next(), tbi.next()) {
                         (Some(taa), Some(tbb)) => {
                             // since we keep ground_level the check of the coeff will yield equal
-                            let k = taa.simple_partial_cmp(tbb, var_info, ground_level)
+                            let k = taa
+                                .simple_partial_cmp(tbb, var_info, ground_level)
                                 .or_else(|| taa.partial_cmp(tbb, var_info, ground_level));
 
                             match k {
@@ -627,10 +630,42 @@ impl Element {
             } else {
                 n1.partial_cmp(n2)
             },
-            (_, &Element::Term(_, ref t)) => self.simple_partial_cmp(&t[0], var_info, false)
-                .or_else(|| self.partial_cmp(&t[0], var_info, false)),
-            (&Element::Term(_, ref t), _) => t[0].simple_partial_cmp(other, var_info, false)
-                .or_else(|| t[0].partial_cmp(other, var_info, false)),
+            (_, &Element::Term(_, ref t)) => match self
+                .simple_partial_cmp(&t[0], var_info, false)
+                .or_else(|| self.partial_cmp(&t[0], var_info, false))
+            {
+                Some(Ordering::Equal) => {
+                    if t.len() == 2 {
+                        match t[1] {
+                            Element::Num(..) | Element::RationalPolynomialCoefficient(..) => {
+                                Some(Ordering::Equal)
+                            }
+                            _ => Some(Ordering::Less),
+                        }
+                    } else {
+                        Some(Ordering::Less)
+                    }
+                }
+                x => x,
+            },
+            (&Element::Term(_, ref t), _) => match t[0]
+                .simple_partial_cmp(other, var_info, false)
+                .or_else(|| t[0].partial_cmp(other, var_info, false))
+            {
+                Some(Ordering::Equal) => {
+                    if t.len() == 2 {
+                        match t[1] {
+                            Element::Num(..) | Element::RationalPolynomialCoefficient(..) => {
+                                Some(Ordering::Equal)
+                            }
+                            _ => Some(Ordering::Greater),
+                        }
+                    } else {
+                        Some(Ordering::Greater)
+                    }
+                }
+                x => x,
+            },
             (&Element::RationalPolynomialCoefficient(..), &Element::Num(..)) => if ground_level {
                 Some(Ordering::Equal)
             } else {
@@ -705,7 +740,8 @@ impl Element {
                 }
 
                 for (taa, tbb) in ta.iter().zip(tb) {
-                    let k = taa.simple_partial_cmp(tbb, var_info, ground_level)
+                    let k = taa
+                        .simple_partial_cmp(tbb, var_info, ground_level)
                         .or_else(|| taa.partial_cmp(tbb, var_info, ground_level));
                     match k {
                         Some(Ordering::Equal) => {}
