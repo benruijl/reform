@@ -19,11 +19,20 @@ inside $a,$b,$g {
 $ag = $a * $g;
 $bg = $b * $g;
 
+// workaround for inefficiency with dollar copying
+$a = 0;
+$b = 0;
+
 inside $ag,$bg {
     expand;
 }
 
 $r = gcd_($ag, $bg) - $g;
+
+// work around an inefficiency
+$ag = 0;
+$bg = 0;
+$g = 0;
 
 inside $r {
     expand;

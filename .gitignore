@@ -1,4 +1,5 @@
 /target/
+/rls/
 **/*.rs.bk
 .vscode/launch.json
 .vscode/tasks.json
