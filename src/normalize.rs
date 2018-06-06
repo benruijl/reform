@@ -224,11 +224,9 @@ impl Element {
             }
             Element::Var(..) => {
                 // x^0 = 1
-                if let Element::Var(_, e) = self {
-                    if e.is_zero() {
-                        *self = Element::Num(false, Number::one());
-                        return true;
-                    }
+                if let Element::Var(_, Number::SmallInt(0)) = self {
+                    *self = Element::Num(false, Number::one());
+                    return true;
                 }
             }
             Element::Pow(dirty, ..) => {
@@ -265,8 +263,12 @@ impl Element {
                                 }
 
                                 // downgrade to variable with power
+                                let mut downgrade = false;
                                 if let Element::Var(_, ref mut mutexp) = b {
+                                    downgrade = true;
                                     *mutexp *= Number::SmallInt(*n);
+                                }
+                                if downgrade {
                                     break mem::replace(b, DUMMY_ELEM!());
                                 }
 
@@ -301,15 +303,23 @@ impl Element {
                                 }
 
                                 // downgrade to variable with power
+                                let mut downgrade = false;
                                 if let Element::Var(_, ref mut mutexp) = b {
+                                    downgrade = true;
                                     *mutexp *= Number::SmallInt(*n);
+                                }
+                                if downgrade {
                                     break mem::replace(b, DUMMY_ELEM!());
                                 }
                             }
                             Element::Num(_, ref mut n) => {
                                 // downgrade to variable with power
+                                let mut downgrade = false;
                                 if let Element::Var(_, ref mut mutexp) = b {
+                                    downgrade = true;
                                     *mutexp *= mem::replace(n, Number::zero());
+                                }
+                                if downgrade {
                                     break mem::replace(b, DUMMY_ELEM!());
                                 }
                             }
@@ -320,7 +330,7 @@ impl Element {
                 } else {
                     unreachable!();
                 };
-                return changed;
+                return true;
             }
             Element::Fn(mut dirty, name, ..) => {
                 if let Some(_) = var_info.func_attribs.get(&name) {
@@ -491,17 +501,27 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
     let mut changed = false;
 
     // x^n1*x^n2 => x^(n1+n2)
+    let mut iszero = false;
     if let Element::Var(n1, p1) = first {
         if let Element::Var(n2, p2) = sec {
             if n1 == n2 {
                 *p1 = mem::replace(p1, Number::one()) + mem::replace(p2, Number::one());
 
                 if p1.is_zero() {
-                    *first = Element::Num(false, Number::SmallInt(1));
+                    iszero = true;
+                } else {
+                    return true;
                 }
-                return true;
+            } else {
+                return false;
             }
-            return false;
+        }
+    }
+
+    if let Element::Var(..) = first {
+        if iszero {
+            *first = Element::Num(false, Number::SmallInt(1));
+            return true;
         }
 
         // TODO: merge x^n with x^(...) ?
