@@ -10,6 +10,13 @@ codegen-units = 1
 [features]
 profile = ["cpuprofiler"]
 
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies.cpython]
+version = "0.1"
+features = ["extension-module"]
+
 [dependencies]
 itertools = "^0.7.7"
 clap = "^2.30.0"

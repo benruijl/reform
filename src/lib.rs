@@ -5,13 +5,16 @@ extern crate itertools; // command line argument options
 extern crate byteorder; // for serialization
 extern crate crossbeam;
 extern crate fastdivide;
+extern crate fnv;
 extern crate gmp_mpfr_sys;
 extern crate ndarray;
 extern crate num_integer;
 extern crate num_traits;
 extern crate rand;
 extern crate rug; // for gmp and bigint support
-extern crate fnv;
+
+#[macro_use]
+extern crate cpython;
 
 #[macro_use]
 extern crate log;
