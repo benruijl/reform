@@ -374,6 +374,7 @@ impl<'a, T: Clone> Iterator for CombinationsWithReplacement<'a, T> {
 }
 
 pub fn add_num_poly(n: &mut Number, num: &mut Polynomial, den: &mut Polynomial) {
+    // TODO: normalize when adding fractions!
     match n {
         Number::SmallInt(_) => {
             *num = mem::replace(num, Polynomial::new()) + den.clone() * n.clone();

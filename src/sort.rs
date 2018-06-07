@@ -49,12 +49,7 @@ unsafe fn split_merge_rec(
 
         let v = terms.get_unchecked_mut(*row.get_unchecked(one));
 
-        normalize::merge_terms(v, &mut term, var_info);
-
-        match v {
-            Element::Num(false, Number::SmallInt(0)) => true,
-            _ => false,
-        }
+        normalize::merge_terms(v, &mut term, var_info)
     }
     //==================================================================
     //
