@@ -1,9 +1,10 @@
 use num_traits::{One, Zero};
 use number::Number;
+use std::borrow::Cow;
 use std::cmp::Ordering;
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::collections::VecDeque;
-use std::collections::hash_map::Entry;
 use std::mem;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -84,7 +85,8 @@ impl Element {
                     let fe = f.expand(var_info);
                     match fe {
                         Element::SubExpr(_, s) => {
-                            r = r.into_iter()
+                            r = r
+                                .into_iter()
                                 .flat_map(|x| {
                                     s.iter()
                                         .map(|y| x.clone().append_factors(y.clone()))
@@ -798,14 +800,15 @@ fn do_module_rec(
         _ => {}
     }
 
-    // TODO: generate first two elements? performance doesnt seem too much affected though
     {
         // replace all dollar variables in current statement
         // this prevents copying of dollar variables
-        // TODO: use Cow in replace_vars to prevent cloning the statement?
-        let mut ns = statements[current_index].clone();
-        if ns.replace_vars(&local_var_info.variables, true) {
-            ns.normalize(global_var_info);
+        // consider this as a workaround for excessive copying of (large) dollar variables
+        let mut ns = Cow::Borrowed(&statements[current_index]);
+        if ns.contains_dollar() {
+            if ns.to_mut().replace_vars(&local_var_info.variables, true) {
+                ns.to_mut().normalize(global_var_info);
+            }
         }
 
         // now we can pass an empty list of variables, since they are all replaced
@@ -1017,7 +1020,8 @@ impl Module {
                                 }
                             }
 
-                            let mut newmod = p.statements
+                            let mut newmod = p
+                                .statements
                                 .iter()
                                 .cloned()
                                 .map(|mut x| {

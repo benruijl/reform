@@ -198,7 +198,8 @@ impl Program {
         for m in &mut procedures {
             parsed_procedures.push(Procedure {
                 name: m.name.clone(),
-                args: m.args
+                args: m
+                    .args
                     .iter_mut()
                     .map(|s| {
                         let mut ns = s.to_element(&mut prog.var_info);
@@ -206,7 +207,8 @@ impl Program {
                         ns
                     })
                     .collect(),
-                local_args: m.local_args
+                local_args: m
+                    .local_args
                     .iter_mut()
                     .map(|s| {
                         let mut ns = s.to_element(&mut prog.var_info);
@@ -214,7 +216,8 @@ impl Program {
                         ns
                     })
                     .collect(),
-                statements: m.statements
+                statements: m
+                    .statements
                     .iter_mut()
                     .map(|s| s.to_statement(&mut prog.var_info))
                     .collect(),
@@ -1258,6 +1261,34 @@ impl Element<String> {
 }
 
 impl Element {
+    pub fn contains_dollar(&self) -> bool {
+        match *self {
+            Element::Var(..) => false,
+            Element::Dollar(..) => true,
+            Element::Wildcard(_, ref restrictions) => {
+                for x in restrictions {
+                    if x.contains_dollar() {
+                        return true;
+                    }
+                }
+                false
+            }
+            Element::Pow(_, ref be) => {
+                let (ref b, ref e) = **be;
+                b.contains_dollar() || e.contains_dollar()
+            }
+            Element::Term(_, ref f) | Element::SubExpr(_, ref f) | Element::Fn(_, _, ref f) => {
+                for x in f {
+                    if x.contains_dollar() {
+                        return true;
+                    }
+                }
+                false
+            }
+            _ => false,
+        }
+    }
+
     pub fn replace_vars(&mut self, map: &HashMap<VarName, Element>, dollar_only: bool) -> bool {
         let mut changed = false;
         *self = match *self {
@@ -1359,15 +1390,18 @@ impl Statement<String> {
         match *self {
             Statement::Module(ref mut m) => Statement::Module(Module {
                 name: m.name.clone(),
-                active_exprs: m.active_exprs
+                active_exprs: m
+                    .active_exprs
                     .iter()
                     .map(|n| var_info.get_name(n))
                     .collect(),
-                exclude_exprs: m.exclude_exprs
+                exclude_exprs: m
+                    .exclude_exprs
                     .iter()
                     .map(|n| var_info.get_name(n))
                     .collect(),
-                statements: m.statements
+                statements: m
+                    .statements
                     .iter_mut()
                     .map(|s| s.to_statement(var_info))
                     .collect(),
@@ -1445,6 +1479,91 @@ impl Statement<String> {
 }
 
 impl Statement {
+    pub fn contains_dollar(&self) -> bool {
+        match *self {
+            Statement::IdentityStatement(IdentityStatement {
+                mode: _,
+                ref lhs,
+                ref rhs,
+            }) => lhs.contains_dollar() || rhs.contains_dollar(),
+            Statement::Module(Module { ref statements, .. }) => {
+                for s in statements {
+                    if s.contains_dollar() {
+                        return true;
+                    }
+                }
+                false
+            }
+            Statement::Repeat(ref ss) => {
+                for s in ss {
+                    if s.contains_dollar() {
+                        return true;
+                    }
+                }
+                false
+            }
+            Statement::IfElse(ref e, ref ss, ref sse) => {
+                if e.contains_dollar() {
+                    return true;
+                }
+                for s in ss {
+                    if s.contains_dollar() {
+                        return true;
+                    }
+                }
+                for s in sse {
+                    if s.contains_dollar() {
+                        return true;
+                    }
+                }
+                false
+            }
+            Statement::Multiply(ref e) => e.contains_dollar(),
+            Statement::Call(_, ref es) => {
+                for s in es {
+                    if s.contains_dollar() {
+                        return true;
+                    }
+                }
+                false
+            }
+            Statement::Assign(ref _d, ref e) => e.contains_dollar(),
+            Statement::Argument(.., ref ss) | Statement::Inside(.., ref ss) => {
+                for s in ss {
+                    if s.contains_dollar() {
+                        return true;
+                    }
+                }
+                false
+            }
+            Statement::ForIn(_, ref l, ref ss) => {
+                for e in l {
+                    if e.contains_dollar() {
+                        return true;
+                    }
+                }
+                for s in ss {
+                    if s.contains_dollar() {
+                        return true;
+                    }
+                }
+                false
+            }
+            Statement::ForInRange(_, ref l, ref u, ref ss) => {
+                if l.contains_dollar() || u.contains_dollar() {
+                    return true;
+                }
+                for s in ss {
+                    if s.contains_dollar() {
+                        return true;
+                    }
+                }
+                false
+            }
+            _ => false,
+        }
+    }
+
     pub fn replace_vars(&mut self, map: &HashMap<VarName, Element>, dollar_only: bool) -> bool {
         let mut changed = false;
         match *self {
