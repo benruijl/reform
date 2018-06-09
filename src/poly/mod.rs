@@ -1,3 +1,4 @@
+#[cfg(feature = "pythonapi")]
 pub mod api;
 pub mod exponent;
 pub mod polynomial;

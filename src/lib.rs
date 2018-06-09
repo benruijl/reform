@@ -13,6 +13,7 @@ extern crate num_traits;
 extern crate rand;
 extern crate rug; // for gmp and bigint support
 
+#[cfg(feature = "pythonapi")]
 #[macro_use]
 extern crate cpython;
 

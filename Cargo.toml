@@ -8,6 +8,8 @@ authors = ["Ben Ruijl <benruyl@gmail.com>"]
 codegen-units = 1
 
 [features]
+default = ["pythonapi"]
+pythonapi = ["cpython"]
 profile = ["cpuprofiler"]
 
 [lib]
@@ -16,6 +18,7 @@ crate-type = ["cdylib", "lib"]
 [dependencies.cpython]
 version = "0.1"
 features = ["extension-module"]
+optional = true
 
 [dependencies]
 itertools = "^0.7.7"
