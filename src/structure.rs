@@ -393,7 +393,14 @@ impl Element {
         match (self, other) {
             (&Element::Var(ref a, ref e1), &Element::Var(ref b, ref e2)) => {
                 match a.partial_cmp(b) {
-                    Some(Ordering::Equal) => e1.partial_cmp(e2),
+                    Some(Ordering::Equal) => {
+                        if let Number::SmallInt(ref b1) = e1 {
+                            if let Number::SmallInt(ref b2) = e2 {
+                                return b1.partial_cmp(b2);
+                            };
+                        };
+						e1.partial_cmp(e2)
+					},
                     x => x,
                 }
             }
