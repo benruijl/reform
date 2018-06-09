@@ -393,7 +393,14 @@ impl Element {
         match (self, other) {
             (&Element::Var(ref a, ref e1), &Element::Var(ref b, ref e2)) => {
                 match a.partial_cmp(b) {
-                    Some(Ordering::Equal) => e1.partial_cmp(e2),
+                    Some(Ordering::Equal) => {
+						if let Number::SmallInt(ref b1) = e1 {
+							if let Number::SmallInt(ref b2) = e2 {
+                                return b1.partial_cmp(b2);
+							};
+						};
+						return e1.partial_cmp(e2);
+					},
                     x => x,
                 }
             }
@@ -532,12 +539,6 @@ impl Element {
         ground_level: bool,
     ) -> Option<Ordering> {
         match (self, other) {
-            (&Element::Var(ref a, ref e1), &Element::Var(ref b, ref e2)) => {
-                match a.partial_cmp(b) {
-                    Some(Ordering::Equal) => e1.partial_cmp(e2),
-                    x => x,
-                }
-            }
             (&Element::Term(_, ref ta), &Element::Term(_, ref tb)) => {
                 //
                 // The next code is a bit simpler for the compiler and makes
@@ -582,7 +583,7 @@ impl Element {
                     return Some(Ordering::Less);
                 };
                 return Some(Ordering::Equal);
-                /*
+/*
                 let mut tai = ta.iter();
                 let mut tbi = tb.iter();
 
@@ -627,6 +628,12 @@ impl Element {
                     }
                 }
 */
+            }
+            (&Element::Var(ref a, ref e1), &Element::Var(ref b, ref e2)) => {
+                match a.partial_cmp(b) {
+                    Some(Ordering::Equal) => e1.partial_cmp(e2),
+                    x => x,
+                }
             }
             (&Element::Num(_, ref n1), &Element::Num(_, ref n2)) => if ground_level {
                 Some(Ordering::Equal)
@@ -754,6 +761,52 @@ impl Element {
                 Some(Ordering::Equal)
             }
             (&Element::SubExpr(..), _) => Some(Ordering::Less),
+            _ => Some(Ordering::Less),
+        }
+    }
+
+    /// A custom partial order that ignores coefficients for
+    /// the ground level, i.e., x and x*2 are considered equal.
+	/// It only considers symbols with SmallInt powers.
+    pub fn partial_cmp2(
+        &self,
+        other: &Element,
+        _var_info: &GlobalVarInfo,
+        _ground_level: bool,
+    ) -> Option<Ordering> {
+        match (self, other) {
+            (&Element::Term(_, ref ta), &Element::Term(_, ref tb)) => {
+                //
+                // Here we have the bare minimum for two terms that contain
+                // only symbols with an SmallInt power. This is to see how
+                // fast we can make it. To activate this, replace in
+                // split_merge_rec the partial_cmp by partial_cmp2 (4 times)
+                //
+                let mut tbi = tb.iter();
+                for taa in ta.iter() {
+                    if let Some(tbb) = tbi.next() {
+						if let Element::Var(a1,Number::SmallInt(b1)) = taa {
+							if let Element::Var(a2,Number::SmallInt(b2)) = tbb {
+								if a1 < a2 {
+									return Some(Ordering::Less);
+								} else if a1 > a2 {
+									return Some(Ordering::Greater);
+								} else if b1 < b2 {
+									return Some(Ordering::Less);
+								} else if b1 > b2 {
+									return Some(Ordering::Greater);
+								}
+							}
+						}
+                    } else {  // tb is empty
+                        return Some(Ordering::Greater);
+                    };
+                }
+                if let Some(_tbb) = tbi.next() { // ta is empty. How about tb?
+                    return Some(Ordering::Less);
+                };
+                return Some(Ordering::Equal);
+            }
             _ => Some(Ordering::Less),
         }
     }
