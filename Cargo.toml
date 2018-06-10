@@ -8,12 +8,16 @@ authors = ["Ben Ruijl <benruyl@gmail.com>"]
 codegen-units = 1
 
 [features]
-default = ["pythonapi"]
-pythonapi = ["cpython"]
+python_api = ["cpython"]
+c_api = ["libc"]
 profile = ["cpuprofiler"]
 
 [lib]
 crate-type = ["cdylib", "lib"]
+
+[dependencies.libc]
+version = "0.2"
+optional = true
 
 [dependencies.cpython]
 version = "0.1"
