@@ -335,7 +335,7 @@ pub enum Statement<ID: Id = VarName> {
     Multiply(Element<ID>),
     Symmetrize(ID),
     Collect(ID),
-    Extract(Vec<ID>),
+    Extract(Element<ID>, Vec<ID>),
     Assign(Element<ID>, Element<ID>),
     Maximum(Element<ID>),
     Call(String, Vec<Element<ID>>),
@@ -399,8 +399,8 @@ impl Element {
                                 return b1.partial_cmp(b2);
                             };
                         };
-						e1.partial_cmp(e2)
-					},
+                        e1.partial_cmp(e2)
+                    }
                     x => x,
                 }
             }
@@ -861,8 +861,8 @@ impl fmt::Display for Statement {
             Statement::Multiply(ref x) => writeln!(f, "Multiply {};", x),
             Statement::Symmetrize(ref x) => writeln!(f, "Symmetrize {};", x),
             Statement::Collect(ref x) => writeln!(f, "Collect {};", x),
-            Statement::Extract(ref xs) => {
-                writeln!(f, "Extract ")?;
+            Statement::Extract(ref d, ref xs) => {
+                writeln!(f, "Extract {} ", d)?;
                 for x in xs {
                     write!(f, ",{}", x)?;
                 }
@@ -1457,9 +1457,10 @@ impl Statement<String> {
             Statement::SplitArg(ref name) => Statement::SplitArg(var_info.get_name(name)),
             Statement::Symmetrize(ref name) => Statement::Symmetrize(var_info.get_name(name)),
             Statement::Collect(ref name) => Statement::Collect(var_info.get_name(name)),
-            Statement::Extract(ref names) => {
-                Statement::Extract(names.iter().map(|name| var_info.get_name(name)).collect())
-            }
+            Statement::Extract(ref mut d, ref names) => Statement::Extract(
+                d.to_element(var_info),
+                names.iter().map(|name| var_info.get_name(name)).collect(),
+            ),
             Statement::Multiply(ref mut e) => Statement::Multiply(e.to_element(var_info)),
             Statement::Expand => Statement::Expand,
             Statement::Print(ref mode, ref es) => Statement::Print(
@@ -1612,7 +1613,7 @@ impl Statement {
                     }
                 }
             }
-            Statement::Extract(ref mut names) => {
+            Statement::Extract(_, ref mut names) => {
                 for name in names {
                     if let Some(x) = map.get(name) {
                         if let &Element::Var(ref y, _) = x {

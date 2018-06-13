@@ -300,10 +300,6 @@ impl Statement {
                 ),
                 true,
             ),
-            Statement::Extract(ref names) => StatementIter::Simple(
-                mem::replace(input, DUMMY_ELEM!()).extract(names, &var_info.global_info),
-                true,
-            ),
             Statement::SplitArg(ref name) => {
                 // TODO: use mutability to prevent unnecessary copy
                 // split function arguments at the ground level
@@ -531,6 +527,27 @@ fn do_module_rec(
             }
             if let Element::Dollar(ref d, ..) = *dollar {
                 local_var_info.add_dollar(d.clone(), ee);
+            }
+            return do_module_rec(
+                input,
+                statements,
+                local_var_info,
+                global_var_info,
+                current_index + 1,
+                term_affected,
+                output,
+            );
+        }
+        Statement::Extract(ref d, ref xs) => {
+            if let Element::Dollar(name, _) = *d {
+                let mut dollar = DUMMY_ELEM!();
+                let mut dp = local_var_info
+                    .variables
+                    .get_mut(&name)
+                    .expect("Dollar variable is uninitialized");
+
+                mem::swap(&mut dollar, dp);
+                *dp = dollar.extract(xs, &global_var_info);
             }
             return do_module_rec(
                 input,
@@ -1058,11 +1075,6 @@ impl Module {
         verbosity: u64,
         num_threads: usize,
     ) {
-        // move global statements from the previous module into the new one
-        for (d, v) in var_info.local_info.global_variables.drain() {
-            var_info.local_info.variables.insert(d, v);
-        }
-
         // normalize the module
         let mut old_statements = mem::replace(&mut self.statements, vec![]);
         Module::statements_to_control_flow_stat(
@@ -1186,6 +1198,11 @@ impl Module {
                 write_log,
             );
         }
+
+        // update the variables by their global values
+        for (d, v) in var_info.local_info.global_variables.drain() {
+            var_info.local_info.variables.insert(d, v);
+        }
     }
 }
 
@@ -1231,6 +1248,20 @@ impl Program {
                     ee.normalize_inplace(&self.var_info.global_info);
                     if let Element::Dollar(ref d, ..) = *dollar {
                         self.var_info.local_info.add_dollar(d.clone(), ee);
+                    }
+                }
+                Statement::Extract(ref d, ref xs) => {
+                    if let Element::Dollar(name, _) = *d {
+                        let mut dollar = DUMMY_ELEM!();
+                        let mut dp = self
+                            .var_info
+                            .local_info
+                            .variables
+                            .get_mut(&name)
+                            .expect("Dollar variable is uninitialized");
+
+                        mem::swap(&mut dollar, dp);
+                        *dp = dollar.extract(xs, &self.var_info.global_info);
                     }
                 }
                 // this will create a subrecursion

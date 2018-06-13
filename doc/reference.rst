@@ -213,26 +213,26 @@ Statements
     and can be larger than memory. Use :frm:st:`apply` to operate on the terms of
     the expression.
 
-.. frm:statement:: extract x1,...,xn;
+.. frm:statement:: extract $i x1,...,xn;
 
-    :param x1,...,xn: A list of variables.
+    :param $i: A reFORM variable.
+    :param x1,...,xn: A list of algebraic variables.
 
-    Construct a Horner scheme in the variables ``x1`` to ``xn``.
-
-    TODO: this example does not work, since we need to collect the terms first.
-    the extract statement needs to change.
+    Construct a Horner scheme in the variables ``x1`` to ``xn`` for
+    the expression in variable ``$i``.
 
     .. code-block:: reform
 
         $a = x + x*y + x*y*z + y*z + x^2 + x^2*y + 2;
-        inside $a {
-            extract x, y;
-        }
+
+        extract $a x,y;
         print $a;
 
     yields
 
     .. code-block:: reform
+
+        (y+1)*x^2+y*z+2+((z+1)*y+1)*x
 
 .. frm:statement:: for i in lb..ub { [statements] };
                    for i in {s1,s2,...} { [statements] };

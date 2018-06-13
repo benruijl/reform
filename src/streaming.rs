@@ -217,7 +217,8 @@ impl OutputTermStreamer {
                     }
                     Statement::Print(mode, ref es) => {
                         if es.len() == 0
-                            || es.iter()
+                            || es
+                                .iter()
                                 .any(|e| exprname == var_info.global_info.get_name(*e))
                         {
                             print_output = true;
@@ -226,11 +227,6 @@ impl OutputTermStreamer {
                     }
                     _ => {}
                 }
-            }
-
-            // for now, print the dollar variables
-            for (k, v) in &var_info.local_info.global_variables {
-                println!("GLOB {} = {}", k, v);
             }
 
             // move to input buffer
@@ -314,7 +310,8 @@ impl OutputTermStreamer {
         {
             // FIXME: a buffered reader may read too much, so there is less ram
             // the bufreader should read at most maxsortmem
-            let mut streamer = self.sortfiles
+            let mut streamer = self
+                .sortfiles
                 .iter()
                 .map(BufReader::new)
                 .collect::<Vec<_>>();
