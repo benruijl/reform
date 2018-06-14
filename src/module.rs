@@ -61,6 +61,7 @@ enum ExpandSubIterator<'a> {
     Term(Vec<ExpandIterator<'a>>, Vec<Element>),
     Exp(tools::CombinationsWithReplacement<Element>, usize),
     Yield(Element),
+    YieldMultiple(Vec<Element>),
 }
 
 impl<'a> ExpandIterator<'a> {
@@ -68,7 +69,6 @@ impl<'a> ExpandIterator<'a> {
         let subiter =
         // modify the element so that all substructures are expanded
         match &mut element {
-            // TODO: for terms, first check if no factor has to be expanded.
             // this processing way is slow but we need it to handle
             // ((1+x)^5+..)*(...)
             Element::SubExpr(_, ref mut ts) => {
@@ -79,10 +79,36 @@ impl<'a> ExpandIterator<'a> {
                 ExpandSubIterator::SubExpr(seqiter)
             }
             Element::Term(_, ref mut ts) => {
-                // TODO: only use a seqiter for factors that can are not simple. Group the rest together
+                let mut stat = vec![]; // store all static elements
                 let mut seqiter = vec![];
-                for x in mem::replace(ts, vec![]) {
-                    seqiter.push(ExpandIterator::new(x, var_info, ground_level));
+                for mut x in mem::replace(ts, vec![]) {
+                    // TODO: refactor
+                    match x {
+                        Element::Fn(_dirty, ref name, ref mut args) => {
+                            let newargs = mem::replace(args, vec![])
+                                .into_iter()
+                                .map(|x| ExpandIterator::new(x, var_info, false).to_element())
+                                .collect();
+
+                            let mut f = Element::Fn(true, *name, newargs);
+                            f.normalize_inplace(var_info);
+                            stat.push(f);
+                        }
+                        Element::SubExpr(..) => {seqiter.push(ExpandIterator::new(x, var_info, ground_level));}
+                        Element::Pow(..) => {seqiter.push(ExpandIterator::new(x, var_info, ground_level));}
+                        _ => { stat.push(x); }
+                    }
+                }
+
+                if stat.len() > 0 {
+                    seqiter.push(
+                        ExpandIterator {
+                            subiter: ExpandSubIterator::YieldMultiple(stat),
+                            var_info,
+                            ground_level,
+                            done: false,
+                            }
+                    );
                 }
 
                 // disable all but the first iterator
@@ -98,10 +124,10 @@ impl<'a> ExpandIterator<'a> {
                     .into_iter()
                     .map(|x| ExpandIterator::new(x, var_info, false).to_element())
                     .collect();
-                // TODO: normalize?
 
-                // FIXME: we need a dirty flag
-                ExpandSubIterator::Yield(Element::Fn(true, *name, newargs))
+                let mut f = Element::Fn(true, *name, newargs);
+                f.normalize_inplace(var_info);
+                ExpandSubIterator::Yield(f)
             }
             Element::Pow(_, be) => {
                 let (b, e) = { *mem::replace(be, Box::new((DUMMY_ELEM!(), DUMMY_ELEM!()))) }; // TODO: improve
@@ -137,13 +163,19 @@ impl<'a> ExpandIterator<'a> {
                             ExpandSubIterator::Yield(e)
                         }
                         else {
-                            ExpandSubIterator::Yield(Element::Pow(true, Box::new((eb, ee))))
+                            let mut a = Element::Pow(true, Box::new((eb, ee)));
+                            a.normalize_inplace(var_info);
+                            ExpandSubIterator::Yield(a)
                         }
                     } else {
-                         ExpandSubIterator::Yield(Element::Pow(true, Box::new((eb, ee))))
+                        let mut a = Element::Pow(true, Box::new((eb, ee)));
+                        a.normalize_inplace(var_info);
+                        ExpandSubIterator::Yield(a)
                     }
                 } else {
-                     ExpandSubIterator::Yield(Element::Pow(true, Box::new((eb, ee))))
+                    let mut a = Element::Pow(true, Box::new((eb, ee)));
+                    a.normalize_inplace(var_info);
+                    ExpandSubIterator::Yield(a)
                 }
             }
             e => ExpandSubIterator::Yield(mem::replace(e, DUMMY_ELEM!()))
@@ -167,14 +199,8 @@ impl<'a> ExpandIterator<'a> {
                 }
             }
             ExpandSubIterator::Term(ref mut i, _) => {
-                for x in i.iter_mut() {
-                    x.reset();
-                }
-
-                // disable all but the first iterator
-                for x in i.iter_mut().skip(1) {
-                    x.done = true;
-                }
+                // only reset the first iterator
+                i[0].reset();
             }
             ExpandSubIterator::Exp(ref mut it, n) => {
                 *it = tools::CombinationsWithReplacement::new(
@@ -205,31 +231,37 @@ impl<'a> Iterator for ExpandIterator<'a> {
             ExpandSubIterator::SubExpr(seqiter) => {
                 // for subexpressions, yield each iterator one by one
                 for si in seqiter.iter_mut() {
-                    if let Some(x) = si.next() {
-                        return Some(x);
+                    if !si.done {
+                        if let Some(x) = si.next() {
+                            return Some(x);
+                        }
                     }
                 }
+                self.done = true;
                 None
             }
             ExpandSubIterator::Term(seqiter, state) => {
                 let mut i = seqiter.len() - 1;
                 loop {
-                    if let Some(x) = seqiter[i].next() {
-                        state[i] = x;
+                    if !seqiter[i].done {
+                        if let Some(x) = seqiter[i].next() {
+                            state[i] = x;
 
-                        if i == seqiter.len() - 1 {
-                            let mut nt = Element::Term(true, state.clone());
-                            nt.normalize_inplace(self.var_info);
-                            return Some(nt);
+                            if i == seqiter.len() - 1 {
+                                let mut nt = Element::Term(true, state.clone());
+                                nt.normalize_inplace(self.var_info);
+                                return Some(nt);
+                            }
+
+                            // reset the next iterator
+                            i += 1;
+                            seqiter[i].reset();
+                            continue;
                         }
-
-                        // reset the next iterator
-                        i += 1;
-                        seqiter[i].reset();
-                        continue;
                     }
 
                     if i == 0 {
+                        self.done = true;
                         return None;
                     }
 
@@ -243,11 +275,18 @@ impl<'a> Iterator for ExpandIterator<'a> {
                     nt.normalize_inplace(self.var_info);
                     Some(nt)
                 }
-                None => None,
+                None => {
+                    self.done = true;
+                    None
+                }
             },
             ExpandSubIterator::Yield(e) => {
                 self.done = true;
                 Some(e.clone())
+            }
+            ExpandSubIterator::YieldMultiple(e) => {
+                self.done = true;
+                Some(Element::Term(false, e.clone()))
             }
         }
     }
