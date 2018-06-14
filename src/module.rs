@@ -57,7 +57,7 @@ struct ExpandIterator<'a> {
 
 #[derive(Debug)]
 enum ExpandSubIterator<'a> {
-    SubExpr(Vec<ExpandIterator<'a>>),
+    SubExpr(Vec<ExpandIterator<'a>>, usize),
     Term(Vec<ExpandIterator<'a>>, Vec<Element>),
     Exp(tools::CombinationsWithReplacement<Element>, usize),
     Yield(Element),
@@ -76,7 +76,7 @@ impl<'a> ExpandIterator<'a> {
                 for x in mem::replace(ts, vec![]) {
                     seqiter.push(ExpandIterator::new(x, var_info, ground_level));
                 }
-                ExpandSubIterator::SubExpr(seqiter)
+                ExpandSubIterator::SubExpr(seqiter, 0)
             }
             Element::Term(_, ref mut ts) => {
                 let mut stat = vec![]; // store all static elements
@@ -98,6 +98,16 @@ impl<'a> ExpandIterator<'a> {
                         Element::Pow(..) => {seqiter.push(ExpandIterator::new(x, var_info, ground_level));}
                         _ => { stat.push(x); }
                     }
+                }
+
+                // completely static term
+                if seqiter.is_empty() {
+                    return ExpandIterator {
+                            subiter: ExpandSubIterator::YieldMultiple(stat),
+                            var_info,
+                            ground_level,
+                            done: false,
+                            };
                 }
 
                 if stat.len() > 0 {
@@ -160,6 +170,7 @@ impl<'a> ExpandIterator<'a> {
                                     })
                                     .collect(),
                             );
+                            e.normalize_inplace(var_info);
                             ExpandSubIterator::Yield(e)
                         }
                         else {
@@ -193,7 +204,8 @@ impl<'a> ExpandIterator<'a> {
         self.done = false;
 
         match self.subiter {
-            ExpandSubIterator::SubExpr(ref mut i) => {
+            ExpandSubIterator::SubExpr(ref mut i, ref mut pos) => {
+                *pos = 0;
                 for x in i {
                     x.reset();
                 }
@@ -219,6 +231,23 @@ impl<'a> ExpandIterator<'a> {
     }
 }
 
+impl<'a> ExpandIterator<'a> {
+    #[inline]
+    fn next_inline(&mut self) -> Option<Element> {
+        match &self.subiter {
+            ExpandSubIterator::Yield(e) => {
+                self.done = true;
+                Some(e.clone())
+            }
+            ExpandSubIterator::YieldMultiple(e) => {
+                self.done = true;
+                Some(Element::Term(false, e.clone()))
+            }
+            _ => None,
+        }
+    }
+}
+
 impl<'a> Iterator for ExpandIterator<'a> {
     type Item = Element;
 
@@ -228,15 +257,19 @@ impl<'a> Iterator for ExpandIterator<'a> {
         }
 
         match &mut self.subiter {
-            ExpandSubIterator::SubExpr(seqiter) => {
+            ExpandSubIterator::SubExpr(seqiter, ref mut pos) => {
                 // for subexpressions, yield each iterator one by one
-                for si in seqiter.iter_mut() {
-                    if !si.done {
-                        if let Some(x) = si.next() {
+                while *pos < seqiter.len() {
+                    if !seqiter[*pos].done {
+                        if let Some(x) =
+                            seqiter[*pos].next_inline().or_else(|| seqiter[*pos].next())
+                        {
                             return Some(x);
                         }
                     }
+                    *pos += 1;
                 }
+
                 self.done = true;
                 None
             }
@@ -244,7 +277,7 @@ impl<'a> Iterator for ExpandIterator<'a> {
                 let mut i = seqiter.len() - 1;
                 loop {
                     if !seqiter[i].done {
-                        if let Some(x) = seqiter[i].next() {
+                        if let Some(x) = seqiter[i].next_inline().or_else(|| seqiter[i].next()) {
                             state[i] = x;
 
                             if i == seqiter.len() - 1 {
