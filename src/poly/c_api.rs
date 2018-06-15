@@ -2,7 +2,7 @@ use libc::c_char;
 use poly::polynomial;
 use poly::polynomial::PolyPrinter;
 use std::ffi::{CStr, CString};
-use std::ops::{Add, Mul};
+use std::ops::{Add, Mul, Neg, Sub};
 use std::str;
 use std::str::FromStr;
 use structure::{Element, GlobalVarInfo, VarInfo};
@@ -37,6 +37,17 @@ impl Polynomial {
         }
     }
 
+    fn sub(&mut self, rhs: &mut Polynomial) -> Polynomial {
+        // unify the variable names first
+        self.poly.unify_varmaps(&mut rhs.poly);
+        let r = self.poly.clone().sub(rhs.poly.clone());
+
+        Polynomial {
+            poly: r,
+            var_info: self.var_info.clone(),
+        }
+    }
+
     fn mul(&mut self, rhs: &mut Polynomial) -> Polynomial {
         // unify the variable names first
         self.poly.unify_varmaps(&mut rhs.poly);
@@ -52,6 +63,13 @@ impl Polynomial {
         let r = self.poly.gcd(&mut rhs.poly);
         Polynomial {
             poly: r,
+            var_info: self.var_info.clone(),
+        }
+    }
+
+    fn neg(&self) -> Polynomial {
+        Polynomial {
+            poly: self.poly.clone().neg(),
             var_info: self.var_info.clone(),
         }
     }
@@ -126,6 +144,21 @@ pub extern "C" fn polynomial_add(lhs: *mut Polynomial, rhs: *mut Polynomial) -> 
 }
 
 #[no_mangle]
+pub extern "C" fn polynomial_sub(lhs: *mut Polynomial, rhs: *mut Polynomial) -> *mut Polynomial {
+    let lhsp = unsafe {
+        assert!(!lhs.is_null());
+        &mut *lhs
+    };
+
+    let rhsp = unsafe {
+        assert!(!rhs.is_null());
+        &mut *rhs
+    };
+
+    Box::into_raw(Box::new(lhsp.sub(rhsp)))
+}
+
+#[no_mangle]
 pub extern "C" fn polynomial_mul(lhs: *mut Polynomial, rhs: *mut Polynomial) -> *mut Polynomial {
     let lhsp = unsafe {
         assert!(!lhs.is_null());
@@ -138,6 +171,16 @@ pub extern "C" fn polynomial_mul(lhs: *mut Polynomial, rhs: *mut Polynomial) -> 
     };
 
     Box::into_raw(Box::new(lhsp.mul(rhsp)))
+}
+
+#[no_mangle]
+pub extern "C" fn polynomial_neg(lhs: *mut Polynomial) -> *mut Polynomial {
+    let lhsp = unsafe {
+        assert!(!lhs.is_null());
+        &mut *lhs
+    };
+
+    Box::into_raw(Box::new(lhsp.neg()))
 }
 
 #[no_mangle]

@@ -1122,6 +1122,10 @@ impl Element {
             &Element::Term(_, ref factors) => {
                 match print_mode {
                     PrintMode::Form => {
+                        if let Some(n @ Element::Num(..)) = factors.last() {
+                            n.fmt_output(f, print_mode, var_info)?;
+                            write!(f, "*")?;
+                        }
                         match factors.first() {
                             Some(s @ &Element::SubExpr(..)) if factors.len() > 1 => {
                                 write!(f, "(")?;
@@ -1138,6 +1142,7 @@ impl Element {
                                     s.fmt_output(f, print_mode, var_info)?;
                                     write!(f, ")")?
                                 }
+                                Element::Num(..) => {}
                                 _ => {
                                     write!(f, "*")?;
                                     t.fmt_output(f, print_mode, var_info)?

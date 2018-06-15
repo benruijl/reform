@@ -2,7 +2,7 @@ use cpython::PyResult;
 use poly::polynomial;
 use poly::polynomial::PolyPrinter;
 use std::cell::RefCell;
-use std::ops::{Add, Mul};
+use std::ops::{Add, Mul, Neg, Sub};
 use std::str::FromStr;
 use structure::{Element, GlobalVarInfo, VarInfo};
 
@@ -44,6 +44,17 @@ py_class!(class Polynomial |py| {
         Polynomial::create_instance(py, RefCell::new(r), lhsp.var_info(py).clone())
     }
 
+    def __sub__(lhs, rhs) -> PyResult<Polynomial> {
+        let lhsp = lhs.extract::<Polynomial>(py)?;
+        let rhsp = rhs.extract::<Polynomial>(py)?;
+
+        // unify the variable names first
+        lhsp.poly(py).borrow_mut().unify_varmaps(&mut rhsp.poly(py).borrow_mut());
+        let r = lhsp.poly(py).borrow().clone().sub(rhsp.poly(py).borrow().clone());
+
+        Polynomial::create_instance(py, RefCell::new(r), lhsp.var_info(py).clone())
+    }
+
     def __mul__(lhs, rhs) -> PyResult<Polynomial> {
         let lhsp = lhs.extract::<Polynomial>(py)?;
         let rhsp = rhs.extract::<Polynomial>(py)?;
@@ -53,6 +64,11 @@ py_class!(class Polynomial |py| {
         let r = lhsp.poly(py).borrow().clone().mul(rhsp.poly(py).borrow().clone());
 
         Polynomial::create_instance(py, RefCell::new(r), lhsp.var_info(py).clone())
+    }
+
+    def __neg__(&self) -> PyResult<Polynomial> {
+        let r = self.poly(py).borrow().clone().neg();
+        Polynomial::create_instance(py, RefCell::new(r), self.var_info(py).clone())
     }
 
     def gcd(&self, other: &Polynomial) -> PyResult<Polynomial> {

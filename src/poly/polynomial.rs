@@ -6,7 +6,7 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
 use std::io::{Error, Read, Write};
-use std::ops::{Add, Mul, Neg};
+use std::ops::{Add, Mul, Neg, Sub};
 use structure::{fmt_varname, Element, GlobalVarInfo, VarName};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -360,6 +360,34 @@ impl Add for Polynomial {
 
         Polynomial {
             poly: self.poly + other.poly,
+            varmap: self.varmap,
+            inv_varmap: self.inv_varmap,
+            varcount: self.varcount,
+        }
+    }
+}
+
+impl Sub for Polynomial {
+    type Output = Self;
+
+    fn sub(mut self, mut other: Self) -> Self::Output {
+        self.unify_varmaps(&mut other);
+
+        Polynomial {
+            poly: self.poly - other.poly,
+            varmap: self.varmap,
+            inv_varmap: self.inv_varmap,
+            varcount: self.varcount,
+        }
+    }
+}
+
+impl Neg for Polynomial {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Polynomial {
+            poly: self.poly.neg(),
             varmap: self.varmap,
             inv_varmap: self.inv_varmap,
             varcount: self.varcount,
