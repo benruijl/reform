@@ -336,6 +336,7 @@ pub enum Statement<ID: Id = VarName> {
     Symmetrize(ID),
     Collect(ID),
     Extract(Element<ID>, Vec<ID>),
+    MatchAssign(Element<ID>, Vec<Statement<ID>>),
     Assign(Element<ID>, Element<ID>),
     Maximum(Element<ID>),
     Call(String, Vec<Element<ID>>),
@@ -957,6 +958,13 @@ impl fmt::Display for Statement {
 
                 writeln!(f, ");")
             }
+            Statement::MatchAssign(ref e, ref ss) => {
+                writeln!(f, "matchassign {} {{", e)?;
+                for s in ss {
+                    writeln!(f, "\t{}", s)?;
+                }
+                writeln!(f, "}}")
+            }
             Statement::Assign(ref d, ref e) => writeln!(f, "{}={};", d, e),
             Statement::Attrib(ref ff, ref a) => {
                 writeln!(f, "Attrib {}=", ff)?;
@@ -1446,6 +1454,10 @@ impl Statement<String> {
                 ss.iter_mut().map(|s| s.to_statement(var_info)).collect(),
                 sse.iter_mut().map(|s| s.to_statement(var_info)).collect(),
             ),
+            Statement::MatchAssign(ref mut e, ref mut ss) => Statement::MatchAssign(
+                e.to_element(var_info),
+                ss.iter_mut().map(|s| s.to_statement(var_info)).collect(),
+            ),
             Statement::ForIn(ref mut d, ref mut l, ref mut ss) => Statement::ForIn(
                 d.to_element(var_info),
                 l.iter_mut().map(|s| s.to_element(var_info)).collect(),
@@ -1598,6 +1610,12 @@ impl Statement {
             Statement::Repeat(ref mut ss) => for s in ss {
                 changed |= s.replace_vars(map, dollar_only);
             },
+            Statement::MatchAssign(ref mut e, ref mut ss) => {
+                changed |= e.replace_vars(map, dollar_only);
+                for s in ss {
+                    changed |= s.replace_vars(map, dollar_only);
+                }
+            }
             Statement::IfElse(ref mut e, ref mut ss, ref mut sse) => {
                 changed |= e.replace_vars(map, dollar_only);
                 for s in ss {
@@ -1713,6 +1731,12 @@ impl Statement {
                 d.normalize_inplace(var_info);
                 u.normalize_inplace(var_info);
                 l.normalize_inplace(var_info);
+                for s in ss {
+                    s.normalize(var_info);
+                }
+            }
+            Statement::MatchAssign(ref mut pat, ref mut ss) => {
+                pat.normalize_inplace(var_info);
                 for s in ss {
                     s.normalize(var_info);
                 }

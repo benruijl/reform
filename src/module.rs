@@ -538,6 +538,49 @@ fn do_module_rec(
                 output,
             );
         }
+        Statement::MatchAssign(ref pat, ref ss) => {
+            let mut newss = vec![];
+            if let Some((_, ref m)) = MatchKind::from_element(
+                pat,
+                &input,
+                &BorrowedVarInfo {
+                    global_info: global_var_info,
+                    local_info: local_var_info,
+                },
+            ).next()
+            {
+                for s in ss {
+                    if let Statement::Assign(ref dollar, ref e) = s {
+                        newss.push(Statement::Assign(
+                            dollar.clone(),
+                            e.apply_map(m).into_single().0,
+                        ));
+                    }
+                }
+            }
+
+            for s in newss {
+                if let Statement::Assign(ref dollar, ref e) = s {
+                    let mut ee = e.clone();
+                    if ee.replace_vars(&local_var_info.variables, true) {
+                        ee.normalize_inplace(&global_var_info);
+                    }
+                    if let Element::Dollar(ref d, ..) = *dollar {
+                        local_var_info.add_dollar(d.clone(), ee);
+                    }
+                }
+            }
+
+            return do_module_rec(
+                input,
+                statements,
+                local_var_info,
+                global_var_info,
+                current_index + 1,
+                term_affected,
+                output,
+            );
+        }
         Statement::Extract(ref d, ref xs) => {
             if let Element::Dollar(name, _) = *d {
                 let mut dollar = DUMMY_ELEM!();

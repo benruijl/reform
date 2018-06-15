@@ -335,6 +335,35 @@ Statements
 
         6 + 5*y
 
+.. frm:statement:: matchassign pattern { [assigns] };
+
+    :param pattern: A pattern to match the current expression to.
+    :param assigns: A list of :frm:st:`assign` statements.
+
+    Match the current term and use the matched wildcards in the
+    assignment of dollar variables.
+
+    .. code-block:: reform
+
+        expr F = f(x,1,2,3);
+
+        $a = 0;
+        $b = 0;
+        apply {
+            matchassign f(y?,?b) {
+                $a = 2*y?*f(?b);
+                $b = y?^5;
+            }
+        }
+        print $a,$b;
+
+    yields
+
+    .. code-block:: reform
+
+        2*f(1,2,3)*x
+        x^5
+
 .. frm:statement:: maximum x;
 
     :param x: A variable

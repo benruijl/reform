@@ -214,7 +214,7 @@ parser!{
             sep_by(attribs, lex_char('+')).skip(statementend())))
                  .map(|(d,e)| Statement::Attrib(d, e));
 
-    let assign = (dollarvar(), lex_char('=').with(expr()).skip(statementend()))
+    let assign = || (dollarvar(), lex_char('=').with(expr()).skip(statementend()))
         .map(|(d, e)| Statement::Assign(d, e));
     let symmetrize = keyword("symmetrize")
         .with(varname())
@@ -269,6 +269,10 @@ parser!{
         }
     }.map(|x| Statement::IdentityStatement(x));
 
+    let matchassign = keyword("matchassign").with(expr())
+        .and(between(lex_char('{'), lex_char('}'), many(assign())))
+        .map(|(x, ss)| Statement::MatchAssign(x, ss));
+
     let repeat = keyword("repeat").with(choice!(
         between(lex_char('{'), lex_char('}'), many(statement()))
             .map(|x| Statement::Repeat(x)),
@@ -318,7 +322,8 @@ parser!{
         extract,
         attrib,
         call_procedure,
-        assign,
+        matchassign,
+        assign(),
         maximum,
         print,
         ifelse,
