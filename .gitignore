@@ -5,3 +5,6 @@
 .vscode/tasks.json
 reform.sublime-workspace
 reform.sublime-project
+__pycache__/
+*.py[cod]
+_build/

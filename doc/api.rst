@@ -47,7 +47,7 @@ To compile the reFORM C library, compile with the ``c_api`` feature:
 
 .. code-block:: bash
 
-	cargo build --release --features=python_api
+	cargo build --release --features=c_api
 
 Then, compile your C code as follows:
 
