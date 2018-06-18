@@ -63,6 +63,7 @@ release = version_in_toml()
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
+    'reform_doctest',
     'reformdomain',
     'sphinx.ext.githubpages',
     'sphinx.ext.mathjax',
