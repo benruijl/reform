@@ -4,7 +4,7 @@ Quick start
 
 We will start with a simple reFORM program that adds one to an argument of a function:
 
-.. code-block:: reform
+.. testcode:: reform
 
 	expr F = f(5);
 
@@ -16,7 +16,7 @@ We will start with a simple reFORM program that adds one to an argument of a fun
 This code creates an expression `F`, and applies a list of instructions (a *module*) to every term in the expression.
 This example will yield:
 
-.. code-block:: reform
+.. testoutput:: reform
 
 	F = f(6)
 

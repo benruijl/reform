@@ -13,7 +13,7 @@ A procedure is a code block that will be inlined at the call-site.
     :param localargs: variables local to the procedure. They will shadow
                       existing variables.
 
-    .. code-block:: reform
+    .. testcode:: reform
 
         procedure derivative(x, n) {
             for $i in 1..(n+1) {
@@ -29,7 +29,7 @@ A procedure is a code block that will be inlined at the call-site.
 
     yields
 
-    .. code-block:: reform
+    .. testoutput:: reform
 
         u^3*20
 
@@ -50,7 +50,7 @@ Statements
 
     For example:
 
-    .. code-block:: reform
+    .. testcode:: reform
 
         expr F = f(5);
         apply {
@@ -67,7 +67,7 @@ Statements
 
     Execute a block of statements on the arguments of specific functions.
 
-    .. code-block:: reform
+    .. testcode:: reform
 
         expr F = f(1+x,y*x);
 
@@ -79,7 +79,7 @@ Statements
 
     yields
     
-    .. code-block:: reform
+    .. testoutput:: reform
 
         F = f(1+x,5*x)
 
@@ -90,14 +90,14 @@ Statements
 
     Assign the expression to the variable ``x``.
 
-    .. code-block:: reform
+    .. testcode:: reform
 
         $a = 1 + x;
         print $a;
 
     yields
 
-    .. code-block:: reform
+    .. testoutput:: reform
 
         1 + x
 
@@ -109,7 +109,7 @@ Statements
     ``Linear``, ``NonCommutative``, and ``Symmetric``. Multiple options
     can be given with a ``+``.
 
-    .. code-block:: reform
+    .. testcode:: reform
 
         expr F = f(x, y);
 
@@ -121,7 +121,7 @@ Statements
 
     yields
 
-    .. code-block:: reform
+    .. testoutput:: reform
 
         +f(x,y)
         +f(x,5)
@@ -135,7 +135,7 @@ Statements
 
     Call a procedure with arguments.
 
-    .. code-block:: reform
+    .. testcode:: reform
 
         procedure derivative(x, n) {
             for $i in 1..(n+1) {
@@ -151,7 +151,7 @@ Statements
 
     yields
 
-    .. code-block:: reform
+    .. testoutput:: reform
 
         u^3*20
 
@@ -164,7 +164,7 @@ Statements
     if this statement is called outside the module, it will wrap the entire expression in a function ``fn``.
     The latter is only possible if the expression fits in memory.
 
-    .. code-block:: reform
+    .. testcode:: reform
 
         expr F = (1+x)^4;
 
@@ -176,7 +176,7 @@ Statements
 
     yields
 
-    .. code-block:: reform
+    .. testoutput:: reform
 
         +f(x*4+x^2*6+x^3*4+x^4+1)
 
@@ -185,7 +185,7 @@ Statements
     Expand all structures. For example, ```(1+x)^5```,
     and ```(1+x)*(1+y)``` will be completely written out.
 
-    .. code-block:: reform
+    .. testcode:: reform
 
         expr F = (1+x)^2*(1+y);
         apply {
@@ -194,7 +194,7 @@ Statements
 
     yields
     
-    .. code-block:: reform
+    .. testoutput:: reform
 
         +x*y*2
         +x*2
@@ -221,7 +221,7 @@ Statements
     Construct a Horner scheme in the variables ``x1`` to ``xn`` for
     the expression in variable ``$i``.
 
-    .. code-block:: reform
+    .. testcode:: reform
 
         $a = x + x*y + x*y*z + y*z + x^2 + x^2*y + 2;
 
@@ -230,7 +230,7 @@ Statements
 
     yields
 
-    .. code-block:: reform
+    .. testoutput:: reform
 
         (y+1)*x^2+y*z+2+((z+1)*y+1)*x
 
@@ -244,7 +244,7 @@ Statements
     Loop over a numerical range or over a list of expressions.
     Loops can be made both inside and outside of modules.
 
-    .. code-block:: reform
+    .. testcode:: reform
 
         expr F = f(2);
 
@@ -257,7 +257,7 @@ Statements
 
     yields
     
-    .. code-block:: reform
+    .. testoutput:: reform
 
         F = f(2);
         F = f(3);
@@ -275,7 +275,7 @@ Statements
 
     For example:
 
-    .. code-block:: reform
+    .. testcode:: reform
 
         expr F = f(5);
 
@@ -297,7 +297,7 @@ Statements
 
         At the moment, only the ``match`` variant is activated.
 
-    .. code-block:: reform
+    .. testcode:: reform
 
         expr F = f(1);
 
@@ -309,7 +309,7 @@ Statements
 
     yields
     
-    .. code-block:: reform
+    .. testoutput:: reform
 
         f(2)
 
@@ -320,7 +320,7 @@ Statements
 
     Execute a block of statements on specific variables.
 
-    .. code-block:: reform
+    .. testcode:: reform
 
         $x = 1 + x + y*x;
 
@@ -331,7 +331,7 @@ Statements
 
     yields
     
-    .. code-block:: reform
+    .. testoutput:: reform
 
         6 + 5*y
 
@@ -341,7 +341,7 @@ Statements
 
     Get the maximum of the variable ``x`` over all terms in the module.
 
-    .. code-block:: reform
+    .. testcode:: reform
 
         $a = 0;
         apply {
@@ -357,7 +357,7 @@ Statements
 
     yields
     
-    .. code-block:: reform
+    .. testoutput:: reform
 
         2
 
@@ -367,7 +367,7 @@ Statements
 
     Multiply the expression into the current active term. ``Multiply`` can only be used in a module.
 
-    .. code-block:: reform
+    .. testcode:: reform
 
         expr F = y;
         apply {
@@ -376,7 +376,7 @@ Statements
 
     yields
     
-    .. code-block:: reform
+    .. testoutput:: reform
 
         y*(1+x)
 
@@ -389,7 +389,7 @@ Statements
     arguments, it will print the
     current term. If it is used outside a module without arguments, it will print all active expressions.
 
-    .. code-block:: reform
+    .. testcode:: reform
 
         $a = f(x);
         print mathematica $a;
@@ -409,7 +409,7 @@ Statements
     The code below does a naive Fibonacci series evaluation. The repeat
     block will continue until none of the three :frm:st:`id` statements match.
 
-    .. code-block:: reform
+    .. testcode:: reform
 
         expr F = f(30);
 
@@ -423,7 +423,7 @@ Statements
 
     yields
     
-    .. code-block:: reform
+    .. testoutput:: reform
 
         F = f(1,x,2*y)
 
@@ -434,7 +434,7 @@ Statements
     Split a subexpression in a function argument into new function arguments.
     For example:
 
-    .. code-block:: reform
+    .. testcode:: reform
 
         expr F = f(1+x+2*y);
 
@@ -444,7 +444,7 @@ Statements
 
     yields
     
-    .. code-block:: reform
+    .. testoutput:: reform
 
         F = f(1,x,2*y)
 
@@ -454,7 +454,7 @@ Statements
 
     Symmetrize the function arguments based on reFORM's internal ordering.
 
-    .. code-block:: reform
+    .. testcode:: reform
         
         expr F = f(3,2,x,1+y,g(5));
 
@@ -464,7 +464,7 @@ Statements
 
     yields
     
-    .. code-block:: reform
+    .. testoutput:: reform
 
         f(g(5),y+1,x,2,3)
 
@@ -480,13 +480,13 @@ Functions
 
     If ``x1`` is not a number, nothing happens.
 
-    .. code-block:: reform
+    .. testcode:: reform
 
         expr F = delta_(0)*x + delta_(1)*y + delta_(x);
 
     yields
     
-    .. code-block:: reform
+    .. testoutput:: reform
     
         x + delta_(x)
 
@@ -499,14 +499,14 @@ Functions
     
     If the arguments are not valid polynomials, no replacement will be made.
 
-    .. code-block:: reform
+    .. testcode:: reform
 
         expr F = gcd_(100+100*x-90*x^3-90*x^4+12*y+12*x*y+3*x^3*y^2+3*x^4*y^2,
                       100-100*x-90*x^3+90*x^4+12*y-12*x*y+3*x^3*y^2-3*x^4*y^2);
 
     yields
     
-    .. code-block:: reform
+    .. testoutput:: reform
     
         +x^3*y^2*3
         +x^3*-90
@@ -521,13 +521,13 @@ Functions
 
     Return the product of ``i`` going from ``lb`` to ``ub``.
 
-    .. code-block:: reform
+    .. testcode:: reform
 
         expr F = mul_($i, 2, 5, $i^2);
 
     yields
     
-    .. code-block:: reform
+    .. testoutput:: reform
     
         576
 
@@ -539,7 +539,7 @@ Functions
     It is especially useful in combination with the
     :doc:`ranged wildcards <pattern>`.
 
-    .. code-block:: reform
+    .. testcode:: reform
 
         expr F = f(1,2,3,4,5);
 
@@ -549,7 +549,7 @@ Functions
 
     yields
     
-    .. code-block:: reform
+    .. testoutput:: reform
     
         5
 
@@ -563,13 +563,13 @@ Functions
 
     If the arguments are not valid polynomials, no replacement will be made.
 
-    .. code-block:: reform
+    .. testcode:: reform
 
         expr F = rat_(x^2+2*x+1,1)*rat_(1,1+x)+rat_(2,1);
 
     yields
     
-    .. code-block:: reform
+    .. testoutput:: reform
     
         rat_(3+x,1)
 
@@ -581,12 +581,12 @@ Functions
 
     Return the sum of ``i`` going from ``lb`` to ``ub``.
 
-    .. code-block:: reform
+    .. testcode:: reform
 
         expr F = sum_($i, 2, 5, $i^2);
 
     yields
     
-    .. code-block:: reform
+    .. testoutput:: reform
     
         29

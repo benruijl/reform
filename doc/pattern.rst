@@ -8,7 +8,7 @@ as letters followed by a question mark, to match to variables, numbers, and sube
 
 For example:
 
-.. code-block:: reform
+.. testcode:: reform
 
     expr F = f(5);
     apply {
@@ -17,7 +17,7 @@ For example:
 
 will match the wildcard ``x?`` to ``5``, consequently add 1 to it, and yield
 
-.. code-block:: reform
+.. testoutput:: reform
 
     f(6)
 
@@ -28,7 +28,7 @@ will match the wildcard ``x?`` to ``5``, consequently add 1 to it, and yield
 A wildcard will match any function argument if it occurs by itself 
 
 
-.. code-block:: reform
+.. testcode:: reform
 
     expr F = f(1+x,3);
     apply {
@@ -37,14 +37,14 @@ A wildcard will match any function argument if it occurs by itself
 
 yields
 
-.. code-block:: reform
+.. testoutput:: reform
 
     1+x
 
 A pattern at the ground level (not inside functions) can match to 
 a subpart of the factors:
 
-.. code-block:: reform
+.. testcode:: reform
 
     expr F = f(1)*f(f(4*x));
     apply {
@@ -53,7 +53,7 @@ a subpart of the factors:
 
 yields
 
-.. code-block:: reform
+.. testoutput:: reform
 
     f(1)*x*4
 
@@ -61,7 +61,7 @@ yields
 If the pattern contains a term with multiple wildcards, the number needs
 to match exactly.
 
-.. code-block:: reform
+.. testcode:: reform
 
     expr F = f(x1*x2);
     apply {
@@ -71,13 +71,13 @@ to match exactly.
 
 yields
 
-.. code-block:: reform
+.. testoutput:: reform
 
     1+x
 
 So, 
 
-.. code-block:: reform
+.. testcode:: reform
 
     expr F = f(x1*x2*x3);
     apply {
@@ -91,7 +91,7 @@ see the ``id all`` option.
 
 A wildcard can be restricted to a certain set of options:
 
-.. code-block:: reform
+.. testcode:: reform
 
     expr F = f(f(4))*f(f(3));
     apply {
@@ -103,7 +103,7 @@ they are not allowed to include any wildcards. Additionally, for numbers you can
 number ranges in the sets: ``<=5,>=5,<5,>5`` to match a number in a range relative to a
 reference number (5 in this example.)
 
-.. code-block:: reform
+.. testcode:: reform
 
     expr F = f(1)*f(4);
     apply {
@@ -123,7 +123,7 @@ ranged wildcards. These wildcard have a question mark on the front: e.g., ``?a``
 
 For example:
 
-.. code-block:: reform
+.. testcode:: reform
 
     expr F = f(1,2,3,4);
     apply {
@@ -132,14 +132,14 @@ For example:
 
 yields
 
-.. code-block:: reform
+.. testoutput:: reform
 
     f(1,2,3)
 
 Using a combination of ranged wildcards and wildcards, some complex patterns can
 be matched:
 
-.. code-block:: reform
+.. testcode:: reform
 
     expr F = f(1,2,f(3),4)*f(1,2,f(3));
     apply {
@@ -148,7 +148,7 @@ be matched:
 
 yields
 
-.. code-block:: reform
+.. testoutput:: reform
 
     f(1,2,4,1,2)
 
@@ -160,7 +160,7 @@ Obtaining all matches
 All matches can be obtained using the ``all`` option to ``id``.
 For example:
 
-.. code-block:: reform
+.. testcode:: reform
 
     expr F = f(1,2,f(x1*x2,x3*x4,x5*x6),x1*x3,x3*x5);
     apply {
@@ -169,6 +169,6 @@ For example:
 
 yields
 
-.. code-block:: reform
+.. testoutput:: reform
 
     f(x3,x4,x5)+f(x5,x6,x3)
