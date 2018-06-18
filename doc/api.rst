@@ -30,8 +30,9 @@ An example Python program:
 
 	import reform
 
-	a = reform.Polynomial("1+x*y+5")
-	b = reform.Polynomial("x^2+2*x*y+y")
+	vi = reform.VarInfo();
+	a = reform.Polynomial("1+x*y+5", vi)
+	b = reform.Polynomial("x^2+2*x*y+y", vi)
 	g = a + b
 
 	ag = a * g
@@ -69,7 +70,10 @@ An example C program:
 	#include <stdint.h>
 
 	typedef struct polynomial Polynomial;
+	typedef struct varinfo VarInfo;
 
+    extern VarInfo* polynomial_varinfo();
+    extern void polynomial_varinfo_free(VarInfo *);
 	extern Polynomial* polynomial_new(const char *expr);
 	extern void polynomial_free(Polynomial *);
 	extern char* polynomial_to_string(Polynomial *);
@@ -82,8 +86,9 @@ An example C program:
 
 
 	int main(void) {
-	  Polynomial *a = polynomial_new("1+x*y+5");
-	  Polynomial *b = polynomial_new("x^2+2*x*y+y");
+	  VarInfo *vi = polynomial_varinfo();
+	  Polynomial *a = polynomial_new("1+x*y+5", vi);
+	  Polynomial *b = polynomial_new("x^2+2*x*y+y", vi);
 	  Polynomial *g = polynomial_add(a, b);
 
 	  Polynomial *ag = polynomial_mul(a, g);
@@ -101,4 +106,5 @@ An example C program:
 	  polynomial_free(ag);
 	  polynomial_free(bg);
 	  polynomial_free(gcd);
+	  polynomial_varinfo_free(vi);
 	}

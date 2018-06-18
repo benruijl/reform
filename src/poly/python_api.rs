@@ -2,9 +2,18 @@ use cpython::PyResult;
 use poly::polynomial;
 use poly::polynomial::PolyPrinter;
 use std::cell::RefCell;
-use std::ops::{Add, Mul, Neg, Sub};
+use std::ops::{Add, Div, Mul, Neg, Sub};
 use std::str::FromStr;
-use structure::{Element, GlobalVarInfo, VarInfo};
+use structure;
+use structure::Element;
+
+fn clone_varmap(a: &structure::VarInfo, b: &structure::VarInfo) -> structure::VarInfo {
+    if a.global_info.num_vars() > b.global_info.num_vars() {
+        a.clone()
+    } else {
+        b.clone()
+    }
+}
 
 py_module_initializer!(reform, initreform, PyInit_reform, |py, m| {
     m.add(
@@ -12,25 +21,33 @@ py_module_initializer!(reform, initreform, PyInit_reform, |py, m| {
         "__doc__",
         "A module for interaction with reform expressions",
     )?;
+    m.add_class::<VarInfo>(py)?;
     m.add_class::<Polynomial>(py)?;
     Ok(())
 });
 
+py_class!(class VarInfo |py| {
+    data var_info: RefCell<structure::VarInfo>;
+
+    def __new__(_cls) -> PyResult<VarInfo> {
+        VarInfo::create_instance(py,  RefCell::new(structure::VarInfo::new()))
+    }
+});
+
 py_class!(class Polynomial |py| {
     data poly: RefCell<polynomial::Polynomial>;
-    data var_info: GlobalVarInfo;
-    def __new__(_cls, arg: &str) -> PyResult<Polynomial> {
+    data var_info: structure::VarInfo;
+    def __new__(_cls, arg: &str, var_info: &VarInfo) -> PyResult<Polynomial> {
         let mut e = Element::<String>::from_str(arg).unwrap(); // TODO: convert to PyResult
-        let mut vi = VarInfo::new();
-        let mut ne = e.to_element(&mut vi);
-        ne.normalize_inplace(&vi.global_info);
+        let mut ne = e.to_element(&mut var_info.var_info(py).borrow_mut());
+        ne.normalize_inplace(&var_info.var_info(py).borrow().global_info);
 
         let poly = polynomial::Polynomial::from(&ne).unwrap();
-        Polynomial::create_instance(py, RefCell::new(poly), vi.global_info)
+        Polynomial::create_instance(py, RefCell::new(poly), var_info.var_info(py).borrow().clone())
     }
 
     def __str__(&self) -> PyResult<String> {
-        Ok(format!("{}", PolyPrinter { poly: &self.poly(py).borrow(), var_info: &self.var_info(py) }))
+        Ok(format!("{}", PolyPrinter { poly: &self.poly(py).borrow(), var_info: &self.var_info(py).global_info }))
     }
 
     def __add__(lhs, rhs) -> PyResult<Polynomial> {
@@ -41,7 +58,7 @@ py_class!(class Polynomial |py| {
         lhsp.poly(py).borrow_mut().unify_varmaps(&mut rhsp.poly(py).borrow_mut());
         let r = lhsp.poly(py).borrow().clone().add(rhsp.poly(py).borrow().clone());
 
-        Polynomial::create_instance(py, RefCell::new(r), lhsp.var_info(py).clone())
+        Polynomial::create_instance(py, RefCell::new(r), clone_varmap(&lhsp.var_info(py), &rhsp.var_info(py)))
     }
 
     def __sub__(lhs, rhs) -> PyResult<Polynomial> {
@@ -52,7 +69,15 @@ py_class!(class Polynomial |py| {
         lhsp.poly(py).borrow_mut().unify_varmaps(&mut rhsp.poly(py).borrow_mut());
         let r = lhsp.poly(py).borrow().clone().sub(rhsp.poly(py).borrow().clone());
 
-        Polynomial::create_instance(py, RefCell::new(r), lhsp.var_info(py).clone())
+        Polynomial::create_instance(py, RefCell::new(r), clone_varmap(&lhsp.var_info(py), &rhsp.var_info(py)))
+    }
+
+    def div(&self, other: &Polynomial) -> PyResult<Polynomial> {
+        // unify the variable names first
+        self.poly(py).borrow_mut().unify_varmaps(&mut other.poly(py).borrow_mut());
+        let r = self.poly(py).borrow().clone().div(other.poly(py).borrow().clone());
+
+        Polynomial::create_instance(py, RefCell::new(r), clone_varmap(&self.var_info(py), &other.var_info(py)))
     }
 
     def __mul__(lhs, rhs) -> PyResult<Polynomial> {
@@ -63,7 +88,7 @@ py_class!(class Polynomial |py| {
         lhsp.poly(py).borrow_mut().unify_varmaps(&mut rhsp.poly(py).borrow_mut());
         let r = lhsp.poly(py).borrow().clone().mul(rhsp.poly(py).borrow().clone());
 
-        Polynomial::create_instance(py, RefCell::new(r), lhsp.var_info(py).clone())
+        Polynomial::create_instance(py, RefCell::new(r), clone_varmap(&lhsp.var_info(py), &rhsp.var_info(py)))
     }
 
     def __neg__(&self) -> PyResult<Polynomial> {
@@ -72,6 +97,7 @@ py_class!(class Polynomial |py| {
     }
 
     def gcd(&self, other: &Polynomial) -> PyResult<Polynomial> {
-       Polynomial::create_instance(py, RefCell::new(self.poly(py).borrow_mut().gcd(&mut other.poly(py).borrow_mut())), self.var_info(py).clone())
+       Polynomial::create_instance(py, RefCell::new(self.poly(py).borrow_mut().gcd(&mut other.poly(py).borrow_mut())),
+        clone_varmap(&self.var_info(py), &other.var_info(py)))
     }
 });

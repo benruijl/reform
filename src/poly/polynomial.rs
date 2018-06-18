@@ -6,7 +6,7 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
 use std::io::{Error, Read, Write};
-use std::ops::{Add, Mul, Neg, Sub};
+use std::ops::{Add, Div, Mul, Neg, Sub};
 use structure::{fmt_varname, Element, GlobalVarInfo, VarName};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -349,6 +349,21 @@ impl Mul<Number> for Polynomial {
             *c *= other.clone();
         }
         self
+    }
+}
+
+impl Div for Polynomial {
+    type Output = Self;
+
+    fn div(mut self, mut other: Self) -> Self::Output {
+        self.unify_varmaps(&mut other);
+
+        Polynomial {
+            poly: self.poly.long_division(&other.poly).0,
+            varmap: self.varmap,
+            inv_varmap: self.inv_varmap,
+            varcount: self.varcount,
+        }
     }
 }
 
