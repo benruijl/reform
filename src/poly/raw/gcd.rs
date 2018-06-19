@@ -16,6 +16,7 @@ use poly::ring::MulModNum;
 use poly::ring::ToFiniteField;
 use rand;
 use rand::distributions::{Range, Sample};
+use rand::Rng;
 use std::cmp::{max, min};
 use std::collections::hash_map::Entry;
 use tools::GCD;
@@ -40,9 +41,12 @@ pub const LARGE_U32_PRIMES: [ufield; 100] = [
     4293491591, 4293492169, 4293492821, 4293493487,
 ];
 
-// The maximum power of a variable that is cached
+/// The maximum power of a variable that is cached
 pub const POW_CACHE_SIZE: usize = 1000;
 pub const INITIAL_POW_MAP_SIZE: usize = 1000;
+
+/// The upper bound of the range to be sampled during the computation of multiple gcds
+pub const MAX_RNG_PREFACTOR: u32 = 5000;
 
 enum GCDError {
     BadOriginalImage,
@@ -689,6 +693,7 @@ where
             return gcd;
         }
 
+        let mut rng = rand::thread_rng();
         let mut k = 1; // counter for scalar multiple
         let mut gcd;
 
@@ -700,7 +705,8 @@ where
                 for v in p.into_iter() {
                     b.append_monomial(v.coefficient.mul_num(k), v.exponents.to_vec());
                 }
-                k += 1;
+
+                k = rng.gen_range(2, MAX_RNG_PREFACTOR);
             }
 
             gcd = MultivariatePolynomial::gcd(&a, &b);
@@ -720,7 +726,9 @@ where
                 return gcd;
             }
 
-            newf.push(gcd); // should the gcd be cleared after the next round?
+            debug!("Multiple-gcd was not found instantly: {:?}; {}", newf, gcd);
+
+            newf.push(gcd);
             mem::swap(&mut newf, &mut f);
         }
     }
