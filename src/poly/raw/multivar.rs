@@ -676,17 +676,17 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     }
 
     /// Get the leading coefficient viewed as a polynomial
-    /// in all variables except the last.
-    pub fn lcoeff_last(&self) -> MultivariatePolynomial<R, E> {
+    /// in all variables except the last variable `n`.
+    pub fn lcoeff_last(&self, n: usize) -> MultivariatePolynomial<R, E> {
         // the last variable should have the least sorting priority,
         // so the last term should still be the lcoeff
         let last = self.last_exponents();
 
         let mut res = MultivariatePolynomial::with_nvars(self.nvars);
         for t in (0..self.nterms()).rev() {
-            if (0..self.nvars - 1).all(|i| self.exponents(t)[i] == last[i]) {
+            if (0..self.nvars - 1).all(|i| self.exponents(t)[i] == last[i] || i == n) {
                 let mut e = vec![E::zero(); self.nvars];
-                e[self.nvars - 1] = self.exponents(t)[self.nvars - 1];
+                e[n] = self.exponents(t)[n];
                 res.append_monomial(self.coefficients[t].clone(), e);
             } else {
                 break;
@@ -696,7 +696,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         res
     }
 
-    /// Replace a variable `x' in the polynomial by an element from
+    /// Replace a variable `n' in the polynomial by an element from
     /// the ring `v'.
     pub fn replace(&self, n: usize, v: R) -> MultivariatePolynomial<R, E> {
         let mut res = MultivariatePolynomial::with_nvars(self.nvars);

@@ -162,6 +162,7 @@ fn construct_new_image<E: Exponent>(
             // original image and form and degree bounds are unlucky
             // change the bound and try a new prime
             bounds[0] = g1.ldegree(var).as_();
+            debug!("Unlucky degree bound");
             return Err(GCDError::BadOriginalImage);
         }
 
@@ -172,6 +173,7 @@ fn construct_new_image<E: Exponent>(
                 debug!("Bad current image");
                 return Err(GCDError::BadCurrentImage);
             }
+            debug!("Degree too high");
             continue;
         }
 
@@ -475,7 +477,10 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             return None;
         }
 
-        let gamma = MultivariatePolynomial::univariate_gcd(&a.lcoeff_last(), &b.lcoeff_last());
+        let gamma = MultivariatePolynomial::univariate_gcd(
+            &a.lcoeff_last(lastvar),
+            &b.lcoeff_last(lastvar),
+        );
 
         let p = a.coefficients[0].p;
         let mut rng = rand::thread_rng();
@@ -505,10 +510,10 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                 }
             } else {
                 let gg = MultivariatePolynomial::univariate_gcd(&av, &bv);
-                if gg.ldegree(vars[0]).as_() > dx[vars[0]] {
+                if gg.degree(vars[0]).as_() > dx[vars[0]] {
                     return None;
                 }
-                dx[vars[0]] = gg.ldegree(vars[0]).as_(); // update degree bound
+                dx[vars[0]] = gg.degree(vars[0]).as_(); // update degree bound
                 gg
             };
 
@@ -525,10 +530,12 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             let mut nx = 0; // count the minimal number of samples needed
             for (i, &(ref c, ref _e)) in gfu.iter().enumerate() {
                 if c.nterms > nx {
+                    println!("new nx: {}", c.nterms);
                     nx = c.nterms;
                 }
                 if c.nterms == 1 {
                     single_scale = Some(i);
+                    println!("single scale {:?}", single_scale);
                 }
             }
 
@@ -536,6 +543,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             // additional unknown, except for the first
             if single_scale == None {
                 nx = (gv.nterms() - 1) / (gfu.len() - 1);
+                debug!("Multiple scaling case: sample {} times", nx);
             }
 
             let mut lc = gv.lcoeff();
@@ -638,6 +646,9 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             }
 
             // if the gcd is bad, we had a bad number
+            debug!(
+                "Division test failed: gcd may be bad or probabilistic division test is unlucky"
+            );
         }
     }
 }
@@ -838,8 +849,12 @@ where
             return c * MultivariatePolynomial::gcd(&x1.0, &x2.0);
         }
 
-        // TODO: get proper degree bounds on gcd. how?
-        // for now: take the lowest degree for each variable
+        // TODO: get proper degree bounds on gcd.
+        // for now: take the lowest degree for each variable.
+        // The number of bounds determines the number of samples used for
+        // interpolation. Thus, these should be as low as possible.
+        // A bound can be guessed by sampling in all variables expect the one we
+        // are interested in
         let mut bounds: Vec<u32> = (0..a.nvars)
             .map(|i| {
                 let da = a.degree(i).as_();
