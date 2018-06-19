@@ -679,6 +679,16 @@ where
             return MultivariatePolynomial::gcd(&f[0], &f[1]);
         }
 
+        // check if all entries are numbers
+        // in this case summing them may give bad gcds often
+        if f.iter().all(|x| x.is_constant()) {
+            let mut gcd = f.swap_remove(0);
+            for x in f.iter() {
+                gcd = MultivariatePolynomial::gcd(&gcd, x);
+            }
+            return gcd;
+        }
+
         let mut k = 1; // counter for scalar multiple
         let mut gcd;
 
@@ -758,13 +768,11 @@ where
         debug!("Compute gcd({}, {})", a, b);
 
         // if we have two numbers, use the integer gcd
-        if a.nterms == 1 && a.exponents.iter().all(|c| c.is_zero()) {
-            if b.nterms == 1 && b.exponents.iter().all(|c| c.is_zero()) {
-                return MultivariatePolynomial::from_constant_with_nvars(
-                    GCD::gcd(a.coefficients[0].clone(), b.coefficients[0].clone()),
-                    a.nvars,
-                );
-            }
+        if a.is_constant() && b.is_constant() {
+            return MultivariatePolynomial::from_constant_with_nvars(
+                GCD::gcd(a.coefficients[0].clone(), b.coefficients[0].clone()),
+                a.nvars,
+            );
         }
 
         // compute the gcd efficiently if some variables do not occur in both
