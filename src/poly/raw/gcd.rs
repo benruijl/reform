@@ -530,12 +530,10 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             let mut nx = 0; // count the minimal number of samples needed
             for (i, &(ref c, ref _e)) in gfu.iter().enumerate() {
                 if c.nterms > nx {
-                    println!("new nx: {}", c.nterms);
                     nx = c.nterms;
                 }
                 if c.nterms == 1 {
                     single_scale = Some(i);
-                    println!("single scale {:?}", single_scale);
                 }
             }
 
