@@ -210,7 +210,7 @@ impl Polynomial {
                 }
                 Entry::Vacant(mut v) => {
                     // new variable
-                    self.inv_varmap[varcount] = *k1;
+                    self.inv_varmap.push(*k1);
                     map.insert(*v1, varcount);
                     v.insert(varcount);
                     varcount += 1;
