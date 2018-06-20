@@ -142,8 +142,7 @@ fn construct_new_image<E: Exponent>(
                 }
             }
 
-            let r: Vec<(usize, ufield)> = vars
-                .iter()
+            let r: Vec<(usize, ufield)> = vars.iter()
                 .map(|i| (i.clone(), range.sample(&mut rng)))
                 .collect();
 
@@ -161,7 +160,7 @@ fn construct_new_image<E: Exponent>(
         if g1.ldegree(var).as_() < bounds[var] {
             // original image and form and degree bounds are unlucky
             // change the bound and try a new prime
-            bounds[0] = g1.ldegree(var).as_();
+            bounds[var] = g1.ldegree(var).as_();
             debug!("Unlucky degree bound");
             return Err(GCDError::BadOriginalImage);
         }
@@ -459,8 +458,9 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
     fn gcd_shape_modular(
         a: &MultivariatePolynomial<FiniteField, E>,
         b: &MultivariatePolynomial<FiniteField, E>,
-        vars: &[usize], // variables
-        dx: &mut [u32], // degree bounds
+        vars: &[usize],       // variables
+        dx: &mut [u32],       // degree bounds
+        tight_dx: &mut [u32], // tighter degree bounds
     ) -> Option<MultivariatePolynomial<FiniteField, E>> {
         let lastvar = vars.last().unwrap().clone();
 
@@ -486,7 +486,16 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
         let mut rng = rand::thread_rng();
         let mut range = Range::new(1, p);
 
+        let mut failure_count = 0;
+
         'newfirstnum: loop {
+            // if we had two failures, it may be that the tight degree bound
+            // was too tight due to an unfortunate prime/evaluation, so we relax it
+            if failure_count == 2 {
+                tight_dx[lastvar] = dx[lastvar];
+            }
+            failure_count += 1;
+
             let v = loop {
                 let a = FiniteField::new(range.sample(&mut rng), p);
                 if !gamma.replace(lastvar, a).is_zero() {
@@ -504,6 +513,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                     &bv,
                     &vars[..vars.len() - 1],
                     dx,
+                    tight_dx,
                 ) {
                     Some(x) => x,
                     None => return None,
@@ -550,6 +560,10 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
 
             // sparse reconstruction
             'newnum: loop {
+                if gseq.len() == (tight_dx[lastvar] + gamma.ldegree_max().as_() + 1) as usize {
+                    break;
+                }
+
                 let v = loop {
                     let v = FiniteField::new(range.sample(&mut rng), a.coefficients[0].p);
                     if !gamma.replace(lastvar, v).is_zero() {
@@ -588,10 +602,6 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                 lc = gv.lcoeff();
                 gseq.push(gv * (gamma.replace(lastvar, v).coefficients[0].clone() / lc));
                 vseq.push(v);
-
-                if gseq.len() == (dx[lastvar] + gamma.ldegree_max().as_() + 1) as usize {
-                    break;
-                }
             }
 
             // use interpolation to construct x_n dependence
@@ -622,8 +632,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                     })
                     .collect::<Vec<_>>();
 
-                let r: Vec<(usize, FiniteField)> = vars
-                    .iter()
+                let r: Vec<(usize, FiniteField)> = vars.iter()
                     .skip(1)
                     .map(|i| (*i, FiniteField::new(range.sample(&mut rng), p)))
                     .collect();
@@ -775,6 +784,64 @@ where
         MultivariatePolynomial::gcd_multiple(f)
     }
 
+    /// Find the upper bound of a variable `var` in the gcd.
+    /// This is done by computing the univariate gcd by
+    /// substituting all variables except `var`. This
+    /// upper bound could be too tight due to an unfortunate
+    /// sample point, but this is rare.
+    pub fn get_gcd_var_bound(
+        ap: &MultivariatePolynomial<FiniteField, E>,
+        bp: &MultivariatePolynomial<FiniteField, E>,
+        vars: &[usize],
+        var: usize,
+    ) -> E {
+        let p = ap.coefficients[0].p;
+        let fastp = FastModulus::from(ap.coefficients[0].p);
+        let mut rng = rand::thread_rng();
+        let mut range = Range::new(1, p);
+
+        // store a table for variables raised to a certain power
+        let mut cache = (0..ap.nvars)
+            .map(|i| {
+                vec![
+                    0;
+                    min(
+                        max(ap.degree(i), bp.degree(i)).as_() as usize + 1,
+                        POW_CACHE_SIZE
+                    )
+                ]
+            })
+            .collect::<Vec<_>>();
+
+        // store a power map for the univariate polynomials that will be sampled
+        // the sampling_polynomial routine will set the power to 0 after use
+        let mut tm = FnvHashMap::with_capacity_and_hasher(INITIAL_POW_MAP_SIZE, Default::default());
+
+        // generate random numbers for all non-leading variables
+        // TODO: apply a Horner scheme to speed up the substitution?
+        let (_, a1, b1) = loop {
+            for v in &mut cache {
+                for vi in v {
+                    *vi = 0;
+                }
+            }
+
+            let r: Vec<(usize, ufield)> = vars.iter()
+                .map(|i| (i.clone(), range.sample(&mut rng)))
+                .collect();
+
+            let a1 = ap.sample_polynomial(var, &fastp, &r, &mut cache, &mut tm);
+            let b1 = bp.sample_polynomial(var, &fastp, &r, &mut cache, &mut tm);
+
+            if a1.ldegree(var) == ap.degree(var) && b1.ldegree(var) == bp.degree(var) {
+                break (r, a1, b1);
+            }
+        };
+
+        let g1 = MultivariatePolynomial::univariate_gcd(&a1, &b1);
+        return g1.ldegree_max();
+    }
+
     /// Compute the gcd of two multivariate polynomials.
     pub fn gcd(
         a: &MultivariatePolynomial<R, E>,
@@ -847,12 +914,9 @@ where
             return c * MultivariatePolynomial::gcd(&x1.0, &x2.0);
         }
 
-        // TODO: get proper degree bounds on gcd.
-        // for now: take the lowest degree for each variable.
-        // The number of bounds determines the number of samples used for
-        // interpolation. Thus, these should be as low as possible.
-        // A bound can be guessed by sampling in all variables expect the one we
-        // are interested in
+        // determine the bounds for variables in the gcd
+        // a much tighter bound will be determined in the
+        // modular gcd algorithm
         let mut bounds: Vec<u32> = (0..a.nvars)
             .map(|i| {
                 let da = a.degree(i).as_();
@@ -887,6 +951,8 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
         debug!("gamma {}", gamma);
 
         let mut pi = 0;
+        let mut strictbounds: Vec<u32> = bounds.to_vec();
+        let mut update_bounds = true;
 
         'newfirstprime: loop {
             pi += 1;
@@ -907,11 +973,34 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
             let ap = a.to_finite_field(p);
             let bp = b.to_finite_field(p);
 
+            // find better upper bounds for all non-leading variables
+            // these bounds could actually be wrong due to an unfortunate prime or sampling points
+            if update_bounds {
+                for var in vars.iter().skip(1) {
+                    if bounds[*var] > 0 {
+                        let mut vvars = vars.iter()
+                            .filter(|i| *i != var)
+                            .cloned()
+                            .collect::<Vec<_>>();
+                        strictbounds[*var] = MultivariatePolynomial::<Number, E>::get_gcd_var_bound(
+                            &ap, &bp, &vvars, *var,
+                        ).as_();
+                    }
+                }
+                update_bounds = false;
+            }
+
             debug!("New first image: gcd({},{}) mod {}", ap, bp, p);
 
             // calculate modular gcd image
             let mut gp = loop {
-                if let Some(x) = MultivariatePolynomial::gcd_shape_modular(&ap, &bp, vars, bounds) {
+                if let Some(x) = MultivariatePolynomial::gcd_shape_modular(
+                    &ap,
+                    &bp,
+                    vars,
+                    bounds,
+                    &mut strictbounds,
+                ) {
                     break x;
                 }
             };
@@ -948,8 +1037,7 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
             let mut gm = MultivariatePolynomial::with_nvars(gp.nvars);
             gm.nterms = gp.nterms;
             gm.exponents = gp.exponents.clone();
-            gm.coefficients = gp
-                .coefficients
+            gm.coefficients = gp.coefficients
                 .iter()
                 .map(|x| Number::from_finite_field(&(x.clone() * gammap / gpc)))
                 .collect();
@@ -966,8 +1054,7 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                     // divide by integer content
                     let gmc = gm.content();
                     let mut gc = gm.clone();
-                    gc.coefficients = gc
-                        .coefficients
+                    gc.coefficients = gc.coefficients
                         .iter()
                         .map(|x| x.clone() / gmc.clone())
                         .collect();
@@ -1078,6 +1165,8 @@ impl<E: Exponent> PolynomialGCD for MultivariatePolynomial<FiniteField, E> {
         vars: &[usize],
         dx: &mut [u32],
     ) -> MultivariatePolynomial<FiniteField, E> {
-        MultivariatePolynomial::gcd_shape_modular(&a, &b, vars, dx).unwrap()
+        // TODO: improve bound?
+        let mut dx_tight = dx.to_vec();
+        MultivariatePolynomial::gcd_shape_modular(&a, &b, vars, dx, &mut dx_tight).unwrap()
     }
 }
