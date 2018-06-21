@@ -220,7 +220,7 @@ impl Polynomial {
 
         if varcount > self.varcount {
             // we need to reconstruct the exponent in `self`
-            let mut newexp = vec![0; varcount * other.poly.nterms];
+            let mut newexp = vec![0; varcount * self.poly.nterms];
 
             for t in 0..self.poly.nterms {
                 newexp[t * varcount..t * varcount + self.varcount]

@@ -128,9 +128,23 @@ fn construct_new_image<E: Exponent>(
         })
         .collect::<Vec<_>>();
 
+    let var_bound = max(ap.degree(var).as_(), bp.degree(var).as_()) as usize + 1;
+    let has_small_exp = var_bound < POW_CACHE_SIZE;
+
     // store a power map for the univariate polynomials that will be sampled
-    // the sampling_polynomial routine will set the power to 0 after use
-    let mut tm = FnvHashMap::with_capacity_and_hasher(INITIAL_POW_MAP_SIZE, Default::default());
+    // the sampling_polynomial routine will set the power to 0 after use.
+    // If the exponent is small enough, we use a vec, otherwise we use a hashmap.
+    let (mut tm, mut tm_fixed) = if has_small_exp {
+        (
+            FnvHashMap::with_hasher(Default::default()),
+            vec![0; var_bound],
+        )
+    } else {
+        (
+            FnvHashMap::with_capacity_and_hasher(INITIAL_POW_MAP_SIZE, Default::default()),
+            vec![],
+        )
+    };
 
     'newimage: loop {
         // generate random numbers for all non-leading variables
@@ -146,8 +160,16 @@ fn construct_new_image<E: Exponent>(
                 .map(|i| (i.clone(), range.sample(&mut rng)))
                 .collect();
 
-            let a1 = ap.sample_polynomial(var, &fastp, &r, &mut cache, &mut tm);
-            let b1 = bp.sample_polynomial(var, &fastp, &r, &mut cache, &mut tm);
+            let a1 = if has_small_exp {
+                ap.sample_polynomial_small_exponent(var, &fastp, &r, &mut cache, &mut tm_fixed)
+            } else {
+                ap.sample_polynomial(var, &fastp, &r, &mut cache, &mut tm)
+            };
+            let b1 = if has_small_exp {
+                bp.sample_polynomial_small_exponent(var, &fastp, &r, &mut cache, &mut tm_fixed)
+            } else {
+                bp.sample_polynomial(var, &fastp, &r, &mut cache, &mut tm)
+            };
 
             if a1.ldegree(var) == aldegree && b1.ldegree(var) == bldegree {
                 break (r, a1, b1);
@@ -416,10 +438,10 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
         cache: &mut [Vec<ufield>],
         tm: &mut FnvHashMap<E, ufield>,
     ) -> MultivariatePolynomial<FiniteField, E> {
-        for t in 0..self.nterms {
-            let mut c = self.coefficients[t].n;
+        for mv in self.into_iter() {
+            let mut c = mv.coefficient.n;
             for &(n, vv) in r {
-                let exp = self.exponents(t)[n].as_() as usize;
+                let exp = mv.exponents[n].as_() as usize;
                 if exp > 0 {
                     if n < cache[n].len() {
                         if cache[n][exp].is_zero() {
@@ -433,7 +455,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                 }
             }
 
-            match tm.entry(self.exponents(t)[v]) {
+            match tm.entry(mv.exponents[v]) {
                 Entry::Occupied(mut e) => {
                     *e.get_mut() = zp::add(*e.get(), c, p);
                 }
@@ -448,6 +470,50 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             let mut e = vec![E::zero(); self.nvars];
             e[v] = *k;
             res.append_monomial(FiniteField::new(mem::replace(c, 0), p.value()), e);
+        }
+
+        res
+    }
+
+    /// Replace all variables except `v` in the polynomial by elements from
+    /// a finite field of size `p`. The exponent of `v` should be small.
+    pub fn sample_polynomial_small_exponent(
+        &self,
+        v: usize,
+        p: &FastModulus,
+        r: &[(usize, ufield)],
+        cache: &mut [Vec<ufield>],
+        tm: &mut [ufield],
+    ) -> MultivariatePolynomial<FiniteField, E> {
+        for mv in self.into_iter() {
+            let mut c = mv.coefficient.n;
+            for &(n, vv) in r {
+                debug_assert!(n < cache[n].len());
+                let exp = mv.exponents[n].as_() as usize;
+                if exp > 0 {
+                    if n < cache[n].len() {
+                        if cache[n][exp].is_zero() {
+                            cache[n][exp] = zp::pow(vv, exp as u32, p);
+                        }
+
+                        c = zp::mul(c, cache[n][exp], p)
+                    } else {
+                        c = zp::mul(c, zp::pow(vv, exp as u32, p), p);
+                    }
+                }
+            }
+
+            let expv = mv.exponents[v].as_() as usize;
+            tm[expv] = zp::add(tm[expv], c, p);
+        }
+
+        let mut res = MultivariatePolynomial::with_nvars(self.nvars);
+        for (k, c) in tm.iter_mut().enumerate() {
+            if *c > 0 {
+                let mut e = vec![E::zero(); self.nvars];
+                e[v] = E::from_usize(k).unwrap();
+                res.append_monomial(FiniteField::new(mem::replace(c, 0), p.value()), e);
+            }
         }
 
         res
