@@ -78,6 +78,7 @@ An example C program:
 	extern void polynomial_free(Polynomial *);
 	extern char* polynomial_to_string(Polynomial *);
 	extern void polynomial_string_free(char *);
+	extern Polynomial* polynomial_clone(Polynomial *);
 	extern Polynomial* polynomial_add(Polynomial *, Polynomial *);
 	extern Polynomial* polynomial_mul(Polynomial *, Polynomial *);
 	extern Polynomial* polynomial_sub(Polynomial *, Polynomial *);

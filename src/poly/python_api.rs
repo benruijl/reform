@@ -46,6 +46,10 @@ py_class!(class Polynomial |py| {
         Polynomial::create_instance(py, RefCell::new(poly), var_info.var_info(py).borrow().clone())
     }
 
+    def __copy__(&self) -> PyResult<Polynomial> {
+        Polynomial::create_instance(py, RefCell::new(self.poly(py).borrow().clone()), self.var_info(py).clone())
+    }
+
     def __str__(&self) -> PyResult<String> {
         Ok(format!("{}", PolyPrinter { poly: &self.poly(py).borrow(), var_info: &self.var_info(py).global_info }))
     }
@@ -54,8 +58,10 @@ py_class!(class Polynomial |py| {
         let lhsp = lhs.extract::<Polynomial>(py)?;
         let rhsp = rhs.extract::<Polynomial>(py)?;
 
-        // unify the variable names first
-        lhsp.poly(py).borrow_mut().unify_varmaps(&mut rhsp.poly(py).borrow_mut());
+        // unify the variable names first if lhs != rhs
+        if lhsp.poly(py).as_ptr() != rhsp.poly(py).as_ptr() {
+            lhsp.poly(py).borrow_mut().unify_varmaps(&mut rhsp.poly(py).borrow_mut());
+        }
         let r = lhsp.poly(py).borrow().clone().add(rhsp.poly(py).borrow().clone());
 
         Polynomial::create_instance(py, RefCell::new(r), clone_varmap(&lhsp.var_info(py), &rhsp.var_info(py)))
@@ -65,16 +71,20 @@ py_class!(class Polynomial |py| {
         let lhsp = lhs.extract::<Polynomial>(py)?;
         let rhsp = rhs.extract::<Polynomial>(py)?;
 
-        // unify the variable names first
-        lhsp.poly(py).borrow_mut().unify_varmaps(&mut rhsp.poly(py).borrow_mut());
+        // unify the variable names first if lhs != rhs
+        if lhsp.poly(py).as_ptr() != rhsp.poly(py).as_ptr() {
+            lhsp.poly(py).borrow_mut().unify_varmaps(&mut rhsp.poly(py).borrow_mut());
+        }
         let r = lhsp.poly(py).borrow().clone().sub(rhsp.poly(py).borrow().clone());
 
         Polynomial::create_instance(py, RefCell::new(r), clone_varmap(&lhsp.var_info(py), &rhsp.var_info(py)))
     }
 
     def div(&self, other: &Polynomial) -> PyResult<Polynomial> {
-        // unify the variable names first
-        self.poly(py).borrow_mut().unify_varmaps(&mut other.poly(py).borrow_mut());
+        // unify the variable names first if lhs != rhs
+        if self.poly(py).as_ptr() != other.poly(py).as_ptr() {
+            self.poly(py).borrow_mut().unify_varmaps(&mut other.poly(py).borrow_mut());
+        }
         let r = self.poly(py).borrow().clone().div(other.poly(py).borrow().clone());
 
         Polynomial::create_instance(py, RefCell::new(r), clone_varmap(&self.var_info(py), &other.var_info(py)))
@@ -84,8 +94,10 @@ py_class!(class Polynomial |py| {
         let lhsp = lhs.extract::<Polynomial>(py)?;
         let rhsp = rhs.extract::<Polynomial>(py)?;
 
-        // unify the variable names first
-        lhsp.poly(py).borrow_mut().unify_varmaps(&mut rhsp.poly(py).borrow_mut());
+        // unify the variable names first if lhs != rhs
+        if lhsp.poly(py).as_ptr() != rhsp.poly(py).as_ptr() {
+            lhsp.poly(py).borrow_mut().unify_varmaps(&mut rhsp.poly(py).borrow_mut());
+        }
         let r = lhsp.poly(py).borrow().clone().mul(rhsp.poly(py).borrow().clone());
 
         Polynomial::create_instance(py, RefCell::new(r), clone_varmap(&lhsp.var_info(py), &rhsp.var_info(py)))
@@ -97,7 +109,13 @@ py_class!(class Polynomial |py| {
     }
 
     def gcd(&self, other: &Polynomial) -> PyResult<Polynomial> {
-       Polynomial::create_instance(py, RefCell::new(self.poly(py).borrow_mut().gcd(&mut other.poly(py).borrow_mut())),
-        clone_varmap(&self.var_info(py), &other.var_info(py)))
+        if self.poly(py).as_ptr() != other.poly(py).as_ptr() {
+            Polynomial::create_instance(py, RefCell::new(self.poly(py).borrow_mut().gcd(&mut other.poly(py).borrow_mut())),
+                clone_varmap(&self.var_info(py), &other.var_info(py)))
+        } else {
+            let mut c = other.poly(py).borrow().clone(); // TODO: move the varmap merge out of the gcd routine, so we don't have to copy
+            Polynomial::create_instance(py, RefCell::new(self.poly(py).borrow_mut().gcd(&mut c)),
+                clone_varmap(&self.var_info(py), &other.var_info(py)))
+        }
     }
 });

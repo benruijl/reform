@@ -7,6 +7,7 @@ use std::str;
 use std::str::FromStr;
 use structure::{Element, VarInfo};
 
+#[derive(Clone)]
 pub struct Polynomial<'a> {
     poly: polynomial::Polynomial,
     var_info: &'a VarInfo,
@@ -23,6 +24,7 @@ impl<'a> Polynomial<'a> {
     }
 
     fn add(&mut self, rhs: &mut Polynomial) -> Polynomial<'a> {
+        // note that self == rhs is a possibility
         // unify the variable names first
         self.poly.unify_varmaps(&mut rhs.poly);
         let r = self.poly.clone().add(rhs.poly.clone());
@@ -156,6 +158,16 @@ pub extern "C" fn polynomial_string_free(s: *mut c_char) {
         }
         CString::from_raw(s)
     };
+}
+
+#[no_mangle]
+pub extern "C" fn polynomial_clone<'a>(poly: *mut Polynomial<'a>) -> *mut Polynomial<'a> {
+    let polyp = unsafe {
+        assert!(!poly.is_null());
+        &mut *poly
+    };
+
+    Box::into_raw(Box::new(polyp.clone()))
 }
 
 #[no_mangle]
