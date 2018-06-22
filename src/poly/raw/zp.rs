@@ -116,34 +116,63 @@ pub fn pow<M: Modulus<ucomp, ufield>>(x: ufield, mut n: u32, p: M) -> ufield {
             return 0;
         }
     }
-    if n == 0 {
-        return 1;
-    }
-    if n == 1 {
-        return x;
-    }
-    if n == 2 {
-        return mul(x, x, p);
-    }
-    if n < 6 {
-        // (n-1) multiplications
-        let mut r = x;
-        for _ in 1..n {
-            r = mul(r, x, p);
+    match n {
+        0 => 1,
+        1 => x,
+        2 => mul(x, x, p),
+        3 => {
+            let xx = mul(x, x, p);
+            mul(x, xx, p)
         }
-        return r;
-    }
-    // naive exponentiation by squaring
-    let mut r: ucomp = 1;
-    let mut b = ucomp::from(x);
-    while n != 0 {
-        if n & 1 != 0 {
-            r = p.modulus(r * b);
+        4 => {
+            let xx = mul(x, x, p);
+            mul(xx, xx, p)
         }
-        b = p.modulus(b * b);
-        n >>= 1;
+        5 => {
+            let xx = mul(x, x, p);
+            let xxxx = mul(xx, xx, p);
+            mul(x, xxxx, p)
+        }
+        6 => {
+            let xx = mul(x, x, p);
+            let xxxx = mul(xx, xx, p);
+            mul(xx, xxxx, p)
+        }
+        7 => {
+            let xx = mul(x, x, p);
+            let xxxx = mul(xx, xx, p);
+            let xxxxxx = mul(xx, xxxx, p);
+            mul(x, xxxxxx, p)
+        }
+        8 => {
+            let xx = mul(x, x, p);
+            let xxxx = mul(xx, xx, p);
+            mul(xxxx, xxxx, p)
+        }
+        _ => {
+            // naive exponentiation by squaring
+            let mut r: ucomp = 1;
+            let mut b = ucomp::from(x);
+            // the first iteration is inlined: possibly it removes one modulo operation.
+            if n & 1 != 0 {
+                r = b;
+            }
+            n >>= 1;
+            b = p.modulus(b * b);
+            // main loop
+            loop {
+                if n & 1 != 0 {
+                    r = p.modulus(r * b);
+                }
+                n >>= 1;
+                if n == 0 {
+                    break;
+                }
+                b = p.modulus(b * b);
+            }
+            r as ufield
+        }
     }
-    r as ufield
 }
 
 #[test]
