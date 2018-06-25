@@ -79,8 +79,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     }
 
     pub fn to_finite_field(&self, p: ufield) -> MultivariatePolynomial<FiniteField, E> {
-        let newc = self
-            .coefficients
+        let newc = self.coefficients
             .iter()
             .map(|x| x.to_finite_field(p))
             .collect();
@@ -132,6 +131,14 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     #[inline]
     fn exponents_mut(&mut self, index: usize) -> &mut [E] {
         &mut self.exponents[index * self.nvars..(index + 1) * self.nvars]
+    }
+
+    /// Returns the number of variables in the polynomial.
+    #[inline]
+    pub fn clear(&mut self) {
+        self.nterms = 0;
+        self.coefficients.clear();
+        self.exponents.clear();
     }
 
     /// Compares exponent vectors of two monomials.
@@ -645,7 +652,8 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         return true;
     }
 
-    // Get the degree of the variable `x`.
+    /// Get the degree of the variable `x`.
+    /// This operation is O(n).
     pub fn degree(&self, x: usize) -> E {
         let mut max = E::zero();
         for t in 0..self.nterms {
@@ -675,6 +683,40 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         self.coefficients.last().unwrap().clone()
     }
 
+    /// Get the leading coefficient under a given variable ordering.
+    /// This operation is O(n) if the variables are out of order.
+    pub fn lcoeff_varorder(&self, vars: &[usize]) -> R {
+        if vars.windows(2).all(|s| s[0] < s[1]) {
+            return self.lcoeff();
+        }
+
+        let mut highest = vec![E::zero(); self.nvars];
+        let mut highestc = &R::zero();
+
+        'nextmon: for m in self.into_iter() {
+            let mut more = false;
+            for &v in vars {
+                if more {
+                    highest[v] = m.exponents[v];
+                } else {
+                    match m.exponents[v].cmp(&highest[v]) {
+                        Ordering::Less => {
+                            continue 'nextmon;
+                        }
+                        Ordering::Greater => {
+                            highest[v] = m.exponents[v];
+                            more = true;
+                        }
+                        Ordering::Equal => {}
+                    }
+                }
+            }
+            highestc = &m.coefficient;
+        }
+        debug_assert!(!highestc.is_zero());
+        highestc.clone()
+    }
+
     /// Get the leading coefficient viewed as a polynomial
     /// in all variables except the last variable `n`.
     pub fn lcoeff_last(&self, n: usize) -> MultivariatePolynomial<R, E> {
@@ -693,6 +735,71 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             }
         }
 
+        res
+    }
+
+    /// Get the leading coefficient viewed as a polynomial
+    /// in all variables with order as described in `vars` except the last variable in `vars`.
+    /// This operation is O(n) if the variables are out of order.
+    pub fn lcoeff_last_varorder(&self, vars: &[usize]) -> MultivariatePolynomial<R, E> {
+        if vars.windows(2).all(|s| s[0] < s[1]) {
+            return self.lcoeff_last(*vars.last().unwrap());
+        }
+
+        let (vars, lastvar) = vars.split_at(vars.len() - 1);
+
+        let mut highest = vec![E::zero(); self.nvars];
+        let mut indices = Vec::with_capacity(10);
+
+        'nextmon: for (i, m) in self.into_iter().enumerate() {
+            let mut more = false;
+            for &v in vars {
+                if more {
+                    highest[v] = m.exponents[v];
+                } else {
+                    match m.exponents[v].cmp(&highest[v]) {
+                        Ordering::Less => {
+                            continue 'nextmon;
+                        }
+                        Ordering::Greater => {
+                            highest[v] = m.exponents[v];
+                            indices.clear();
+                            more = true;
+                        }
+                        Ordering::Equal => {}
+                    }
+                }
+            }
+            indices.push(i);
+        }
+
+        let mut res = MultivariatePolynomial::with_nvars(self.nvars);
+
+        for i in indices {
+            let mut e = vec![E::zero(); self.nvars];
+            e[lastvar[0]] = self.exponents(i)[lastvar[0]];
+            res.append_monomial(self.coefficients[i].clone(), e);
+        }
+        res
+    }
+
+    /// Change the order of the variables in the polynomial, using `varmap`.
+    /// The map can also be reversed, by setting `inverse` to `true`.
+    pub fn rearrange(&self, varmap: &[usize], inverse: bool) -> MultivariatePolynomial<R, E> {
+        let mut res = MultivariatePolynomial::with_nvars(self.nvars);
+        for m in self.into_iter() {
+            let mut newe = vec![E::zero(); self.nvars];
+
+            for x in 0..varmap.len() {
+                if !inverse {
+                    newe[x] = m.exponents[varmap[x]];
+                } else {
+                    newe[varmap[x]] = m.exponents[x];
+                }
+            }
+
+            res.append_monomial(m.coefficient.clone(), newe);
+        }
         res
     }
 
@@ -891,8 +998,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             let tc =
                 r.coefficients.last().unwrap().clone() / div.coefficients.last().unwrap().clone();
 
-            let tp: Vec<E> = r
-                .last_exponents()
+            let tp: Vec<E> = r.last_exponents()
                 .iter()
                 .zip(divdeg.iter())
                 .map(|(e1, e2)| e1.clone() - e2.clone())
