@@ -39,7 +39,12 @@ impl Number {
                 } else if *d < 0 {
                     *d = -*d;
                     *n = -*n;
-                    return true;
+
+                    if *d == 1 {
+                        Number::SmallInt(*n)
+                    } else {
+                        return true;
+                    }
                 } else {
                     return false;
                 }
@@ -65,6 +70,7 @@ impl Number {
         true
     }
 
+    #[inline]
     pub fn normalized(mut self) -> Self {
         self.normalize_inplace();
         self
@@ -142,7 +148,7 @@ impl GCD for Number {
                 BigInt(i2.gcd(&Integer::from(i1)))
             }
             (BigInt(i1), BigInt(i2)) => BigInt(i1.gcd(&i2)),
-            _ => unreachable!(),
+            (x, y) => unreachable!(format!("Cannot compute gcd of {:?} and {:?}", x, y)),
         }
     }
 }
@@ -237,15 +243,18 @@ impl Add for Number {
             (SmallInt(i1), BigInt(i2)) | (BigInt(i2), SmallInt(i1)) => {
                 BigInt(Integer::from(i1) + i2)
             }
-            (SmallInt(i1), SmallRat(n2, d2)) | (SmallRat(n2, d2), SmallInt(i1)) => match i1
-                .checked_mul(d2)
-            {
-                Some(num1) => match n2.checked_add(num1) {
-                    Some(num) => Number::SmallRat(num, d2),
-                    None => Number::BigRat(Box::new(Rational::from(i1) + Rational::from((n2, d2)))),
-                },
-                None => Number::BigRat(Box::new(Rational::from(i1) + Rational::from((n2, d2)))),
-            },
+            (SmallInt(i1), SmallRat(n2, d2)) | (SmallRat(n2, d2), SmallInt(i1)) => {
+                match i1.checked_mul(d2) {
+                    Some(num1) => match n2.checked_add(num1) {
+                        Some(num) => Number::SmallRat(num, d2).normalized(),
+                        None => Number::BigRat(Box::new(
+                            Rational::from(i1) + Rational::from((n2, d2)),
+                        )).normalized(),
+                    },
+                    None => Number::BigRat(Box::new(Rational::from(i1) + Rational::from((n2, d2))))
+                        .normalized(),
+                }
+            }
             (SmallRat(n1, d1), SmallRat(n2, d2)) => match d2.checked_mul(d1 / GCD::gcd(d1, d2)) {
                 Some(lcm) => match n2.checked_mul(lcm / d2) {
                     Some(num2) => match n1.checked_mul(lcm / d1) {
@@ -320,7 +329,7 @@ impl Mul for Number {
                     Some(x) => if d2 == 1 {
                         Number::SmallInt(x)
                     } else {
-                        Number::SmallRat(x, d2)
+                        Number::SmallRat(x, d2).normalized()
                     },
                     None => if d2 == 1 {
                         Number::BigInt(Integer::from(n2) * Integer::from(i1 / gcd))
@@ -386,7 +395,7 @@ impl Rem for Number {
             (SmallInt(i1), BigInt(i2)) => BigInt(Integer::from(i1.clone()) % i2),
             (BigInt(i1), SmallInt(i2)) => BigInt(i1 % Integer::from(i2)),
             (BigInt(i1), BigInt(i2)) => BigInt(i1 % i2),
-            _ => unreachable!(),
+            (x, y) => unreachable!(format!("Cannot compute remainder {:?} rem {:?}", x, y)),
         }
     }
 }
