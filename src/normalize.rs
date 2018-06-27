@@ -713,11 +713,16 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
                     let (ref mut num, ref mut den) = &mut **p1; // note the switch
                     let (ref mut num1, ref mut den1) = &mut **p;
 
-                    // TODO: improve!
-                    let mut newnum = num.clone() * den1.clone() + num1.clone() * den.clone();
-                    let mut newden = den.clone() * den1.clone();
-                    let mut g1 = newnum.gcd(&mut newden);
+                    // newden = lcm(den,den1) = den * (den1/gcd(den,den1))
+                    // newnum: num * (newden/den) + num1 * (newden/den1)
+                    let mut g = den.gcd(den1);
+                    let mut newden = den.clone() * den1.long_division(&mut g).0;
+                    let mut scale = newden.long_division(den).0;
+                    let mut scale1 = newden.long_division(den1).0;
+                    let mut newnum = mem::replace(num, Polynomial::new()) * scale
+                        + mem::replace(num1, Polynomial::new()) * scale1;
 
+                    let mut g1 = newnum.gcd(&mut newden);
                     *num = newnum.long_division(&mut g1).0;
                     *den = newden.long_division(&mut g1).0;
 
