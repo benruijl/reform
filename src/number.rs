@@ -21,7 +21,7 @@ const DOWNGRADE_LIMIT: isize = 4294967296; // if a bigint is smaller than this n
 ///
 /// The mathematical operations on a number automatically upgrade
 /// and downgrade to bigint/smallint etc.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Number {
     SmallInt(isize),
     BigInt(Integer),

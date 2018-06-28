@@ -358,4 +358,33 @@ mod tests {
         assert_eq!(a, res);
     }
 
+    #[test]
+    fn horner() {
+        let mut a = MultivariatePolynomial::from_monomial(SmallInt(1), vec![5, 0, 0]);
+        a.append_monomial(SmallInt(3), vec![1, 1, 0]);
+        a.append_monomial(SmallInt(1), vec![0, 1, 1]);
+        a.append_monomial(SmallInt(3), vec![1, 1, 1]);
+        a.append_monomial(SmallInt(1), vec![0, 1, 0]);
+
+        println!("a: {}", a);
+
+        let v = vec![0, 1, 2];
+        let mut h = a.horner(&v, true);
+        println!("Horner: {:?}", h);
+
+        let mut is = vec![];
+        h.linearize_subexpr(&mut is);
+        for (i, x) in is.iter().enumerate() {
+            print!("Z{} = ", i);
+            x.print();
+            println!(";");
+        }
+
+        use poly::raw::optimize::Instructions;
+        println!(
+            "Eval (2,3,4): {}",
+            Instructions::evaluate_list(&is, &vec![SmallInt(2), SmallInt(3), SmallInt(4)])
+        );
+    }
+
 }

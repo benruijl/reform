@@ -7,7 +7,7 @@ use std::fmt;
 use std::ops::{Add, Div, Mul, MulAssign, Neg, Rem, Sub};
 use tools::GCD;
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
 pub struct FiniteField {
     pub n: ufield,
     pub p: ufield,

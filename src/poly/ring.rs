@@ -4,6 +4,7 @@ use poly::raw::finitefield::FiniteField;
 use poly::raw::zp::ufield;
 use rug::Integer;
 use std::fmt::{Debug, Display};
+use std::hash::Hash;
 use std::ops::{Div, MulAssign, Neg, Rem};
 use tools::GCD;
 
@@ -21,6 +22,7 @@ pub trait ToFiniteField {
 pub trait Ring:
    // Copy
     Zero
+    + Hash
     + One
     + Debug
     + Display
@@ -39,6 +41,7 @@ pub trait Ring:
 
 impl<
         T: Zero
+            + Hash
             + One
             + Debug
             + Display

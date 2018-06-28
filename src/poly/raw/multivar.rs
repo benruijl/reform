@@ -3,7 +3,7 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
 use std::mem;
-use std::ops::{Add, Mul, Neg, Sub};
+use std::ops::{Add, Div, Mul, Neg, Sub};
 use tools::GCD;
 
 use num_traits::{One, Zero};
@@ -15,7 +15,7 @@ use poly::raw::finitefield::FiniteField;
 use poly::raw::zp::ufield;
 
 /// Multivariate polynomial with a degree sparse and variable dense representation.
-#[derive(Clone)]
+#[derive(Clone, Hash)]
 pub struct MultivariatePolynomial<R: Ring, E: Exponent> {
     // Data format: the i-th monomial is stored as coefficients[i] and
     // exponents[i * nvars .. (i + 1) * nvars]. Keep coefficients.len() == nterms and
@@ -589,6 +589,17 @@ impl<R: Ring, E: Exponent> Mul<R> for MultivariatePolynomial<R, E> {
     }
 }
 
+impl<R: Ring, E: Exponent> Div<R> for MultivariatePolynomial<R, E> {
+    type Output = Self;
+
+    fn div(mut self, other: R) -> Self::Output {
+        for c in &mut self.coefficients {
+            *c = c.clone() / other.clone();
+        }
+        self
+    }
+}
+
 impl<R: Ring, E: Exponent> Add<R> for MultivariatePolynomial<R, E> {
     type Output = Self;
 
@@ -606,8 +617,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         debug_assert!(self.nterms > 0);
         debug_assert!(!coefficient.is_zero());
         for c in &mut self.coefficients {
-            let mut new_c = mem::replace(c, R::zero()).mul(coefficient.clone());
-            mem::swap(c, &mut new_c);
+            *c = mem::replace(c, R::zero()).mul(coefficient.clone());
         }
         for i in 0..self.nterms {
             let ee = self.exponents_mut(i);

@@ -9,7 +9,7 @@ use poly::raw::finitefield::FiniteField;
 use poly::raw::zp::ufield;
 use poly::ring::{MulModNum, ToFiniteField};
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Hash, Eq, PartialEq)]
 pub struct Fraction {
     num: isize,
     den: usize,
