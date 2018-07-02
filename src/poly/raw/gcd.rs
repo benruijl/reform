@@ -8,6 +8,7 @@ use fnv::FnvHashMap;
 use number;
 use number::Number;
 use poly::raw::finitefield::FiniteField;
+use poly::raw::optimize::PolynomialSampler;
 use poly::raw::zp;
 use poly::raw::zp::{ufield, FastModulus};
 use poly::raw::zp_mod::Modulus;
@@ -102,6 +103,7 @@ fn construct_new_image<E: Exponent>(
     vars: &[usize],
     var: usize,
     gfu: &[(MultivariatePolynomial<FiniteField, E>, u32)],
+    poly_sampler: &mut PolynomialSampler<FiniteField, E>,
 ) -> Result<MultivariatePolynomial<FiniteField, E>, GCDError> {
     let p = ap.coefficients[0].p;
     let fastp = FastModulus::from(ap.coefficients[0].p);
@@ -115,61 +117,20 @@ fn construct_new_image<E: Exponent>(
     let mut rank_failure_count = 0;
     let mut last_rank = (0, 0);
 
-    // store a table for variables raised to a certain power
-    let mut cache = (0..ap.nvars)
-        .map(|i| {
-            vec![
-                0;
-                min(
-                    max(ap.degree(i), bp.degree(i)).as_() as usize + 1,
-                    POW_CACHE_SIZE
-                )
-            ]
-        })
-        .collect::<Vec<_>>();
-
-    let var_bound = max(ap.degree(var).as_(), bp.degree(var).as_()) as usize + 1;
-    let has_small_exp = var_bound < POW_CACHE_SIZE;
-
-    // store a power map for the univariate polynomials that will be sampled
-    // the sampling_polynomial routine will set the power to 0 after use.
-    // If the exponent is small enough, we use a vec, otherwise we use a hashmap.
-    let (mut tm, mut tm_fixed) = if has_small_exp {
-        (
-            FnvHashMap::with_hasher(Default::default()),
-            vec![0; var_bound],
-        )
-    } else {
-        (
-            FnvHashMap::with_capacity_and_hasher(INITIAL_POW_MAP_SIZE, Default::default()),
-            vec![],
-        )
-    };
-
     'newimage: loop {
         // generate random numbers for all non-leading variables
-        // TODO: apply a Horner scheme to speed up the substitution?
         let (r, a1, b1) = loop {
-            for v in &mut cache {
-                for vi in v {
-                    *vi = 0;
-                }
-            }
-
             let r: Vec<(usize, ufield)> = vars.iter()
                 .map(|i| (i.clone(), range.sample(&mut rng)))
                 .collect();
 
-            let a1 = if has_small_exp {
-                ap.sample_polynomial_small_exponent(var, &fastp, &r, &mut cache, &mut tm_fixed)
-            } else {
-                ap.sample_polynomial(var, &fastp, &r, &mut cache, &mut tm)
-            };
-            let b1 = if has_small_exp {
-                bp.sample_polynomial_small_exponent(var, &fastp, &r, &mut cache, &mut tm_fixed)
-            } else {
-                bp.sample_polynomial(var, &fastp, &r, &mut cache, &mut tm)
-            };
+            for (v, val) in &r {
+                poly_sampler.set_sample(*v, *val);
+            }
+
+            poly_sampler.evaluate();
+            let a1 = poly_sampler.get_polynomial(0);
+            let b1 = poly_sampler.get_polynomial(1);
 
             if a1.ldegree(var) == aldegree && b1.ldegree(var) == bldegree {
                 break (r, a1, b1);
@@ -428,6 +389,43 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
         d
     }
 
+    /// Replace all variables in the polynomial by elements from
+    /// a finite field of size `p`.
+    pub fn sample_polynomial_to_number(
+        &self,
+        p: &FastModulus,
+        r: &[ufield],
+        cache: &mut [Vec<ufield>],
+    ) -> FiniteField {
+        let mut res = 0;
+        for mv in self.into_iter() {
+            let mut c = mv.coefficient.n;
+            for (n, &vv) in r.iter().enumerate() {
+                if vv != 0 {
+                    let exp = mv.exponents[n].as_() as usize;
+                    if exp > 0 {
+                        if n < cache[n].len() {
+                            if cache[n][exp].is_zero() {
+                                cache[n][exp] = zp::pow(vv, exp as u32, p);
+                            }
+
+                            c = zp::mul(c, cache[n][exp], p)
+                        } else {
+                            c = zp::mul(c, zp::pow(vv, exp as u32, p), p);
+                        }
+                    }
+                }
+
+                // make sure the polynomial is completly subsituted
+                debug_assert!(vv != 0 || mv.exponents[n].is_zero());
+            }
+
+            res = zp::add(res, c, p);
+        }
+
+        FiniteField::new(res, p.value())
+    }
+
     /// Replace all variables except `v` in the polynomial by elements from
     /// a finite field of size `p`.
     pub fn sample_polynomial(
@@ -526,6 +524,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
         vars: &[usize],           // variables
         bounds: &mut [u32],       // degree bounds
         tight_bounds: &mut [u32], // tighter degree bounds
+        poly_sampler: &mut PolynomialSampler<FiniteField, E>,
     ) -> Option<MultivariatePolynomial<FiniteField, E>> {
         let lastvar = vars.last().unwrap().clone();
 
@@ -571,7 +570,9 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             let av = a.replace(lastvar, v);
             let bv = b.replace(lastvar, v);
 
-            // performance dense reconstruction
+            poly_sampler.set_sample(lastvar, v.n);
+
+            // perform dense reconstruction
             let mut gv = if vars.len() > 2 {
                 match MultivariatePolynomial::gcd_shape_modular(
                     &av,
@@ -579,6 +580,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                     &vars[..vars.len() - 1],
                     bounds,
                     tight_bounds,
+                    poly_sampler,
                 ) {
                     Some(x) => x,
                     None => return None,
@@ -638,6 +640,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
 
                 let av = a.replace(lastvar, v);
                 let bv = b.replace(lastvar, v);
+                poly_sampler.set_sample(lastvar, v.n);
 
                 match construct_new_image(
                     &av,
@@ -650,6 +653,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                     &vars[1..vars.len() - 1],
                     vars[0],
                     &gfu,
+                    poly_sampler,
                 ) {
                     Ok(r) => {
                         gv = r;
@@ -1079,13 +1083,25 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
             let ap = a.to_finite_field(p);
             let bp = b.to_finite_field(p);
 
+            // construct the polynomial sampler
+            // TODO: construct only once in Z
+            let mut poly_sampler = PolynomialSampler::new(a.nvars);
+            poly_sampler.set_prime(p);
+            poly_sampler.add(&ap, vars[0], &vars[1..]);
+            poly_sampler.add(&bp, vars[0], &vars[1..]);
+
             debug!("New first image: gcd({},{}) mod {}", ap, bp, p);
 
             // calculate modular gcd image
             let mut gp = loop {
-                if let Some(x) =
-                    MultivariatePolynomial::gcd_shape_modular(&ap, &bp, vars, bounds, tight_bounds)
-                {
+                if let Some(x) = MultivariatePolynomial::gcd_shape_modular(
+                    &ap,
+                    &bp,
+                    vars,
+                    bounds,
+                    tight_bounds,
+                    &mut poly_sampler,
+                ) {
                     break x;
                 }
             };
@@ -1176,6 +1192,12 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                 let bp = b.to_finite_field(p);
                 debug!("New image: gcd({},{}) mod {}", ap, bp, p);
 
+                // TODO: avoid this repetition
+                poly_sampler = PolynomialSampler::new(a.nvars);
+                poly_sampler.set_prime(p);
+                poly_sampler.add(&ap, vars[0], &vars[1..]);
+                poly_sampler.add(&bp, vars[0], &vars[1..]);
+
                 // for the univariate case, we don't need to construct an image
                 if vars.len() == 1 {
                     gp = MultivariatePolynomial::univariate_gcd(&ap, &bp);
@@ -1191,6 +1213,7 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                         &vars[1..],
                         vars[0],
                         &gfu,
+                        &mut poly_sampler,
                     ) {
                         Ok(r) => {
                             gp = r;
@@ -1258,6 +1281,13 @@ impl<E: Exponent> PolynomialGCD for MultivariatePolynomial<FiniteField, E> {
         bounds: &mut [u32],
         tight_bounds: &mut [u32],
     ) -> MultivariatePolynomial<FiniteField, E> {
-        MultivariatePolynomial::gcd_shape_modular(&a, &b, vars, bounds, tight_bounds).unwrap()
+        // FIXME: what to do with the poly_sampler?
+        println!("FIXME: the polysampler is unreliable for gcd in ff!");
+        let mut ps = PolynomialSampler::new(a.nvars);
+        ps.set_prime(a.coefficients[0].p);
+        ps.add(a, vars[0], vars); // FIXME: is this correct?
+        ps.add(b, vars[0], vars); // FIXME: is this correct?
+        MultivariatePolynomial::gcd_shape_modular(&a, &b, vars, bounds, tight_bounds, &mut ps)
+            .unwrap()
     }
 }
