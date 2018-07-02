@@ -79,7 +79,8 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     }
 
     pub fn to_finite_field(&self, p: ufield) -> MultivariatePolynomial<FiniteField, E> {
-        let newc = self.coefficients
+        let newc = self
+            .coefficients
             .iter()
             .map(|x| x.to_finite_field(p))
             .collect();
@@ -114,6 +115,21 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         }
         debug_assert!(!self.coefficients.first().unwrap().is_zero());
         return self.exponents.iter().all(|e| e.is_zero());
+    }
+
+    #[inline]
+    pub fn get_constant(&self) -> Option<R> {
+        if self.is_zero() {
+            return Some(R::zero());
+        }
+        if self.nterms >= 2 {
+            return None;
+        }
+
+        if self.exponents.iter().all(|e| e.is_zero()) {
+            return Some(self.coefficients[0].clone());
+        }
+        None
     }
 
     /// Returns the slice for the exponents of the specified monomial.
@@ -1008,7 +1024,8 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             let tc =
                 r.coefficients.last().unwrap().clone() / div.coefficients.last().unwrap().clone();
 
-            let tp: Vec<E> = r.last_exponents()
+            let tp: Vec<E> = r
+                .last_exponents()
                 .iter()
                 .zip(divdeg.iter())
                 .map(|(e1, e2)| e1.clone() - e2.clone())

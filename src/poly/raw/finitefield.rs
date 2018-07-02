@@ -18,6 +18,12 @@ impl FiniteField {
         FiniteField { n: n % p, p: p }
     }
 
+    /// Create a finite field when `n` < `p`
+    pub fn new_safe(n: ufield, p: ufield) -> FiniteField {
+        debug_assert!(n < p);
+        FiniteField { n: n, p: p }
+    }
+
     pub fn from_i64(n: i64, p: ufield) -> FiniteField {
         // TODO: this code is not safe on 32-bit machines
         if n < 0 {

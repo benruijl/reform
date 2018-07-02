@@ -10,6 +10,7 @@ use poly::raw::MultivariatePolynomial;
 use poly::ring::Ring;
 use std::hash::{Hash, Hasher};
 use std::mem;
+use tools;
 
 pub const POW_CACHE_SIZE: usize = 1000;
 
@@ -25,8 +26,8 @@ pub struct PolynomialSampler<R: Ring, E: Exponent> {
     pow_cache: Vec<Vec<ufield>>,
 }
 
-impl<E: Exponent> PolynomialSampler<FiniteField, E> {
-    pub fn new(num_vars: usize) -> PolynomialSampler<FiniteField, E> {
+impl<R: Ring, E: Exponent> PolynomialSampler<R, E> {
+    pub fn new(num_vars: usize) -> PolynomialSampler<R, E> {
         PolynomialSampler {
             polys: vec![],
             prime: None,
@@ -39,12 +40,7 @@ impl<E: Exponent> PolynomialSampler<FiniteField, E> {
     }
 
     /// Add a polynomial bracketed in `var`.
-    pub fn add(
-        &mut self,
-        poly: &MultivariatePolynomial<FiniteField, E>,
-        var: usize,
-        order: &[usize],
-    ) {
+    pub fn add(&mut self, poly: &MultivariatePolynomial<R, E>, var: usize, order: &[usize]) {
         // adjust the cache size
         for i in 0..poly.nvars {
             let bound = poly.degree(i).as_() as usize + 1;
@@ -53,13 +49,27 @@ impl<E: Exponent> PolynomialSampler<FiniteField, E> {
             }
         }
 
+        // construct an occurrence order scheme for the entire polynomial
+        let mut occ_order = poly.occurrence_order();
+        occ_order = occ_order
+            .iter()
+            .cloned()
+            .filter(|x| order.contains(x))
+            .collect();
+
+        // TODO: for now, evaluating the instructions is sometimes slower than
+        // evaluating a polynomial straight away. Until this is changed,
+        // we do not include the last variable in the Horner scheme
+        occ_order.pop();
+
         let apf = poly.to_univariate_polynomial(var);
         trace!("poly {}", poly);
         trace!("apf {:?}", apf);
 
-        let evalap = apf.iter()
+        let evalap = apf
+            .iter()
             .map(|(p, x)| {
-                let mut h = p.horner(order, true);
+                let mut h = p.horner(&occ_order, true);
                 trace!("h {:?}", h);
                 HornerScheme::hash(&mut h); // hash is required for csee
                 let pos = h.linearize_subexpr_rec(&mut self.instructions, &mut self.cse);
@@ -67,18 +77,50 @@ impl<E: Exponent> PolynomialSampler<FiniteField, E> {
             })
             .collect::<Vec<_>>();
 
-        for (i, x) in self.instructions.iter().enumerate() {
+        /*for (i, x) in self.instructions.iter().enumerate() {
             print!("Z{} = ", i);
             x.print();
             println!(";");
-        }
+        }*/
         debug!("{:?}", evalap);
 
         self.polys.push((poly.nvars(), var, evalap));
     }
 
+    /// Change the polynomial sampler into a sampler over prime fields.
+    pub fn set_prime(&self, p: ufield) -> PolynomialSampler<FiniteField, E> {
+        // apply the prime to the instructions
+        let prime = FastModulus::from(p);
+
+        let mut ins = Vec::with_capacity(self.instructions.len());
+        for x in &self.instructions {
+            ins.push(x.set_prime(p));
+        }
+
+        // TODO: also migrate the common subexpression tree
+        PolynomialSampler {
+            polys: self.polys.clone(),
+            prime: Some(prime),
+            instructions: ins,
+            result: vec![],
+            cse: FnvHashMap::with_hasher(Default::default()),
+            sample_points: self.sample_points.clone(),
+            pow_cache: self.pow_cache.clone(),
+        }
+    }
+
+    #[inline]
+    pub fn get_prime(&self) -> Option<ufield> {
+        self.prime.as_ref().map(|p| p.value())
+    }
+}
+
+impl<E: Exponent> PolynomialSampler<FiniteField, E> {
     pub fn evaluate(&mut self) {
-        self.result = Vec::with_capacity(self.instructions.len());
+        let p = self.prime.as_ref().unwrap();
+        let pp = p.value();
+
+        self.result = vec![FiniteField::new_safe(0, pp); self.instructions.len()];
         let mut resfield = vec![0; self.instructions.len()];
 
         // clear cache
@@ -88,25 +130,10 @@ impl<E: Exponent> PolynomialSampler<FiniteField, E> {
             }
         }
 
-        println!(
-            "EVAL now: {:?} {:?}",
-            self.polys,
-            self.prime.as_ref().unwrap().value()
-        );
-        for (i, x) in self.instructions.iter().enumerate() {
-            print!("Z{} = ", i);
-            x.print();
-            println!(";");
-        }
-
-        let p = self.prime.as_ref().unwrap();
-
         for (i, ins) in self.instructions.iter().enumerate() {
             resfield[i] = ins.evaluate(&mut resfield, &self.sample_points, p, &mut self.pow_cache);
-            self.result.push(FiniteField::new(resfield[i], p.value()));
+            self.result[i] = FiniteField::new_safe(resfield[i], pp);
         }
-
-        println!("res: {:?}", resfield);
     }
 
     /// Get an evaluated polynomial
@@ -125,11 +152,6 @@ impl<E: Exponent> PolynomialSampler<FiniteField, E> {
 
     pub fn set_sample(&mut self, var: usize, v: ufield) {
         self.sample_points[var] = v;
-    }
-
-    pub fn set_prime(&mut self, p: ufield) {
-        println!("setting prime {}", p);
-        self.prime = Some(FastModulus::from(p));
     }
 }
 
@@ -152,22 +174,23 @@ impl<E: Exponent> Instructions<FiniteField, E> {
         vals: &[ufield],
         p: &FastModulus,
         pow_cache: &mut Vec<Vec<ufield>>,
-    ) -> Option<ufield> {
+    ) -> ufield {
         match self {
-            Instructions::Number(x) => Some(x.n),
+            Instructions::Number(x) => x.n,
             Instructions::VarPow(v, pow) => {
                 debug_assert!(vals[*v] != 0);
-                Some(zp::pow(vals[*v], pow.as_(), p))
-            } // TODO: use cache?
-            Instructions::InstructionNumber(i) => Some(res[*i].clone()),
-            Instructions::Poly(poly) => {
-                // TODO: do we ever reach a case where the poly is not just a number?
-                if !poly.is_constant() {
-                    println!("INFO: non-number poly: {}", poly);
+
+                if pow.is_one() {
+                    vals[*v]
+                } else {
+                    // TODO: use binary exponentiation and cache result?
+                    pow_cache[*v][pow.as_() as usize] = zp::pow(vals[*v], pow.as_(), p);
+                    pow_cache[*v][pow.as_() as usize]
                 }
-                Some(poly.sample_polynomial_to_number(p, &vals, pow_cache).n)
             }
-            _ => None,
+            Instructions::InstructionNumber(i) => res[*i].clone(),
+            Instructions::Poly(poly) => poly.sample_polynomial_to_number(p, &vals, pow_cache).n,
+            _ => unreachable!(),
         }
     }
 
@@ -179,19 +202,15 @@ impl<E: Exponent> Instructions<FiniteField, E> {
         p: &FastModulus,
         pow_cache: &mut Vec<Vec<ufield>>,
     ) -> ufield {
-        if let Some(x) = self.evaluate_basic(res, vals, p, pow_cache) {
-            return x;
-        }
-
         match self {
             Instructions::Mul(v) => {
-                let mut r = v[0].evaluate_basic(res, vals, p, pow_cache).unwrap();
+                let mut r = v[0].evaluate_basic(res, vals, p, pow_cache);
                 for x in v.iter().skip(1) {
-                    r = zp::mul(r, x.evaluate_basic(res, vals, p, pow_cache).unwrap(), p);
+                    r = zp::mul(r, x.evaluate_basic(res, vals, p, pow_cache), p);
                 }
                 r
             }
-            _ => unreachable!(),
+            _ => self.evaluate_basic(res, vals, p, pow_cache),
         }
     }
 
@@ -237,6 +256,26 @@ impl<E: Exponent> Instructions<FiniteField, E> {
 }
 
 impl<R: Ring, E: Exponent> Instructions<R, E> {
+    pub fn set_prime(&self, p: ufield) -> Instructions<FiniteField, E> {
+        match self {
+            Instructions::Poly(poly) => Instructions::Poly(poly.to_finite_field(p)),
+            Instructions::Mul(iv) => {
+                let mut v = Vec::with_capacity(iv.len());
+                for x in iv.iter() {
+                    v.push(x.set_prime(p));
+                }
+                Instructions::Mul(v)
+            }
+            Instructions::Number(n) => Instructions::Number(n.to_finite_field(p)),
+            Instructions::Add(b) => {
+                let (a1, a2) = &**b;
+                Instructions::Add(Box::new((a1.set_prime(p), a2.set_prime(p))))
+            }
+            Instructions::VarPow(v, pow) => Instructions::VarPow(*v, *pow),
+            Instructions::InstructionNumber(i) => Instructions::InstructionNumber(*i),
+        }
+    }
+
     /// Print an instruction.
     pub fn print(&self) {
         match self {
@@ -277,8 +316,9 @@ pub enum HornerScheme<R: Ring, E: Exponent> {
         usize,
         E,
         R,
+        R,
         Box<(HornerScheme<R, E>, HornerScheme<R, E>)>,
-    ), // hash, variable, power, gcd, child
+    ), // hash, variable, power, gcd_sub, gcd_rest, child
     Leaf(u64, MultivariatePolynomial<R, E>), // hash, poly
 }
 
@@ -299,7 +339,9 @@ impl<R: Ring, E: Exponent> HornerScheme<R, E> {
     /// Extract the content at a certain level of the Horner scheme.
     pub fn get_content(&self) -> R {
         match self {
-            HornerScheme::Node(_, _, _, gcd, _) => gcd.clone(),
+            HornerScheme::Node(_, _, _, gcd1, gcd2, _) => {
+                tools::GCD::gcd(gcd1.clone(), gcd2.clone())
+            }
             HornerScheme::Leaf(_, p) => p.content(),
         }
     }
@@ -307,7 +349,10 @@ impl<R: Ring, E: Exponent> HornerScheme<R, E> {
     /// Divide out the content `g`.
     pub fn div_content(&mut self, g: R) {
         match self {
-            HornerScheme::Node(_, _, _, gcd, _) => *gcd = mem::replace(gcd, R::zero()) / g,
+            HornerScheme::Node(_, _, _, gcd1, gcd2, _) => {
+                *gcd1 = mem::replace(gcd1, R::zero()) / g.clone();
+                *gcd2 = mem::replace(gcd2, R::zero()) / g;
+            }
             HornerScheme::Leaf(_, p) => *p = mem::replace(p, MultivariatePolynomial::new()) / g,
         }
     }
@@ -315,7 +360,7 @@ impl<R: Ring, E: Exponent> HornerScheme<R, E> {
     /// Generate a hash for each element of the horner scheme.
     pub fn hash(&mut self) -> u64 {
         match self {
-            HornerScheme::Node(h, v, p, gcd, children) => {
+            HornerScheme::Node(h, v, p, gcd1, gcd2, children) => {
                 let (c1, c2) = &mut **children;
                 let h1 = c1.hash();
                 let h2 = c2.hash();
@@ -324,7 +369,8 @@ impl<R: Ring, E: Exponent> HornerScheme<R, E> {
                 let mut hasher = FnvHasher::default();
                 hasher.write_usize(*v);
                 p.hash(&mut hasher);
-                gcd.hash(&mut hasher);
+                gcd1.hash(&mut hasher);
+                gcd2.hash(&mut hasher);
                 hasher.write_u64(h1);
                 hasher.write_u64(h2);
                 *h = hasher.finish();
@@ -362,17 +408,18 @@ impl<R: Ring, E: Exponent> HornerScheme<R, E> {
             return *x;
         }
 
-        // for now, we print the linearized form
+        // for now, we print the linearized form of a complete
+        // horner scheme
         match self {
-            HornerScheme::Node(_, v, p, gcd, children) => {
+            HornerScheme::Node(_, v, p, gcd_sub, gcd_rest, children) => {
                 let (c1, c2) = &mut **children;
 
                 let mut is = vec![];
 
                 is.push(Instructions::VarPow(*v, *p));
 
-                if !gcd.is_one() {
-                    is.push(Instructions::Number(gcd.clone()));
+                if !gcd_sub.is_one() {
+                    is.push(Instructions::Number(gcd_sub.clone()));
                 }
 
                 let mut is_constant = None;
@@ -403,7 +450,7 @@ impl<R: Ring, E: Exponent> HornerScheme<R, E> {
                 is_constant = None;
                 let is_zero = if let HornerScheme::Leaf(_, x) = c2 {
                     if !x.is_zero() && x.is_constant() {
-                        is_constant = Some(x.coefficients[0].clone());
+                        is_constant = x.get_constant();
                     }
                     x.is_zero()
                 } else {
@@ -413,10 +460,27 @@ impl<R: Ring, E: Exponent> HornerScheme<R, E> {
                 let ins = if !is_zero {
                     // if c2 is a constant, do not create an instruction
                     if let Some(n) = is_constant {
-                        Instructions::Add(Box::new((subins, Instructions::Number(n))))
+                        Instructions::Add(Box::new((
+                            subins,
+                            Instructions::Number(n * gcd_rest.clone()),
+                        )))
                     } else {
                         let num2 = c2.linearize_subexpr_rec(instructions, m);
-                        Instructions::Add(Box::new((subins, Instructions::InstructionNumber(num2))))
+
+                        if !gcd_rest.is_one() {
+                            Instructions::Add(Box::new((
+                                subins,
+                                Instructions::Mul(vec![
+                                    Instructions::Number(gcd_rest.clone()),
+                                    Instructions::InstructionNumber(num2),
+                                ]),
+                            )))
+                        } else {
+                            Instructions::Add(Box::new((
+                                subins,
+                                Instructions::InstructionNumber(num2),
+                            )))
+                        }
                     }
                 } else {
                     subins
@@ -425,7 +489,11 @@ impl<R: Ring, E: Exponent> HornerScheme<R, E> {
                 instructions.push(ins);
             }
             HornerScheme::Leaf(_, p) => {
-                instructions.push(Instructions::Poly(p.clone()));
+                if p.is_constant() {
+                    instructions.push(Instructions::Number(p.get_constant().unwrap()));
+                } else {
+                    instructions.push(Instructions::Poly(p.clone()));
+                }
             }
         }
 
@@ -463,7 +531,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         // get the lowest non-zero power of the variable
         let mut pow = E::zero();
         for t in 0..self.nterms {
-            if pow.is_zero() || pow > self.exponents(t)[v] {
+            if self.exponents(t)[v].as_() > 0 && (pow.is_zero() || pow > self.exponents(t)[v]) {
                 pow = self.exponents(t)[v];
             }
         }
@@ -491,30 +559,31 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             let mut subh = sub.horner(indices, extract_gcd);
             let mut resth = rest.horner(&indices[1..], extract_gcd);
 
+            let gcd_sub = subh.get_content();
+            subh.div_content(gcd_sub.clone());
+
             let is_zero = if let HornerScheme::Leaf(_, x) = &resth {
                 x.is_zero()
             } else {
                 false
             };
 
-            let gcd = if is_zero {
-                let gcd = subh.get_content();
-                subh.div_content(gcd.clone());
-                gcd
+            let gcd_rest = if is_zero {
+                R::one()
             } else {
-                let gcd = R::gcd(subh.get_content(), resth.get_content());
-                subh.div_content(gcd.clone());
-                resth.div_content(gcd.clone());
-                gcd
+                let gcd_rest = resth.get_content();
+                resth.div_content(gcd_rest.clone());
+                gcd_rest
             };
 
-            HornerScheme::Node(0, v, pow, gcd, Box::new((subh, resth)))
+            HornerScheme::Node(0, v, pow, gcd_sub, gcd_rest, Box::new((subh, resth)))
         } else {
             HornerScheme::Node(
                 0,
                 v,
                 pow,
                 R::one(), // FIXME: if prime field, this could cause issues with a wrong prime!
+                R::one(),
                 Box::new((
                     sub.horner(indices, extract_gcd),
                     rest.horner(&indices[1..], extract_gcd),

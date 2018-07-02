@@ -93,8 +93,7 @@ fn newton_interpolation<E: Exponent>(
 }
 
 fn construct_new_image<E: Exponent>(
-    ap: &MultivariatePolynomial<FiniteField, E>,
-    bp: &MultivariatePolynomial<FiniteField, E>,
+    poly_sampler: &mut PolynomialSampler<FiniteField, E>,
     aldegree: E,
     bldegree: E,
     bounds: &mut [u32],
@@ -103,10 +102,9 @@ fn construct_new_image<E: Exponent>(
     vars: &[usize],
     var: usize,
     gfu: &[(MultivariatePolynomial<FiniteField, E>, u32)],
-    poly_sampler: &mut PolynomialSampler<FiniteField, E>,
 ) -> Result<MultivariatePolynomial<FiniteField, E>, GCDError> {
-    let p = ap.coefficients[0].p;
-    let fastp = FastModulus::from(ap.coefficients[0].p);
+    let p = poly_sampler.get_prime().unwrap();
+    let fastp = FastModulus::from(p);
     let mut rng = rand::thread_rng();
     let mut range = Range::new(1, p);
 
@@ -120,7 +118,8 @@ fn construct_new_image<E: Exponent>(
     'newimage: loop {
         // generate random numbers for all non-leading variables
         let (r, a1, b1) = loop {
-            let r: Vec<(usize, ufield)> = vars.iter()
+            let r: Vec<(usize, ufield)> = vars
+                .iter()
                 .map(|i| (i.clone(), range.sample(&mut rng)))
                 .collect();
 
@@ -197,7 +196,7 @@ fn construct_new_image<E: Exponent>(
         // for single scaling, we split the matrix into (potentially overdetermined) block-submatrices
         if let Some(..) = single_scale {
             // construct the gcd
-            let mut gp = MultivariatePolynomial::with_nvars(ap.nvars);
+            let mut gp = MultivariatePolynomial::with_nvars(a1.nvars);
 
             for (i, &(ref c, ref ex)) in gfu.iter().enumerate() {
                 let mut gfm = vec![];
@@ -317,7 +316,7 @@ fn construct_new_image<E: Exponent>(
                 Ok(x) => {
                     debug!("Solution: {:?}", x);
                     // construct the gcd
-                    let mut gp = MultivariatePolynomial::with_nvars(ap.nvars);
+                    let mut gp = MultivariatePolynomial::with_nvars(a1.nvars);
 
                     // for every power of the main variable
                     let mut i = 0; // index in the result x
@@ -326,7 +325,7 @@ fn construct_new_image<E: Exponent>(
                             let mut ee = mv.exponents.to_vec();
                             ee[var] = E::from_u32(ex.clone()).unwrap();
 
-                            gp.append_monomial(FiniteField::new(x[i].clone(), p), ee);
+                            gp.append_monomial(FiniteField::new_safe(x[i].clone(), p), ee);
                             i += 1;
                         }
                     }
@@ -423,7 +422,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             res = zp::add(res, c, p);
         }
 
-        FiniteField::new(res, p.value())
+        FiniteField::new_safe(res, p.value())
     }
 
     /// Replace all variables except `v` in the polynomial by elements from
@@ -467,7 +466,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
         for (k, c) in tm {
             let mut e = vec![E::zero(); self.nvars];
             e[v] = *k;
-            res.append_monomial(FiniteField::new(mem::replace(c, 0), p.value()), e);
+            res.append_monomial(FiniteField::new_safe(mem::replace(c, 0), p.value()), e);
         }
 
         res
@@ -509,7 +508,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             if *c > 0 {
                 let mut e = vec![E::zero(); self.nvars];
                 e[v] = E::from_usize(k).unwrap();
-                res.append_monomial(FiniteField::new(mem::replace(c, 0), p.value()), e);
+                res.append_monomial(FiniteField::new_safe(mem::replace(c, 0), p.value()), e);
             }
         }
 
@@ -561,7 +560,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             failure_count += 1;
 
             let v = loop {
-                let a = FiniteField::new(range.sample(&mut rng), p);
+                let a = FiniteField::new_safe(range.sample(&mut rng), p);
                 if !gamma.replace(lastvar, a).is_zero() {
                     break a;
                 }
@@ -632,19 +631,16 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                 }
 
                 let v = loop {
-                    let v = FiniteField::new(range.sample(&mut rng), a.coefficients[0].p);
+                    let v = FiniteField::new_safe(range.sample(&mut rng), a.coefficients[0].p);
                     if !gamma.replace(lastvar, v).is_zero() {
                         break v;
                     }
                 };
 
-                let av = a.replace(lastvar, v);
-                let bv = b.replace(lastvar, v);
                 poly_sampler.set_sample(lastvar, v.n);
 
                 match construct_new_image(
-                    &av,
-                    &bv,
+                    poly_sampler,
                     a.degree(vars[0]),
                     b.degree(vars[0]),
                     bounds,
@@ -653,7 +649,6 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                     &vars[1..vars.len() - 1],
                     vars[0],
                     &gfu,
-                    poly_sampler,
                 ) {
                     Ok(r) => {
                         gv = r;
@@ -687,6 +682,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             }
 
             // do a probabilistic division test
+            // TODO: use sampler
             let (g1, a1, b1) = loop {
                 // store a table for variables raised to a certain power
                 let mut cache = (0..a.nvars)
@@ -701,9 +697,10 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                     })
                     .collect::<Vec<_>>();
 
-                let r: Vec<(usize, FiniteField)> = vars.iter()
+                let r: Vec<(usize, FiniteField)> = vars
+                    .iter()
                     .skip(1)
-                    .map(|i| (*i, FiniteField::new(range.sample(&mut rng), p)))
+                    .map(|i| (*i, FiniteField::new_safe(range.sample(&mut rng), p)))
                     .collect();
 
                 let g1 = gc.replace_all_except(vars[0], &r, &mut cache);
@@ -895,7 +892,8 @@ where
                 }
             }
 
-            let r: Vec<(usize, ufield)> = vars.iter()
+            let r: Vec<(usize, ufield)> = vars
+                .iter()
                 .map(|i| (i.clone(), range.sample(&mut rng)))
                 .collect();
 
@@ -1002,7 +1000,8 @@ where
         let bp = b.to_finite_field(LARGE_U32_PRIMES[0]);
         let mut tight_bounds = vec![0; a.nvars];
         for var in vars.iter() {
-            let mut vvars = vars.iter()
+            let mut vvars = vars
+                .iter()
                 .filter(|i| *i != var)
                 .cloned()
                 .collect::<Vec<_>>();
@@ -1064,6 +1063,11 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
 
         let mut pi = 0;
 
+        // construct the polynomial sampler
+        let mut poly_sampler = PolynomialSampler::new(a.nvars);
+        poly_sampler.add(a, vars[0], &vars[1..]);
+        poly_sampler.add(b, vars[0], &vars[1..]);
+
         'newfirstprime: loop {
             pi += 1;
             for _ in pi..LARGE_U32_PRIMES.len() {
@@ -1083,12 +1087,7 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
             let ap = a.to_finite_field(p);
             let bp = b.to_finite_field(p);
 
-            // construct the polynomial sampler
-            // TODO: construct only once in Z
-            let mut poly_sampler = PolynomialSampler::new(a.nvars);
-            poly_sampler.set_prime(p);
-            poly_sampler.add(&ap, vars[0], &vars[1..]);
-            poly_sampler.add(&bp, vars[0], &vars[1..]);
+            let mut poly_sampler_p = poly_sampler.set_prime(p);
 
             debug!("New first image: gcd({},{}) mod {}", ap, bp, p);
 
@@ -1100,7 +1099,7 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                     vars,
                     bounds,
                     tight_bounds,
-                    &mut poly_sampler,
+                    &mut poly_sampler_p,
                 ) {
                     break x;
                 }
@@ -1138,7 +1137,8 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
             let mut gm = MultivariatePolynomial::with_nvars(gp.nvars);
             gm.nterms = gp.nterms;
             gm.exponents = gp.exponents.clone();
-            gm.coefficients = gp.coefficients
+            gm.coefficients = gp
+                .coefficients
                 .iter()
                 .map(|x| Number::from_finite_field(&(x.clone() * gammap / gpc)))
                 .collect();
@@ -1155,7 +1155,8 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                     // divide by integer content
                     let gmc = gm.content();
                     let mut gc = gm.clone();
-                    gc.coefficients = gc.coefficients
+                    gc.coefficients = gc
+                        .coefficients
                         .iter()
                         .map(|x| x.clone() / gmc.clone())
                         .collect();
@@ -1192,19 +1193,14 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                 let bp = b.to_finite_field(p);
                 debug!("New image: gcd({},{}) mod {}", ap, bp, p);
 
-                // TODO: avoid this repetition
-                poly_sampler = PolynomialSampler::new(a.nvars);
-                poly_sampler.set_prime(p);
-                poly_sampler.add(&ap, vars[0], &vars[1..]);
-                poly_sampler.add(&bp, vars[0], &vars[1..]);
+                poly_sampler_p = poly_sampler.set_prime(p);
 
                 // for the univariate case, we don't need to construct an image
                 if vars.len() == 1 {
                     gp = MultivariatePolynomial::univariate_gcd(&ap, &bp);
                 } else {
                     match construct_new_image(
-                        &ap,
-                        &bp,
+                        &mut poly_sampler_p,
                         a.degree(vars[0]),
                         b.degree(vars[0]),
                         bounds,
@@ -1213,7 +1209,6 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                         &vars[1..],
                         vars[0],
                         &gfu,
-                        &mut poly_sampler,
                     ) {
                         Ok(r) => {
                             gp = r;
@@ -1281,12 +1276,11 @@ impl<E: Exponent> PolynomialGCD for MultivariatePolynomial<FiniteField, E> {
         bounds: &mut [u32],
         tight_bounds: &mut [u32],
     ) -> MultivariatePolynomial<FiniteField, E> {
-        // FIXME: what to do with the poly_sampler?
-        println!("FIXME: the polysampler is unreliable for gcd in ff!");
+        // TODO: recycle a polysampler?
         let mut ps = PolynomialSampler::new(a.nvars);
         ps.set_prime(a.coefficients[0].p);
-        ps.add(a, vars[0], vars); // FIXME: is this correct?
-        ps.add(b, vars[0], vars); // FIXME: is this correct?
+        ps.add(a, vars[0], vars);
+        ps.add(b, vars[0], vars);
         MultivariatePolynomial::gcd_shape_modular(&a, &b, vars, bounds, tight_bounds, &mut ps)
             .unwrap()
     }
