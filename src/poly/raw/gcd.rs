@@ -156,7 +156,8 @@ fn construct_new_image<E: Exponent>(
                 }
             }
 
-            let r: Vec<(usize, ufield)> = vars.iter()
+            let r: Vec<(usize, ufield)> = vars
+                .iter()
                 .map(|i| (i.clone(), range.sample(&mut rng)))
                 .collect();
 
@@ -697,7 +698,8 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                     })
                     .collect::<Vec<_>>();
 
-                let r: Vec<(usize, FiniteField)> = vars.iter()
+                let r: Vec<(usize, FiniteField)> = vars
+                    .iter()
                     .skip(1)
                     .map(|i| (*i, FiniteField::new(range.sample(&mut rng), p)))
                     .collect();
@@ -891,7 +893,8 @@ where
                 }
             }
 
-            let r: Vec<(usize, ufield)> = vars.iter()
+            let r: Vec<(usize, ufield)> = vars
+                .iter()
                 .map(|i| (i.clone(), range.sample(&mut rng)))
                 .collect();
 
@@ -998,7 +1001,8 @@ where
         let bp = b.to_finite_field(LARGE_U32_PRIMES[0]);
         let mut tight_bounds = vec![0; a.nvars];
         for var in vars.iter() {
-            let mut vvars = vars.iter()
+            let mut vvars = vars
+                .iter()
                 .filter(|i| *i != var)
                 .cloned()
                 .collect::<Vec<_>>();
@@ -1082,11 +1086,17 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
             debug!("New first image: gcd({},{}) mod {}", ap, bp, p);
 
             // calculate modular gcd image
-            let mut gp = loop {
-                if let Some(x) =
-                    MultivariatePolynomial::gcd_shape_modular(&ap, &bp, vars, bounds, tight_bounds)
-                {
-                    break x;
+            let mut gp = match MultivariatePolynomial::gcd_shape_modular(
+                &ap,
+                &bp,
+                vars,
+                bounds,
+                tight_bounds,
+            ) {
+                Some(x) => x,
+                None => {
+                    debug!("Modular GCD failed: getting new prime");
+                    continue 'newfirstprime;
                 }
             };
 
@@ -1122,7 +1132,8 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
             let mut gm = MultivariatePolynomial::with_nvars(gp.nvars);
             gm.nterms = gp.nterms;
             gm.exponents = gp.exponents.clone();
-            gm.coefficients = gp.coefficients
+            gm.coefficients = gp
+                .coefficients
                 .iter()
                 .map(|x| Number::from_finite_field(&(x.clone() * gammap / gpc)))
                 .collect();
@@ -1139,7 +1150,8 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                     // divide by integer content
                     let gmc = gm.content();
                     let mut gc = gm.clone();
-                    gc.coefficients = gc.coefficients
+                    gc.coefficients = gc
+                        .coefficients
                         .iter()
                         .map(|x| x.clone() / gmc.clone())
                         .collect();
