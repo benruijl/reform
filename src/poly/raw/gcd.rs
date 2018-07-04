@@ -156,8 +156,7 @@ fn construct_new_image<E: Exponent>(
                 }
             }
 
-            let r: Vec<(usize, ufield)> = vars
-                .iter()
+            let r: Vec<(usize, ufield)> = vars.iter()
                 .map(|i| (i.clone(), range.sample(&mut rng)))
                 .collect();
 
@@ -569,6 +568,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                 }
             };
 
+            debug!("Chosen variable: {}", v);
             let av = a.replace(lastvar, v);
             let bv = b.replace(lastvar, v);
 
@@ -698,8 +698,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                     })
                     .collect::<Vec<_>>();
 
-                let r: Vec<(usize, FiniteField)> = vars
-                    .iter()
+                let r: Vec<(usize, FiniteField)> = vars.iter()
                     .skip(1)
                     .map(|i| (*i, FiniteField::new(range.sample(&mut rng), p)))
                     .collect();
@@ -778,12 +777,20 @@ where
             return gcd;
         }
 
+        // TODO: extract gcd of content first, since that may easily cause a miss!
         let mut rng = rand::thread_rng();
         let mut k = 1; // counter for scalar multiple
         let mut gcd;
 
+        // take the smallest element
+        let mut index_smallest = f.iter()
+            .enumerate()
+            .min_by_key(|(_, v)| v.nterms)
+            .unwrap()
+            .0;
+
         loop {
-            let a = f.swap_remove(0); // TODO: take the smallest?
+            let a = f.swap_remove(index_smallest);
             let mut b = MultivariatePolynomial::with_nvars(a.nvars);
 
             for p in f.iter() {
@@ -811,9 +818,14 @@ where
                 return gcd;
             }
 
-            debug!("Multiple-gcd was not found instantly: {:?}; {}", newf, gcd);
+            debug!(
+                "Multiple-gcd was not found instantly. GCD guess: {}; Terms left: {}",
+                gcd,
+                newf.len()
+            );
 
             newf.push(gcd);
+            index_smallest = newf.len() - 1; // the gcd is the smallest element
             mem::swap(&mut newf, &mut f);
         }
     }
@@ -893,8 +905,7 @@ where
                 }
             }
 
-            let r: Vec<(usize, ufield)> = vars
-                .iter()
+            let r: Vec<(usize, ufield)> = vars.iter()
                 .map(|i| (i.clone(), range.sample(&mut rng)))
                 .collect();
 
@@ -917,8 +928,6 @@ where
     ) -> MultivariatePolynomial<R, E> {
         debug_assert_eq!(a.nvars, b.nvars);
 
-        debug!("Compute gcd({}, {})", a, b);
-
         // if we have two numbers, use the integer gcd
         if a.is_constant() && b.is_constant() {
             return MultivariatePolynomial::from_constant_with_nvars(
@@ -926,6 +935,8 @@ where
                 a.nvars,
             );
         }
+
+        debug!("Compute gcd({}, {})", a, b);
 
         // compute the gcd efficiently if some variables do not occur in both
         // polynomials
@@ -969,6 +980,7 @@ where
 
         // remove the gcd of the content wrt the first variable
         // TODO: don't do for univariate poly
+        debug!("Starting content computation");
         let c = MultivariatePolynomial::univariate_content_gcd(a, b, vars[0]);
         debug!("GCD of content: {}", c);
 
@@ -1001,8 +1013,7 @@ where
         let bp = b.to_finite_field(LARGE_U32_PRIMES[0]);
         let mut tight_bounds = vec![0; a.nvars];
         for var in vars.iter() {
-            let mut vvars = vars
-                .iter()
+            let mut vvars = vars.iter()
                 .filter(|i| *i != var)
                 .cloned()
                 .collect::<Vec<_>>();
@@ -1017,9 +1028,11 @@ where
         // TODO: understand better why copying is so much faster (about 10%) than using a map
         vars.sort_by(|&i, &j| tight_bounds[j].cmp(&tight_bounds[i]));
 
-        if vars.windows(2).all(|s| s[0] < s[1]) {
+        if vars.len() == 1 || vars.windows(2).all(|s| s[0] < s[1]) {
+            debug!("Computing gcd without map");
             PolynomialGCD::gcd(&a, &b, &vars, &mut bounds, &mut tight_bounds)
         } else {
+            debug!("Rearranging variables with map: {:?}", vars);
             let aa = a.rearrange(&vars, false);
             let bb = b.rearrange(&vars, false);
 
@@ -1033,7 +1046,30 @@ where
                 newtight_bounds[x] = tight_bounds[vars[x]];
             }
 
-            let gcd = PolynomialGCD::gcd(
+            // we need to extract the content if the first variable changed
+            if vars[1..].iter().any(|&c| c < vars[0]) {
+                debug!("Starting new content computation after mapping {:?}", vars);
+                let c = MultivariatePolynomial::univariate_content_gcd(&aa, &bb, 0);
+                debug!("New content: {}", c);
+                if !c.is_one() {
+                    let x1 = aa.long_division(&c);
+                    let x2 = bb.long_division(&c);
+
+                    assert!(x1.1.is_zero());
+                    assert!(x2.1.is_zero());
+
+                    let gcd = c * PolynomialGCD::gcd(
+                        &x1.0,
+                        &x2.0,
+                        &(0..vars.len()).collect::<Vec<_>>(),
+                        &mut newbounds,
+                        &mut newtight_bounds,
+                    );
+                    return gcd.rearrange(&vars, true);
+                }
+            }
+
+            let gcd = c * PolynomialGCD::gcd(
                 &aa,
                 &bb,
                 &(0..vars.len()).collect::<Vec<_>>(),
@@ -1132,8 +1168,7 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
             let mut gm = MultivariatePolynomial::with_nvars(gp.nvars);
             gm.nterms = gp.nterms;
             gm.exponents = gp.exponents.clone();
-            gm.coefficients = gp
-                .coefficients
+            gm.coefficients = gp.coefficients
                 .iter()
                 .map(|x| Number::from_finite_field(&(x.clone() * gammap / gpc)))
                 .collect();
@@ -1150,8 +1185,7 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                     // divide by integer content
                     let gmc = gm.content();
                     let mut gc = gm.clone();
-                    gc.coefficients = gc
-                        .coefficients
+                    gc.coefficients = gc.coefficients
                         .iter()
                         .map(|x| x.clone() / gmc.clone())
                         .collect();
