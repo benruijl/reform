@@ -616,7 +616,11 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             // In the case of multiple scaling, each sample adds an
             // additional unknown, except for the first
             if single_scale == None {
-                nx = (gv.nterms() - 1) / (gfu.len() - 1);
+                // TODO: this bound is likely incorrect
+                let nx1 = (gv.nterms() - 1) / (gfu.len() - 1);
+                if nx < nx1 {
+                    nx = nx1;
+                }
                 debug!("Multiple scaling case: sample {} times", nx);
             }
 
