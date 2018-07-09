@@ -428,9 +428,8 @@ impl<R: Ring, E: Exponent> Add for MultivariatePolynomial<R, E> {
 
         // Merge the two polynomials, which are assumed to be already sorted.
 
-        let mut new_coefficients = Vec::with_capacity(self.nterms + other.nterms);
-        let mut new_exponents: Vec<E> =
-            Vec::with_capacity(self.nvars * (self.nterms + other.nterms));
+        let mut new_coefficients = vec![R::zero(); self.nterms + other.nterms];
+        let mut new_exponents: Vec<E> = vec![E::zero(); self.nvars * (self.nterms + other.nterms)];
         let mut new_nterms = 0;
         let mut i = 0;
         let mut j = 0;
@@ -500,6 +499,9 @@ impl<R: Ring, E: Exponent> Add for MultivariatePolynomial<R, E> {
             j += 1;
         }
 
+        new_coefficients.truncate(new_nterms);
+        new_exponents.truncate(self.nvars * new_nterms);
+
         Self {
             coefficients: new_coefficients,
             exponents: new_exponents,
@@ -518,10 +520,12 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         source: &mut Self,
         i: usize,
     ) {
-        new_coefficients.push(mem::replace(&mut source.coefficients[i], R::zero()));
-        for e in source.exponents_mut(i) {
-            new_exponents.push(*e);
-        }
+        mem::swap(
+            &mut new_coefficients[*new_nterms],
+            &mut source.coefficients[i],
+        );
+        new_exponents[*new_nterms * source.nvars..(*new_nterms + 1) * source.nvars]
+            .clone_from_slice(&source.exponents(i));
         *new_nterms += 1;
     }
 }
@@ -666,11 +670,17 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
     // Get the highest degree of a variable in the leading monomial.
     pub fn ldegree(&self, v: usize) -> E {
+        if self.is_zero() {
+            return E::zero();
+        }
         self.last_exponents()[v].clone()
     }
 
     /// Get the highest degree of the leading monomial.
     pub fn ldegree_max(&self) -> E {
+        if self.is_zero() {
+            return E::zero();
+        }
         self.last_exponents()
             .iter()
             .max()
@@ -680,6 +690,9 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
     /// Get the leading coefficient.
     pub fn lcoeff(&self) -> R {
+        if self.is_zero() {
+            return R::zero();
+        }
         self.coefficients.last().unwrap().clone()
     }
 

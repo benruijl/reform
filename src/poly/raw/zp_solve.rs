@@ -1,6 +1,6 @@
 //! Linear solver in Zp.
 
-use ndarray::{Array1, Array2, ArrayBase, Data, Ix1, Ix2};
+use ndarray::{Array1, Array2, ArrayBase, Data, DataMut, Ix1, Ix2};
 
 use super::zp;
 use super::zp::{ucomp, ufield, Modulus};
@@ -10,6 +10,68 @@ use super::zp::{ucomp, ufield, Modulus};
 pub enum LinearSolverError {
     Underdetermined { min_rank: usize, max_rank: usize },
     Inconsistent,
+}
+
+/// Solves `m * x = 0` in Zp for the first `max_col` columns in x.
+/// The other columns are augmented.
+pub fn solve_subsystem<S1: DataMut<Elem = ufield>, M: Modulus<ucomp, ufield>>(
+    m: &mut ArrayBase<S1, Ix2>,
+    max_col: usize,
+    p: M,
+) -> Result<usize, LinearSolverError> {
+    let neqs = m.shape()[0];
+    let ncols = m.shape()[1];
+
+    // A fast check.
+    if neqs < max_col {
+        return Err(LinearSolverError::Underdetermined {
+            min_rank: 0,
+            max_rank: neqs,
+        });
+    }
+
+    // Gaussian elimination:
+    // First, transform the augmented matrix into the row echelon form.
+    let mut i = 0;
+    for j in 0..max_col {
+        if m[(i, j)] == 0 {
+            // Select a non-zero pivot.
+            for k in i + 1..neqs {
+                if m[(k, j)] != 0 {
+                    // Swap i-th row and k-th row.
+                    for l in j..ncols {
+                        m.swap((i, l), (k, l));
+                    }
+                    break;
+                }
+            }
+            if m[(i, j)] == 0 {
+                // NOTE: complete pivoting may give an increase of the rank.
+                return Err(LinearSolverError::Underdetermined {
+                    min_rank: i,
+                    max_rank: max_col - 1,
+                });
+            }
+        }
+        let x = m[(i, j)];
+        let inv_x = zp::inv(x, p);
+        for k in i + 1..neqs {
+            if m[(k, j)] != 0 {
+                let s = zp::mul(m[(k, j)], inv_x, p);
+                m[(k, j)] = 0;
+                for l in j + 1..ncols {
+                    m[(k, l)] = zp::sub(m[(k, l)], zp::mul(m[(i, l)], s, p), p);
+                }
+            }
+        }
+        i += 1;
+        if i >= neqs {
+            break;
+        }
+    }
+
+    // Return the rank
+    Ok(i)
 }
 
 /// Solves `a * x = b` in Zp.
@@ -40,50 +102,12 @@ pub fn solve<S1: Data<Elem = ufield>, S2: Data<Elem = ufield>, M: Modulus<ucomp,
         m[(i, nvars)] = *e;
     }
 
-    // by the Gaussian elimination
-
-    // First, transform the augmented matrix into the row echelon form.
-    let mut i = 0;
-    for j in 0..nvars {
-        if m[(i, j)] == 0 {
-            // Select a non-zero pivot.
-            for k in i + 1..neqs {
-                if m[(k, j)] != 0 {
-                    // Swap i-th row and k-th row.
-                    for l in j..nvars + 1 {
-                        m.swap((i, l), (k, l));
-                    }
-                    break;
-                }
-            }
-            if m[(i, j)] == 0 {
-                // NOTE: complete pivoting may give an increase of the rank.
-                return Err(LinearSolverError::Underdetermined {
-                    min_rank: i,
-                    max_rank: nvars - 1,
-                });
-            }
+    let mut i = match solve_subsystem(&mut m, nvars, p) {
+        Ok(i) => i,
+        Err(x) => {
+            return Err(x);
         }
-        let x = m[(i, j)];
-        let inv_x = zp::inv(x, p);
-        for k in i + 1..neqs {
-            if m[(k, j)] != 0 {
-                let s = zp::mul(m[(k, j)], inv_x, p);
-                #[cfg(debug_assertions)]
-                {
-                    m[(k, j)] = 0;
-                }
-                for l in j + 1..nvars + 1 {
-                    m[(k, l)] = zp::sub(m[(k, l)], zp::mul(m[(i, l)], s, p), p);
-                }
-            }
-        }
-        i += 1;
-        if i >= neqs {
-            break;
-        }
-    }
-
+    };
     let rank = i;
 
     // Check the consistency.

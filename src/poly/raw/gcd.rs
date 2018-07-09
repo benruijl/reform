@@ -22,7 +22,7 @@ use std::collections::hash_map::Entry;
 use tools::GCD;
 
 use ndarray::{arr1, Array};
-use poly::raw::zp_solve::{solve, LinearSolverError};
+use poly::raw::zp_solve::{solve, solve_subsystem, LinearSolverError};
 
 // 100 large u32 primes starting from the 203213901st prime number
 pub const LARGE_U32_PRIMES: [ufield; 100] = [
@@ -304,36 +304,23 @@ fn construct_new_image<E: Exponent>(
                 return Ok(gp);
             }
         } else {
-            let mut gfm = vec![];
-            let mut rhs = vec![0; gfu.len() * system.len()];
+            // multiple scaling case: construct subsystems with augmented
+            // columns for the scaling factors
+            let mut subsystems = Vec::with_capacity(gfu.len());
             for (i, &(ref c, ref _e)) in gfu.iter().enumerate() {
+                let mut gfm = vec![];
+
                 for (j, &(ref r, ref g, ref _scale_factor)) in system.iter().enumerate() {
-                    let mut row = vec![];
+                    let mut row = Vec::with_capacity(c.nterms + system.len());
 
                     debug_assert_eq!(g.nterms, gfu.len());
 
-                    // the first elements in the row come from the shape
-                    for ii in 0..gfu.len() {
-                        if i == ii {
-                            // note that we ignore the coefficient of the shape
-                            for t in 0..c.nterms {
-                                let mut coeff = FiniteField::new(1, p);
-                                for &(n, v) in r.iter() {
-                                    coeff = coeff * zp::pow(v, c.exponents(t)[n].as_(), &fastp);
-                                }
-                                row.push(coeff.n);
-                            }
-                        } else {
-                            for _ in 0..gfu[ii].0.nterms {
-                                row.push(0);
-                            }
+                    for t in 0..c.nterms {
+                        let mut coeff = FiniteField::new(1, p);
+                        for &(n, v) in r.iter() {
+                            coeff = coeff * zp::pow(v, c.exponents(t)[n].as_(), &fastp);
                         }
-                    }
-
-                    // the scaling of the first image is fixed to 1
-                    if j == 0 {
-                        let currow = i * system.len();
-                        rhs[currow] = zp::sub(rhs[currow], g.coefficients[i].n, &fastp);
+                        row.push(coeff.n);
                     }
 
                     for ii in 1..system.len() {
@@ -344,54 +331,177 @@ fn construct_new_image<E: Exponent>(
                         }
                     }
 
+                    // the scaling of the first image is fixed to 1
+                    // we add it as a last column, since that is the rhs
+                    if j == 0 {
+                        row.push(g.coefficients[i].n);
+                    } else {
+                        row.push(0);
+                    }
+
                     gfm.extend(row);
+                }
+
+                // bring each subsystem to upper triangular form
+                let mut m =
+                    Array::from_shape_vec((system.len(), c.nterms + system.len()), gfm).unwrap();
+
+                match solve_subsystem(&mut m, c.nterms, &fastp) {
+                    Ok(..) => {
+                        subsystems.push(m);
+                    }
+                    Err(LinearSolverError::Underdetermined { min_rank, max_rank }) => {
+                        debug!("Underdetermined system");
+
+                        if last_rank == (min_rank, max_rank) {
+                            rank_failure_count += 1;
+
+                            if rank_failure_count == 3 {
+                                debug!("Same degrees of freedom encountered 3 times: assuming bad prime/evaluation point");
+                                return Err(GCDError::BadCurrentImage);
+                            }
+                        } else {
+                            // update the rank and get new images
+                            rank_failure_count = 0;
+                            last_rank = (min_rank, max_rank);
+                            break;
+                        }
+                    }
+                    Err(LinearSolverError::Inconsistent) => {
+                        debug!("Inconsistent system");
+                        return Err(GCDError::BadOriginalImage);
+                    }
                 }
             }
 
-            let rows = gfu.len() * system.len();
-            let cols = gfm.len() / rows;
-            let m = Array::from_shape_vec((rows, cols), gfm).unwrap();
-
-            match solve(&m, &arr1(&rhs), &fastp) {
-                Ok(x) => {
-                    debug!("Solution: {:?}", x);
-                    // construct the gcd
-                    let mut gp = MultivariatePolynomial::with_nvars(ap.nvars);
-
-                    // for every power of the main variable
-                    let mut i = 0; // index in the result x
-                    for &(ref c, ref ex) in gfu.iter() {
-                        for mv in c.into_iter() {
-                            let mut ee = mv.exponents.to_vec();
-                            ee[var] = E::from_u32(ex.clone()).unwrap();
-
-                            gp.append_monomial(FiniteField::new(x[i].clone(), p), ee);
-                            i += 1;
+            if subsystems.len() == gfu.len() {
+                // construct a system for the scaling constants
+                let mut sys = vec![];
+                let mut rhs = vec![];
+                for s in &subsystems {
+                    for r in s.genrows() {
+                        // only include rows that only depend on scaling constants
+                        if r.iter().take(s.cols() - system.len()).any(|&x| x != 0) {
+                            continue;
                         }
-                    }
 
-                    debug!("Reconstructed {}", gp);
-                    return Ok(gp);
-                }
-                Err(LinearSolverError::Underdetermined { min_rank, max_rank }) => {
-                    debug!("Underdetermined system");
+                        // note the last column is the rhs, so we skip it
+                        sys.extend(
+                            r.iter()
+                                .skip(s.cols() - system.len())
+                                .take(system.len() - 1)
+                                .cloned(),
+                        );
 
-                    if last_rank == (min_rank, max_rank) {
-                        rank_failure_count += 1;
-
-                        if rank_failure_count == 3 {
-                            debug!("Same degrees of freedom encountered 3 times: assuming bad prime/evaluation point");
-                            return Err(GCDError::BadCurrentImage);
-                        }
-                    } else {
-                        // update the rank and get new images
-                        rank_failure_count = 0;
-                        last_rank = (min_rank, max_rank);
+                        rhs.push(zp::neg(r.iter().last().unwrap().clone(), &fastp));
                     }
                 }
-                Err(LinearSolverError::Inconsistent) => {
-                    debug!("Inconsistent system");
-                    return Err(GCDError::BadOriginalImage);
+
+                let m = Array::from_shape_vec((rhs.len(), system.len() - 1), sys).unwrap();
+                match solve(&m, &arr1(&rhs), &fastp) {
+                    Ok(x) => {
+                        debug!("Solved scaling constants: {:?}", x);
+
+                        let mut gp = MultivariatePolynomial::with_nvars(ap.nvars);
+
+                        // now we fill in the constants in the subsystems and solve it
+                        let mut si = 0;
+                        for s in &mut subsystems {
+                            // convert to arrays
+                            let mut m = Vec::with_capacity(s.rows() * s.rows());
+                            let mut rhs = Vec::with_capacity(s.rows());
+                            let k = s.cols() - system.len();
+                            for r in s.genrows() {
+                                if r.iter().take(s.cols() - system.len()).all(|&x| x == 0) {
+                                    continue;
+                                }
+
+                                let mut coeff = 0;
+                                for (i, &xx) in r.iter().enumerate() {
+                                    if i < k {
+                                        m.push(xx);
+                                    } else {
+                                        if i == r.len() - 1 {
+                                            coeff = zp::sub(coeff, xx, &fastp);
+                                        } else {
+                                            coeff = zp::sub(
+                                                coeff,
+                                                zp::mul(xx, x[i - k], &fastp),
+                                                &fastp,
+                                            );
+                                        }
+                                    }
+                                }
+                                rhs.push(coeff);
+                            }
+
+                            // solve the system and plug in the scaling constants
+                            let mm = Array::from_shape_vec((rhs.len(), k), m).unwrap();
+                            match solve(&mm, &arr1(&rhs), &fastp) {
+                                Ok(x) => {
+                                    // for every power of the main variable
+                                    let mut i = 0; // index in the result x
+                                    let (ref c, ref ex) = gfu[si];
+                                    for mv in c.into_iter() {
+                                        let mut ee = mv.exponents.to_vec();
+                                        ee[var] = E::from_u32(ex.clone()).unwrap();
+
+                                        gp.append_monomial(FiniteField::new(x[i].clone(), p), ee);
+                                        i += 1;
+                                    }
+                                }
+                                Err(LinearSolverError::Underdetermined { min_rank, max_rank }) => {
+                                    debug!("Underdetermined system");
+
+                                    if last_rank == (min_rank, max_rank) {
+                                        rank_failure_count += 1;
+
+                                        if rank_failure_count == 3 {
+                                            debug!("Same degrees of freedom encountered 3 times: assuming bad prime/evaluation point");
+                                            return Err(GCDError::BadCurrentImage);
+                                        }
+                                    } else {
+                                        // update the rank and get new images
+                                        rank_failure_count = 0;
+                                        last_rank = (min_rank, max_rank);
+                                        gp = MultivariatePolynomial::with_nvars(ap.nvars);
+                                        break;
+                                    }
+                                }
+                                Err(LinearSolverError::Inconsistent) => {
+                                    debug!("Inconsistent system");
+                                    return Err(GCDError::BadOriginalImage);
+                                }
+                            }
+
+                            si += 1;
+                        }
+
+                        if !gp.is_zero() {
+                            debug!("Reconstructed {}", gp);
+                            return Ok(gp);
+                        }
+                    }
+                    Err(LinearSolverError::Underdetermined { min_rank, max_rank }) => {
+                        debug!("Underdetermined system");
+
+                        if last_rank == (min_rank, max_rank) {
+                            rank_failure_count += 1;
+
+                            if rank_failure_count == 3 {
+                                debug!("Same degrees of freedom encountered 3 times: assuming bad prime/evaluation point");
+                                return Err(GCDError::BadCurrentImage);
+                            }
+                        } else {
+                            // update the rank and get new images
+                            rank_failure_count = 0;
+                            last_rank = (min_rank, max_rank);
+                        }
+                    }
+                    Err(LinearSolverError::Inconsistent) => {
+                        debug!("Inconsistent system");
+                        return Err(GCDError::BadOriginalImage);
+                    }
                 }
             }
         }
@@ -616,8 +726,10 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             // In the case of multiple scaling, each sample adds an
             // additional unknown, except for the first
             if single_scale == None {
-                // TODO: this bound is likely incorrect
-                let nx1 = (gv.nterms() - 1) / (gfu.len() - 1);
+                let mut nx1 = (gv.nterms() - 1) / (gfu.len() - 1);
+                if (gv.nterms() - 1) % (gfu.len() - 1) != 0 {
+                    nx1 += 1;
+                }
                 if nx < nx1 {
                     nx = nx1;
                 }
@@ -1163,7 +1275,14 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
             // In the case of multiple scaling, each sample adds an
             // additional unknown, except for the first
             if single_scale == None {
-                nx = (gp.nterms() - 1) / (gfu.len() - 1);
+                let mut nx1 = (gp.nterms() - 1) / (gfu.len() - 1);
+                if (gp.nterms() - 1) % (gfu.len() - 1) != 0 {
+                    nx1 += 1;
+                }
+                if nx < nx1 {
+                    nx = nx1;
+                }
+                debug!("Multiple scaling case: sample {} times", nx);
             }
 
             let gpc = gp.lcoeff_varorder(vars);
