@@ -12,6 +12,84 @@ pub enum LinearSolverError {
     Inconsistent,
 }
 
+/// Solves `a * x = b` in Zp for the first `max_col` columns in x.
+pub fn solve_subsystem<
+    S1: Data<Elem = ufield>,
+    S2: Data<Elem = ufield>,
+    M: Modulus<ucomp, ufield>,
+>(
+    a: &ArrayBase<S1, Ix2>,
+    b: &ArrayBase<S2, Ix1>,
+    max_col: usize,
+    p: M,
+) -> Result<Array2<ufield>, LinearSolverError> {
+    assert!(a.shape()[0] == b.shape()[0]);
+
+    let neqs = a.shape()[0];
+    let nvars = a.shape()[1];
+
+    // A fast check.
+    if neqs < nvars - max_col {
+        return Err(LinearSolverError::Underdetermined {
+            min_rank: 0,
+            max_rank: neqs,
+        });
+    }
+
+    // Create the augmented matrix.
+    let mut m = unsafe { Array2::<ufield>::uninitialized((neqs, nvars + 1)) };
+    for (i, e) in a.indexed_iter() {
+        m[i] = *e;
+    }
+    for (i, e) in b.indexed_iter() {
+        m[(i, nvars)] = *e;
+    }
+
+    // by the Gaussian elimination
+
+    // First, transform the augmented matrix into the row echelon form.
+    let mut i = 0;
+    for j in 0..nvars - max_col {
+        if m[(i, j)] == 0 {
+            // Select a non-zero pivot.
+            for k in i + 1..neqs {
+                if m[(k, j)] != 0 {
+                    // Swap i-th row and k-th row.
+                    for l in j..nvars + 1 {
+                        m.swap((i, l), (k, l));
+                    }
+                    break;
+                }
+            }
+            if m[(i, j)] == 0 {
+                // NOTE: complete pivoting may give an increase of the rank.
+                return Err(LinearSolverError::Underdetermined {
+                    min_rank: i,
+                    max_rank: nvars - 1,
+                });
+            }
+        }
+        let x = m[(i, j)];
+        let inv_x = zp::inv(x, p);
+        for k in i + 1..neqs {
+            if m[(k, j)] != 0 {
+                let s = zp::mul(m[(k, j)], inv_x, p);
+                m[(k, j)] = 0;
+                for l in j + 1..nvars + 1 {
+                    m[(k, l)] = zp::sub(m[(k, l)], zp::mul(m[(i, l)], s, p), p);
+                }
+            }
+        }
+        i += 1;
+        if i >= neqs {
+            break;
+        }
+    }
+
+    // Return the solution.
+    Ok(m)
+}
+
 /// Solves `a * x = b` in Zp.
 pub fn solve<S1: Data<Elem = ufield>, S2: Data<Elem = ufield>, M: Modulus<ucomp, ufield>>(
     a: &ArrayBase<S1, Ix2>,
