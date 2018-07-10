@@ -79,8 +79,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     }
 
     pub fn to_finite_field(&self, p: ufield) -> MultivariatePolynomial<FiniteField, E> {
-        let newc = self
-            .coefficients
+        let newc = self.coefficients
             .iter()
             .map(|x| x.to_finite_field(p))
             .collect();
@@ -671,11 +670,17 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
     // Get the highest degree of a variable in the leading monomial.
     pub fn ldegree(&self, v: usize) -> E {
+        if self.is_zero() {
+            return E::zero();
+        }
         self.last_exponents()[v].clone()
     }
 
     /// Get the highest degree of the leading monomial.
     pub fn ldegree_max(&self) -> E {
+        if self.is_zero() {
+            return E::zero();
+        }
         self.last_exponents()
             .iter()
             .max()
@@ -685,6 +690,9 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
     /// Get the leading coefficient.
     pub fn lcoeff(&self) -> R {
+        if self.is_zero() {
+            return R::zero();
+        }
         self.coefficients.last().unwrap().clone()
     }
 
@@ -1003,8 +1011,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             let tc =
                 r.coefficients.last().unwrap().clone() / div.coefficients.last().unwrap().clone();
 
-            let tp: Vec<E> = r
-                .last_exponents()
+            let tp: Vec<E> = r.last_exponents()
                 .iter()
                 .zip(divdeg.iter())
                 .map(|(e1, e2)| e1.clone() - e2.clone())
