@@ -27,7 +27,8 @@ impl<R: Ring, E: Exponent> Monomial<R, E> {
             .iter()
             .zip(&other.exponents)
             .all(|(a, b)| a >= b)
-            && (self.coefficient.clone() % other.coefficient.clone()).is_zero()
+            && (other.coefficient.is_one()
+                || (self.coefficient.clone() % other.coefficient.clone()).is_zero())
     }
 }
 

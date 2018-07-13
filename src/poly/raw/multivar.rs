@@ -1141,8 +1141,8 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
         h.push((
             Monomial::new(-self.lcoeff(), self.last_exponents().to_vec()),
-            0, // index in self/div viewed from the back (due to our poly ordering)
-            self.nterms + div.nterms, // index in q, we set it out of bounds to signal we need new terms from f
+            0,                  // index in self/div viewed from the back (due to our poly ordering)
+            usize::max_value(), // index in q, we set it out of bounds to signal we need new terms from f
         ));
 
         while h.len() > 0 {
@@ -1161,7 +1161,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                 }
 
                 // TODO: recycle memory from x for new element in h?
-                if j == self.nterms + div.nterms {
+                if j == usize::max_value() {
                     if i + 1 < self.nterms {
                         // we need a new term from self
                         h.push((
@@ -1214,6 +1214,14 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         // q and r have the highest monomials first
         q.reverse();
         r.reverse();
+
+        #[cfg(debug_assertions)]
+        {
+            if !(q.clone() * div.clone() + r.clone() - self.clone()).is_zero() {
+                panic!("Division failed: ({})/({}): q={}, r={}", self, div, q, r);
+            }
+        }
+
         (q, r)
     }
 }
