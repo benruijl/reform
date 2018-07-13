@@ -49,7 +49,7 @@ mod tests {
     }
 
     #[test]
-    fn long_division() {
+    fn divmod() {
         // (x^3-2x-4) = (x-3)*(x^2+x+3)+5
         let mut a = MultivariatePolynomial::from_monomial(1, vec![3]);
         a.append_monomial(-2, vec![2]);
@@ -64,7 +64,7 @@ mod tests {
 
         let r = MultivariatePolynomial::from_monomial(5, vec![0]);
 
-        assert_eq!(a.long_division(&b), (q, r));
+        assert_eq!(a.divmod(&b), (q, r));
     }
 
     #[test]

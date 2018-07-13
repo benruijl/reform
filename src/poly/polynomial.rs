@@ -11,10 +11,10 @@ use structure::{fmt_varname, Element, GlobalVarInfo, VarName};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Polynomial {
-    poly: MultivariatePolynomial<Number, u32>,
+    varcount: usize,
     varmap: HashMap<VarName, usize>, // map from names to internal name
     inv_varmap: Vec<VarName>,
-    varcount: usize,
+    poly: MultivariatePolynomial<Number, u32>,
 }
 
 impl Polynomial {
@@ -304,10 +304,10 @@ impl Polynomial {
         }
     }
 
-    pub fn long_division(&mut self, div: &mut Polynomial) -> (Polynomial, Polynomial) {
+    pub fn divmod(&mut self, div: &mut Polynomial) -> (Polynomial, Polynomial) {
         self.unify_varmaps(div);
 
-        let (q, r) = self.poly.long_division(&div.poly);
+        let (q, r) = self.poly.divmod(&div.poly);
 
         (
             Polynomial {
@@ -359,7 +359,7 @@ impl Div for Polynomial {
         self.unify_varmaps(&mut other);
 
         Polynomial {
-            poly: self.poly.long_division(&other.poly).0,
+            poly: self.poly.divmod(&other.poly).0,
             varmap: self.varmap,
             inv_varmap: self.inv_varmap,
             varcount: self.varcount,

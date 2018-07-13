@@ -577,18 +577,18 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
             let mut g1 = num.gcd(den1);
             let mut g2 = num1.gcd(den);
 
-            let numnew = num.long_division(&mut g1).0;
-            let num1new = num1.long_division(&mut g2).0;
-            let dennew = den.long_division(&mut g2).0;
-            let den1new = den1.long_division(&mut g1).0;
+            let numnew = num.divmod(&mut g1).0;
+            let num1new = num1.divmod(&mut g2).0;
+            let dennew = den.divmod(&mut g2).0;
+            let den1new = den1.divmod(&mut g1).0;
 
             *num = numnew * num1new;
             *den = dennew * den1new;
 
             let mut g = num.gcd(den);
 
-            *num = num.long_division(&mut g).0;
-            *den = den.long_division(&mut g).0;
+            *num = num.divmod(&mut g).0;
+            *den = den.divmod(&mut g).0;
 
             return true;
         }
@@ -713,18 +713,21 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
                     let (ref mut num, ref mut den) = &mut **p1; // note the switch
                     let (ref mut num1, ref mut den1) = &mut **p;
 
-                    // newden = lcm(den,den1) = den * (den1/gcd(den,den1))
-                    // newnum: num * (newden/den) + num1 * (newden/den1)
-                    let mut g = den.gcd(den1);
-                    let mut newden = den.clone() * den1.long_division(&mut g).0;
-                    let mut scale = newden.long_division(den).0;
-                    let mut scale1 = newden.long_division(den1).0;
-                    let mut newnum = mem::replace(num, Polynomial::new()) * scale
-                        + mem::replace(num1, Polynomial::new()) * scale1;
+                    if den == den1 {
+                        *num = mem::replace(num, Polynomial::new())
+                            + mem::replace(num1, Polynomial::new());
+                    } else {
+                        let mut g = den.gcd(den1);
+                        let mut scale = den1.divmod(&mut g).0;
+                        let mut scale1 = den.divmod(&mut g).0;
+                        *num = mem::replace(num, Polynomial::new()) * scale.clone()
+                            + mem::replace(num1, Polynomial::new()) * scale1;
+                        *den = mem::replace(den, Polynomial::new()) * scale;
+                    }
 
-                    let mut g1 = newnum.gcd(&mut newden);
-                    *num = newnum.long_division(&mut g1).0;
-                    *den = newden.long_division(&mut g1).0;
+                    let mut g1 = num.gcd(den);
+                    *num = num.divmod(&mut g1).0;
+                    *den = den.divmod(&mut g1).0;
 
                     if num.is_zero() {
                         return true;
@@ -808,18 +811,20 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
             let (ref mut num, ref mut den) = &mut **p1;
             let (ref mut num1, ref mut den1) = &mut **p;
 
-            // newden = lcm(den,den1) = den * (den1/gcd(den,den1))
-            // newnum: num * (newden/den) + num1 * (newden/den1)
-            let mut g = den.gcd(den1);
-            let mut newden = den.clone() * den1.long_division(&mut g).0;
-            let mut scale = newden.long_division(den).0;
-            let mut scale1 = newden.long_division(den1).0;
-            let mut newnum = mem::replace(num, Polynomial::new()) * scale
-                + mem::replace(num1, Polynomial::new()) * scale1;
+            if den == den1 {
+                *num = mem::replace(num, Polynomial::new()) + mem::replace(num1, Polynomial::new());
+            } else {
+                let mut g = den.gcd(den1);
+                let mut scale = den1.divmod(&mut g).0;
+                let mut scale1 = den.divmod(&mut g).0;
+                *num = mem::replace(num, Polynomial::new()) * scale.clone()
+                    + mem::replace(num1, Polynomial::new()) * scale1;
+                *den = mem::replace(den, Polynomial::new()) * scale;
+            }
 
-            let mut g1 = newnum.gcd(&mut newden);
-            *num = newnum.long_division(&mut g1).0;
-            *den = newden.long_division(&mut g1).0;
+            let mut g1 = num.gcd(den);
+            *num = num.divmod(&mut g1).0;
+            *den = den.divmod(&mut g1).0;
 
             if num.is_zero() {
                 return true;

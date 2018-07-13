@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
+use std::collections::BinaryHeap;
 use std::collections::HashMap;
 use std::fmt;
 use std::mem;
@@ -12,6 +13,7 @@ use poly::exponent::Exponent;
 use poly::ring::Ring;
 
 use poly::raw::finitefield::FiniteField;
+use poly::raw::monomial::Monomial;
 use poly::raw::zp::ufield;
 
 /// Multivariate polynomial with a degree sparse and variable dense representation.
@@ -45,6 +47,17 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         Self {
             coefficients: Vec::new(),
             exponents: Vec::new(),
+            nterms: 0,
+            nvars: nvars,
+        }
+    }
+
+    /// Constructs a zero polynomial with the given number of variables and capacity.
+    #[inline]
+    pub fn with_nvars_and_capacity(nvars: usize, cap: usize) -> Self {
+        Self {
+            coefficients: Vec::with_capacity(cap),
+            exponents: Vec::with_capacity(cap * nvars),
             nterms: 0,
             nvars: nvars,
         }
@@ -89,6 +102,23 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         a.coefficients = newc;
         a.nterms = self.nterms;
         a
+    }
+
+    /// Get the ith monomial
+    pub fn to_monomial(&self, i: usize) -> Monomial<R, E> {
+        assert!(i < self.nterms);
+
+        Monomial::new(self.coefficients[i].clone(), self.exponents(i).to_vec())
+    }
+
+    /// Get the ith monomial
+    pub fn to_monomial_view(&self, i: usize) -> MultivariateMonomialView<R, E> {
+        assert!(i < self.nterms);
+
+        MultivariateMonomialView {
+            coefficient: &self.coefficients[i],
+            exponents: &self.exponents(i),
+        }
     }
 
     /// Returns the number of terms in the polynomial.
@@ -139,6 +169,25 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         self.nterms = 0;
         self.coefficients.clear();
         self.exponents.clear();
+    }
+
+    /// Reverse the monomial ordering in-place.
+    fn reverse(&mut self) {
+        self.coefficients.reverse();
+
+        let midu = if self.nterms % 2 == 0 {
+            self.nvars * (self.nterms / 2)
+        } else {
+            self.nvars * (self.nterms / 2 + 1)
+        };
+
+        let (l, r) = self.exponents.split_at_mut(midu);
+
+        let rend = r.len();
+        for i in 0..self.nterms / 2 {
+            l[i * self.nvars..(i + 1) * self.nvars]
+                .swap_with_slice(&mut r[rend - (i + 1) * self.nvars..rend - i * self.nvars]);
+        }
     }
 
     /// Compares exponent vectors of two monomials.
@@ -982,7 +1031,8 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     /// Long division for multivarariate polynomial.
     /// If the ring `R` is not a field, and the coefficient does not cleanly divide,
     /// the division is stopped and the current quotient and rest term are returned.
-    pub fn long_division(
+    #[allow(dead_code)]
+    fn long_division(
         &self,
         div: &MultivariatePolynomial<R, E>,
     ) -> (MultivariatePolynomial<R, E>, MultivariatePolynomial<R, E>) {
@@ -1021,6 +1071,149 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             r = r - div.clone().mul_monomial(&tc, &tp);
         }
 
+        (q, r)
+    }
+
+    /// Divide two multivariate polynomials.
+    pub fn divmod(
+        &self,
+        div: &MultivariatePolynomial<R, E>,
+    ) -> (MultivariatePolynomial<R, E>, MultivariatePolynomial<R, E>) {
+        if div.is_zero() {
+            panic!("Cannot divide by 0 polynomial");
+        }
+
+        if self.is_zero() {
+            return (self.clone(), self.clone());
+        }
+
+        if div.is_one() {
+            return (self.clone(), MultivariatePolynomial::with_nvars(self.nvars));
+        }
+
+        if div.nterms == 1 {
+            let mut q = MultivariatePolynomial::with_nvars_and_capacity(self.nvars, self.nterms);
+            let mut r = MultivariatePolynomial::with_nvars(self.nvars);
+            let dive = div.to_monomial(0);
+
+            for i in 0..self.nterms {
+                let mut m = self.to_monomial(i);
+                if m.divides(&dive) {
+                    let mut t = m / &dive;
+                    q.coefficients.push(t.coefficient);
+                    q.exponents.append(&mut t.exponents);
+                    q.nterms += 1;
+                } else {
+                    r.coefficients.push(m.coefficient);
+                    r.exponents.append(&mut m.exponents);
+                    r.nterms += 1;
+                }
+            }
+
+            return (q, r);
+        }
+
+        // TODO: use other algorithm for univariate div
+        self.heap_division(div)
+    }
+
+    /// Heap division for multivariate polynomials.
+    /// Reference: "Polynomial Division Using Dynamic Arrays, Heaps, and Packed Exponent Vectors" by
+    /// Monagan, Pearce (2007)
+    /// TODO: implement "Sparse polynomial division using a heap" by Monagan, Pearce (2011)
+    fn heap_division(
+        &self,
+        div: &MultivariatePolynomial<R, E>,
+    ) -> (MultivariatePolynomial<R, E>, MultivariatePolynomial<R, E>) {
+        let mut q = MultivariatePolynomial::with_nvars_and_capacity(self.nvars, self.nterms);
+        let mut r = MultivariatePolynomial::with_nvars(self.nvars);
+        let mut s = div.nterms - 1; // index viewed from the back
+        let mut h = BinaryHeap::with_capacity(div.nterms);
+        let mut t = Monomial {
+            coefficient: R::zero(),
+            exponents: vec![E::zero(); self.nvars],
+        };
+
+        let lm = Monomial {
+            coefficient: div.lcoeff(),
+            exponents: div.last_exponents().to_vec(),
+        };
+
+        h.push((
+            Monomial::new(-self.lcoeff(), self.last_exponents().to_vec()),
+            0, // index in self/div viewed from the back (due to our poly ordering)
+            self.nterms + div.nterms, // index in q, we set it out of bounds to signal we need new terms from f
+        ));
+
+        while h.len() > 0 {
+            t.coefficient = R::zero();
+            for e in t.exponents.iter_mut() {
+                *e = E::zero();
+            }
+
+            loop {
+                let (x, i, j) = h.pop().unwrap();
+
+                if t.coefficient.is_zero() {
+                    t = -x;
+                } else {
+                    t = t - x;
+                }
+
+                // TODO: recycle memory from x for new element in h?
+                if j == self.nterms + div.nterms {
+                    if i + 1 < self.nterms {
+                        // we need a new term from self
+                        h.push((
+                            Monomial::new(
+                                -self.coefficients[self.nterms - i - 2].clone(),
+                                self.exponents(self.nterms - i - 2).to_vec(),
+                            ),
+                            i + 1,
+                            j,
+                        ));
+                    }
+                } else if j + 1 < q.nterms {
+                    h.push((
+                        q.to_monomial(j + 1) * div.to_monomial_view(div.nterms - i - 1),
+                        i,
+                        j + 1,
+                    ));
+                } else {
+                    s += 1;
+                }
+
+                if h.len() == 0 || t != h.peek().unwrap().0 {
+                    break;
+                }
+            }
+            if !t.coefficient.is_zero() && t.divides(&lm) {
+                let t1 = t.clone() / &lm;
+
+                // add t to q
+                q.coefficients.push(t1.coefficient.clone());
+                q.exponents.extend(&t1.exponents);
+                q.nterms += 1;
+
+                for i in div.nterms - s - 1..div.nterms - 1 {
+                    h.push((div.to_monomial(i) * &t1, div.nterms - i - 1, q.nterms - 1));
+                }
+
+                s = 0;
+            } else {
+                // add t to r
+                if !t.coefficient.is_zero() {
+                    r.coefficients
+                        .push(mem::replace(&mut t.coefficient, R::zero()));
+                    r.exponents.extend(&t.exponents);
+                    r.nterms += 1;
+                }
+            }
+        }
+
+        // q and r have the highest monomials first
+        q.reverse();
+        r.reverse();
         (q, r)
     }
 }

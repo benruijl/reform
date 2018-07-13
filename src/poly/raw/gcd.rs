@@ -509,6 +509,78 @@ fn construct_new_image<E: Exponent>(
 }
 
 impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
+    /// Optimized division routine for the univariate case in a finite field.
+    fn divmod_finite(
+        &self,
+        div: &mut MultivariatePolynomial<FiniteField, E>,
+        p: &FastModulus,
+    ) -> (
+        MultivariatePolynomial<FiniteField, E>,
+        MultivariatePolynomial<FiniteField, E>,
+    ) {
+        if div.nterms == 1 {
+            // calculate inverse once
+            let inv = zp::inv(div.coefficients[0].n, p);
+
+            if div.is_constant() {
+                let mut q = self.clone();
+                for c in &mut q.coefficients {
+                    c.n = zp::mul(c.n, inv, p);
+                }
+
+                return (q, MultivariatePolynomial::with_nvars(self.nvars));
+            }
+
+            let mut q = MultivariatePolynomial::with_nvars_and_capacity(self.nvars, self.nterms);
+            let mut r = MultivariatePolynomial::with_nvars(self.nvars);
+            let dive = div.exponents(0);
+
+            for m in self.into_iter() {
+                if m.exponents.iter().zip(dive).all(|(a, b)| a >= b) {
+                    q.coefficients.push(FiniteField::new(
+                        zp::mul(m.coefficient.n, inv, p),
+                        p.value(),
+                    ));
+
+                    for (ee, ed) in m.exponents.iter().zip(dive) {
+                        q.exponents.push(*ee - *ed);
+                    }
+                    q.nterms += 1;
+                } else {
+                    r.coefficients.push(m.coefficient.clone());
+                    r.exponents.extend(m.exponents);
+                    r.nterms += 1;
+                }
+            }
+            return (q, r);
+        }
+
+        // normalize the lcoeff to 1 to prevent a costly inversion
+        if !div.lcoeff().is_one() {
+            let o = div.lcoeff().n;
+            let inv = zp::inv(div.lcoeff().n, p);
+
+            for c in &mut div.coefficients {
+                c.n = zp::mul(c.n, inv, p);
+            }
+
+            let mut res = self.divmod(div);
+
+            for c in &mut res.0.coefficients {
+                c.n = zp::mul(c.n, o, p);
+            }
+
+            for c in &mut div.coefficients {
+                c.n = zp::mul(c.n, o, p);
+            }
+            return res;
+        }
+
+        // fall back to generic case
+        // TODO: use specialized univariate algorithm?
+        self.divmod(div)
+    }
+
     /// Compute the univariate GCD using Euclid's algorithm. The result is normalized to 1.
     fn univariate_gcd(
         a: &MultivariatePolynomial<FiniteField, E>,
@@ -522,11 +594,15 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             mem::swap(&mut c, &mut d);
         }
 
-        let mut r = c.long_division(&d).1;
+        let p = FastModulus::from(a.coefficients[0].p);
+
+        // TODO: there exists an efficient algorithm for univariate poly
+        // division in a finite field using FFT
+        let mut r = c.divmod_finite(&mut d, &p).1;
         while !r.is_zero() {
             c = d;
             d = r;
-            r = c.long_division(&d).1;
+            r = c.divmod_finite(&mut d, &p).1;
         }
 
         // normalize the gcd
@@ -794,7 +870,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             let cont = gc.multivariate_content(lastvar);
             if !cont.is_one() {
                 debug!("Removing content in x{}: {}", lastvar, cont);
-                let cc = gc.long_division(&cont);
+                let cc = gc.divmod(&cont);
                 debug_assert!(cc.1.is_zero());
                 gc = cc.0;
             }
@@ -828,9 +904,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                 }
             };
 
-            if g1.is_one()
-                || (a1.long_division(&g1).1.is_zero() && b1.long_division(&g1).1.is_zero())
-            {
+            if g1.is_one() || (a1.divmod(&g1).1.is_zero() && b1.divmod(&g1).1.is_zero()) {
                 return Some(gc);
             }
 
@@ -925,7 +999,7 @@ where
 
             let mut newf: Vec<MultivariatePolynomial<R, E>> = Vec::with_capacity(f.len());
             for x in f.drain(..) {
-                if !x.long_division(&gcd).1.is_zero() {
+                if !x.divmod(&gcd).1.is_zero() {
                     newf.push(x);
                 }
             }
@@ -1101,8 +1175,8 @@ where
         debug!("GCD of content: {}", c);
 
         if !c.is_one() {
-            let x1 = a.long_division(&c);
-            let x2 = b.long_division(&c);
+            let x1 = a.divmod(&c);
+            let x2 = b.divmod(&c);
 
             assert!(x1.1.is_zero());
             assert!(x2.1.is_zero());
@@ -1168,8 +1242,8 @@ where
                 let c = MultivariatePolynomial::univariate_content_gcd(&aa, &bb, 0);
                 debug!("New content: {}", c);
                 if !c.is_one() {
-                    let x1 = aa.long_division(&c);
-                    let x2 = bb.long_division(&c);
+                    let x1 = aa.divmod(&c);
+                    let x2 = bb.divmod(&c);
 
                     assert!(x1.1.is_zero());
                     assert!(x2.1.is_zero());
@@ -1314,9 +1388,7 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                         .collect();
 
                     debug!("Final suggested gcd: {}", gc);
-                    if gc.is_one()
-                        || (a.long_division(&gc).1.is_zero() && b.long_division(&gc).1.is_zero())
-                    {
+                    if gc.is_one() || (a.divmod(&gc).1.is_zero() && b.divmod(&gc).1.is_zero()) {
                         return gc;
                     }
 
