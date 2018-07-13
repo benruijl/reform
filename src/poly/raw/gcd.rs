@@ -577,7 +577,6 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
         }
 
         // fall back to generic case
-        // TODO: use specialized univariate algorithm?
         self.divmod(div)
     }
 
@@ -653,9 +652,11 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
 
         let mut res = MultivariatePolynomial::with_nvars(self.nvars);
         for (k, c) in tm {
-            let mut e = vec![E::zero(); self.nvars];
-            e[v] = *k;
-            res.append_monomial(FiniteField::new(mem::replace(c, 0), p.value()), e);
+            if *c > 0 {
+                let mut e = vec![E::zero(); self.nvars];
+                e[v] = *k;
+                res.append_monomial(FiniteField::new(mem::replace(c, 0), p.value()), e);
+            }
         }
 
         res
@@ -1105,6 +1106,11 @@ where
             if a1.ldegree(var) == ap.degree(var) && b1.ldegree(var) == bp.degree(var) {
                 break (r, a1, b1);
             }
+
+            debug!(
+                "Degree error during sampling: trying again: a={}, a1=={}, bp={}, b1={}",
+                ap, a1, bp, b1
+            );
         };
 
         let g1 = MultivariatePolynomial::univariate_gcd(&a1, &b1);
@@ -1199,17 +1205,21 @@ where
 
         // find better upper bounds for all variables
         // these bounds could actually be wrong due to an unfortunate prime or sampling points
+        // TODO: make sure not too many terms cancel due to an unlucky prime choice
         let ap = a.to_finite_field(LARGE_U32_PRIMES[0]);
         let bp = b.to_finite_field(LARGE_U32_PRIMES[0]);
-        let mut tight_bounds = vec![0; a.nvars];
-        for var in vars.iter() {
-            let mut vvars = vars.iter()
-                .filter(|i| *i != var)
-                .cloned()
-                .collect::<Vec<_>>();
-            tight_bounds[*var] = MultivariatePolynomial::<Number, E>::get_gcd_var_bound(
-                &ap, &bp, &vvars, *var,
-            ).as_();
+        let mut tight_bounds = bounds.clone();
+
+        if !ap.is_zero() && !bp.is_zero() {
+            for var in vars.iter() {
+                let mut vvars = vars.iter()
+                    .filter(|i| *i != var)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                tight_bounds[*var] = MultivariatePolynomial::<Number, E>::get_gcd_var_bound(
+                    &ap, &bp, &vvars, *var,
+                ).as_();
+            }
         }
 
         // Determine a good variable ordering based on the estimated degree (decreasing) in the gcd.

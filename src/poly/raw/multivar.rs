@@ -92,15 +92,21 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     }
 
     pub fn to_finite_field(&self, p: ufield) -> MultivariatePolynomial<FiniteField, E> {
-        let newc = self.coefficients
-            .iter()
-            .map(|x| x.to_finite_field(p))
-            .collect();
+        let mut newc = Vec::with_capacity(self.coefficients.len());
+        let mut newe = Vec::with_capacity(self.exponents.len());
+
+        for m in self.into_iter() {
+            let nc = m.coefficient.to_finite_field(p);
+            if !nc.is_zero() {
+                newc.push(nc);
+                newe.extend(m.exponents);
+            }
+        }
 
         let mut a = MultivariatePolynomial::with_nvars(self.nvars);
-        a.exponents = self.exponents.clone();
+        a.nterms = newc.len();
+        a.exponents = newe;
         a.coefficients = newc;
-        a.nterms = self.nterms;
         a
     }
 
