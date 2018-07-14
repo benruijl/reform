@@ -565,7 +565,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                 c.n = zp::mul(c.n, inv, p);
             }
 
-            let mut res = self.divmod(div);
+            let mut res = self.synthetic_division(div);
 
             for c in &mut res.0.coefficients {
                 c.n = zp::mul(c.n, o, p);
@@ -578,7 +578,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
         }
 
         // fall back to generic case
-        self.divmod(div)
+        self.synthetic_division(div)
     }
 
     /// Compute the univariate GCD using Euclid's algorithm. The result is normalized to 1.

@@ -1072,6 +1072,99 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         tm
     }
 
+    /// Synthetic division for univariate polynomials
+    pub fn synthetic_division(
+        &self,
+        div: &MultivariatePolynomial<R, E>,
+    ) -> (MultivariatePolynomial<R, E>, MultivariatePolynomial<R, E>) {
+        let mut dividendpos = self.nterms - 1; // work from the back
+        let norm = div.coefficients.last().unwrap();
+
+        let mut q =
+            MultivariatePolynomial::<R, E>::with_nvars_and_capacity(self.nvars, self.nterms);
+        let mut r = MultivariatePolynomial::<R, E>::with_nvars(self.nvars);
+
+        // determine the variable
+        let mut var = 0;
+        for (i, x) in self.last_exponents().iter().enumerate() {
+            if !x.is_zero() {
+                var = i;
+                break;
+            }
+        }
+
+        let m = div.ldegree_max();
+        let mut pow = self.ldegree_max();
+
+        loop {
+            // find the power in the dividend if it exists
+            let mut coeff = loop {
+                if self.exponents(dividendpos)[var] == pow {
+                    break self.coefficients[dividendpos].clone();
+                }
+                if dividendpos == 0 || self.exponents(dividendpos)[var] < pow {
+                    break R::zero();
+                }
+                dividendpos -= 1;
+            };
+
+            let mut qindex = 0; // starting from highest
+            let mut bindex = 0; // starting from lowest
+            while bindex < div.nterms && qindex < q.nterms {
+                while bindex + 1 < div.nterms
+                    && div.exponents(bindex)[var] + q.exponents(qindex)[var] < pow
+                {
+                    bindex += 1;
+                }
+
+                if div.exponents(bindex)[var] + q.exponents(qindex)[var] == pow {
+                    if coeff.is_zero() {
+                        coeff =
+                            -(div.coefficients[bindex].clone() * q.coefficients[qindex].clone());
+                    } else {
+                        coeff = coeff
+                            + -(div.coefficients[bindex].clone() * q.coefficients[qindex].clone());
+                    }
+                }
+
+                qindex += 1;
+            }
+
+            if !coeff.is_zero() {
+                // can the division be performed? if not, add to rest
+                if pow >= m && (norm.is_one() || (coeff.clone() % norm.clone()).is_zero()) {
+                    q.coefficients.push(coeff.clone() / norm.clone());
+                    q.exponents.resize((q.nterms + 1) * q.nvars, E::zero());
+                    q.exponents[q.nterms * q.nvars + var] = pow - m;
+                    q.nterms += 1;
+                } else {
+                    r.coefficients.push(coeff);
+                    r.exponents.resize((r.nterms + 1) * r.nvars, E::zero());
+                    r.exponents[r.nterms * r.nvars + var] = pow;
+                    r.nterms += 1;
+                }
+            }
+
+            if pow.is_zero() {
+                break;
+            }
+
+            pow = pow - E::one();
+        }
+
+        q.reverse();
+        r.reverse();
+
+        #[cfg(debug_assertions)]
+        {
+            if !(q.clone() * div.clone() + r.clone() - self.clone()).is_zero() {
+                panic!("Division failed: ({})/({}): q={}, r={}", self, div, q, r);
+            }
+        }
+
+        (q, r)
+    }
+
     /// Long division for multivarariate polynomial.
     /// If the ring `R` is not a field, and the coefficient does not cleanly divide,
     /// the division is stopped and the current quotient and rest term are returned.
