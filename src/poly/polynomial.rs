@@ -111,7 +111,7 @@ impl Polynomial {
                     if e.len() < varcount {
                         e.resize(varcount, 0);
                     }
-                    poly.append_monomial(c, e);
+                    poly.append_monomial(c, &e);
                 }
 
                 Ok(Polynomial {
@@ -239,7 +239,7 @@ impl Polynomial {
             for e in 0..other.varcount {
                 newexp[*map.get(&e).unwrap()] = other.poly.exponents(t)[e];
             }
-            newother.append_monomial(other.poly.coefficients[t].clone(), newexp);
+            newother.append_monomial(other.poly.coefficients[t].clone(), &newexp);
         }
 
         other.varmap = self.varmap.clone();
@@ -470,10 +470,10 @@ impl<'a> fmt::Display for PolyPrinter<'a> {
 #[test]
 fn serialize() {
     let mut a = MultivariatePolynomial::from_monomial(Number::SmallInt(100), vec![0, 0]);
-    a.append_monomial(Number::SmallInt(100), vec![1, 0]);
+    a.append_monomial(Number::SmallInt(100), &vec![1, 0]);
 
     let mut b = MultivariatePolynomial::from_monomial(Number::SmallInt(-3), vec![2, 3]);
-    b.append_monomial(Number::SmallInt(1), vec![1, 0]);
+    b.append_monomial(Number::SmallInt(1), &vec![1, 0]);
 
     let mut m = HashMap::new();
     m.insert(1, 0);

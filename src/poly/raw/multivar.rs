@@ -214,7 +214,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     }
 
     /// Appends a monomial to the polynomial.
-    pub fn append_monomial(&mut self, coefficient: R, mut exponents: Vec<E>) {
+    pub fn append_monomial(&mut self, coefficient: R, exponents: &[E]) {
         if coefficient.is_zero() {
             return;
         }
@@ -226,9 +226,10 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             );
         }
 
-        if self.nterms == 0 {
+        // should we append to the back?
+        if self.nterms == 0 || self.last_exponents() < exponents {
             self.coefficients.push(coefficient);
-            self.exponents.append(&mut exponents);
+            self.exponents.extend(exponents);
             self.nterms += 1;
             return;
         }
@@ -239,13 +240,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
         while l <= r {
             let m = (l + r) / 2;
-
-            let c;
-            {
-                let a = self.exponents(m);
-                let b = &exponents[..];
-                c = Self::cmp_exponents(b, a); // note the reversal
-            }
+            let c = Self::cmp_exponents(exponents, self.exponents(m)); // note the reversal
 
             match c {
                 Ordering::Equal => {
@@ -269,7 +264,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
                     if l == self.nterms {
                         self.coefficients.push(coefficient);
-                        self.exponents.append(&mut exponents);
+                        self.exponents.extend(exponents);
                         self.nterms += 1;
                         return;
                     }
@@ -277,7 +272,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                 Ordering::Less => {
                     if m == 0 {
                         self.coefficients.insert(0, coefficient);
-                        self.exponents.splice(0..0, exponents);
+                        self.exponents.splice(0..0, exponents.iter().cloned());
                         self.nterms += 1;
                         return;
                     }
@@ -289,7 +284,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
         self.coefficients.insert(l, coefficient);
         let i = l * self.nvars;
-        self.exponents.splice(i..i, exponents);
+        self.exponents.splice(i..i, exponents.iter().cloned());
         self.nterms += 1;
     }
 }
@@ -653,7 +648,7 @@ impl<R: Ring, E: Exponent> Add<R> for MultivariatePolynomial<R, E> {
 
     fn add(mut self, other: R) -> Self::Output {
         let nvars = self.nvars;
-        self.append_monomial(other, vec![E::zero(); nvars]);
+        self.append_monomial(other, &vec![E::zero(); nvars]);
         self
     }
 }
@@ -793,11 +788,12 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         let last = self.last_exponents();
 
         let mut res = MultivariatePolynomial::with_nvars(self.nvars);
+        let mut e = vec![E::zero(); self.nvars];
         for t in (0..self.nterms()).rev() {
             if (0..self.nvars - 1).all(|i| self.exponents(t)[i] == last[i] || i == n) {
-                let mut e = vec![E::zero(); self.nvars];
                 e[n] = self.exponents(t)[n];
-                res.append_monomial(self.coefficients[t].clone(), e);
+                res.append_monomial(self.coefficients[t].clone(), &e);
+                e[n] = E::zero();
             } else {
                 break;
             }
@@ -842,11 +838,11 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         }
 
         let mut res = MultivariatePolynomial::with_nvars(self.nvars);
-
+        let mut e = vec![E::zero(); self.nvars];
         for i in indices {
-            let mut e = vec![E::zero(); self.nvars];
             e[lastvar[0]] = self.exponents(i)[lastvar[0]];
-            res.append_monomial(self.coefficients[i].clone(), e);
+            res.append_monomial(self.coefficients[i].clone(), &e);
+            e[lastvar[0]] = E::zero();
         }
         res
     }
@@ -855,9 +851,8 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     /// The map can also be reversed, by setting `inverse` to `true`.
     pub fn rearrange(&self, varmap: &[usize], inverse: bool) -> MultivariatePolynomial<R, E> {
         let mut res = MultivariatePolynomial::with_nvars(self.nvars);
+        let mut newe = vec![E::zero(); self.nvars];
         for m in self.into_iter() {
-            let mut newe = vec![E::zero(); self.nvars];
-
             for x in 0..varmap.len() {
                 if !inverse {
                     newe[x] = m.exponents[varmap[x]];
@@ -866,7 +861,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                 }
             }
 
-            res.append_monomial(m.coefficient.clone(), newe);
+            res.append_monomial(m.coefficient.clone(), &newe);
         }
         res
     }
@@ -875,12 +870,16 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     /// the ring `v'.
     pub fn replace(&self, n: usize, v: R) -> MultivariatePolynomial<R, E> {
         let mut res = MultivariatePolynomial::with_nvars(self.nvars);
+        let mut e = vec![E::zero(); self.nvars];
         for t in 0..self.nterms {
             let mut c = self.coefficients[t].clone() * v.clone().pow(self.exponents(t)[n].as_());
-            let mut e = self.exponents(t).to_vec();
-            e[n] = E::zero();
 
-            res.append_monomial(c, e);
+            for (i, ee) in self.exponents(t).iter().enumerate() {
+                e[i] = *ee;
+            }
+
+            e[n] = E::zero();
+            res.append_monomial(c, &e);
         }
 
         res
@@ -890,8 +889,11 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     /// the ring.
     pub fn replace_multiple(&self, r: &[(usize, R)]) -> MultivariatePolynomial<R, E> {
         let mut res = MultivariatePolynomial::with_nvars(self.nvars);
+        let mut e = vec![E::zero(); self.nvars];
         for t in 0..self.nterms {
-            let mut e = self.exponents(t).to_vec();
+            for (i, ee) in self.exponents(t).iter().enumerate() {
+                e[i] = *ee;
+            }
 
             let mut c = self.coefficients[t].clone();
             for &(n, ref v) in r {
@@ -899,7 +901,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
                 e[n] = E::zero();
             }
 
-            res.append_monomial(c, e);
+            res.append_monomial(c, &e);
         }
 
         res
@@ -942,10 +944,11 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         }
 
         let mut res = MultivariatePolynomial::with_nvars(self.nvars);
+        let mut e = vec![E::zero(); self.nvars];
         for (k, c) in tm {
-            let mut e = vec![E::zero(); self.nvars];
             e[v] = k;
-            res.append_monomial(c, e);
+            res.append_monomial(c, &e);
+            e[v] = E::zero();
         }
 
         res
@@ -981,13 +984,16 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
         // construct the coefficient per power of x
         let mut result = vec![];
+        let mut e = vec![E::zero(); self.nvars];
         for d in 0..maxdeg + 1 {
             let mut a = MultivariatePolynomial::with_nvars(self.nvars);
             for t in 0..self.nterms {
                 if self.exponents(t)[x].as_() == d {
-                    let mut e = self.exponents(t).to_vec();
+                    for (i, ee) in self.exponents(t).iter().enumerate() {
+                        e[i] = *ee;
+                    }
                     e[x] = E::zero();
-                    a.append_monomial(self.coefficients[t].clone(), e);
+                    a.append_monomial(self.coefficients[t].clone(), &e);
                 }
             }
 
@@ -1011,9 +1017,13 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         }
 
         let mut tm: HashMap<Vec<E>, MultivariatePolynomial<R, E>> = HashMap::new();
+        let mut e = vec![E::zero(); self.nvars];
+        let mut me = vec![E::zero(); self.nvars];
         for t in 0..self.nterms {
-            let mut e = self.exponents(t).to_vec();
-            let mut me = vec![E::zero(); self.nvars];
+            for (i, ee) in self.exponents(t).iter().enumerate() {
+                e[i] = *ee;
+                me[i] = E::zero();
+            }
 
             for x in xs {
                 me[*x] = e[*x].clone();
@@ -1021,13 +1031,41 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             }
 
             if include {
-                tm.entry(me)
-                    .or_insert_with(|| MultivariatePolynomial::with_nvars(self.nvars))
-                    .append_monomial(self.coefficients[t].clone(), e);
+                let add = match tm.get_mut(&me) {
+                    Some(x) => {
+                        x.append_monomial(self.coefficients[t].clone(), &e);
+                        false
+                    }
+                    None => true,
+                };
+
+                if add {
+                    tm.insert(
+                        me.clone(),
+                        MultivariatePolynomial::from_monomial(
+                            self.coefficients[t].clone(),
+                            e.clone(),
+                        ),
+                    );
+                }
             } else {
-                tm.entry(e)
-                    .or_insert_with(|| MultivariatePolynomial::with_nvars(self.nvars))
-                    .append_monomial(self.coefficients[t].clone(), me);
+                let add = match tm.get_mut(&e) {
+                    Some(x) => {
+                        x.append_monomial(self.coefficients[t].clone(), &me);
+                        false
+                    }
+                    None => true,
+                };
+
+                if add {
+                    tm.insert(
+                        e.clone(),
+                        MultivariatePolynomial::from_monomial(
+                            self.coefficients[t].clone(),
+                            me.clone(),
+                        ),
+                    );
+                }
             }
         }
 
@@ -1067,13 +1105,14 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             let tc =
                 r.coefficients.last().unwrap().clone() / div.coefficients.last().unwrap().clone();
 
-            let tp: Vec<E> = r.last_exponents()
+            let tp: Vec<E> = r
+                .last_exponents()
                 .iter()
                 .zip(divdeg.iter())
                 .map(|(e1, e2)| e1.clone() - e2.clone())
                 .collect();
 
-            q.append_monomial(tc.clone(), tp.clone());
+            q.append_monomial(tc.clone(), &tp);
             r = r - div.clone().mul_monomial(&tc, &tp);
         }
 

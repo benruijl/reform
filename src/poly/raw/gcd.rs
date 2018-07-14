@@ -156,7 +156,8 @@ fn construct_new_image<E: Exponent>(
                 }
             }
 
-            let r: Vec<(usize, ufield)> = vars.iter()
+            let r: Vec<(usize, ufield)> = vars
+                .iter()
                 .map(|i| (i.clone(), range.sample(&mut rng)))
                 .collect();
 
@@ -270,7 +271,7 @@ fn construct_new_image<E: Exponent>(
                             let mut ee = mv.exponents.to_vec();
                             ee[var] = E::from_u32(ex.clone()).unwrap();
 
-                            gp.append_monomial(FiniteField::new(x[i].clone(), p), ee);
+                            gp.append_monomial(FiniteField::new(x[i].clone(), p), &ee);
                             i += 1;
                         }
                     }
@@ -446,7 +447,7 @@ fn construct_new_image<E: Exponent>(
                                         let mut ee = mv.exponents.to_vec();
                                         ee[var] = E::from_u32(ex.clone()).unwrap();
 
-                                        gp.append_monomial(FiniteField::new(x[i].clone(), p), ee);
+                                        gp.append_monomial(FiniteField::new(x[i].clone(), p), &ee);
                                         i += 1;
                                     }
                                 }
@@ -651,11 +652,12 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
         }
 
         let mut res = MultivariatePolynomial::with_nvars(self.nvars);
+        let mut e = vec![E::zero(); self.nvars];
         for (k, c) in tm {
             if *c > 0 {
-                let mut e = vec![E::zero(); self.nvars];
                 e[v] = *k;
-                res.append_monomial(FiniteField::new(mem::replace(c, 0), p.value()), e);
+                res.append_monomial(FiniteField::new(mem::replace(c, 0), p.value()), &e);
+                e[v] = E::zero();
             }
         }
 
@@ -694,11 +696,12 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
         }
 
         let mut res = MultivariatePolynomial::with_nvars(self.nvars);
+        let mut e = vec![E::zero(); self.nvars];
         for (k, c) in tm.iter_mut().enumerate() {
             if *c > 0 {
-                let mut e = vec![E::zero(); self.nvars];
                 e[v] = E::from_usize(k).unwrap();
-                res.append_monomial(FiniteField::new(mem::replace(c, 0), p.value()), e);
+                res.append_monomial(FiniteField::new(mem::replace(c, 0), p.value()), &e);
+                e[v] = E::zero();
             }
         }
 
@@ -891,7 +894,8 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                     })
                     .collect::<Vec<_>>();
 
-                let r: Vec<(usize, FiniteField)> = vars.iter()
+                let r: Vec<(usize, FiniteField)> = vars
+                    .iter()
                     .skip(1)
                     .map(|i| (*i, FiniteField::new(range.sample(&mut rng), p)))
                     .collect();
@@ -974,7 +978,8 @@ where
         let mut gcd;
 
         // take the smallest element
-        let mut index_smallest = f.iter()
+        let mut index_smallest = f
+            .iter()
             .enumerate()
             .min_by_key(|(_, v)| v.nterms)
             .unwrap()
@@ -986,7 +991,7 @@ where
 
             for p in f.iter() {
                 for v in p.into_iter() {
-                    b.append_monomial(v.coefficient.mul_num(k), v.exponents.to_vec());
+                    b.append_monomial(v.coefficient.mul_num(k), &v.exponents);
                 }
 
                 k = rng.gen_range(2, MAX_RNG_PREFACTOR);
@@ -1096,7 +1101,8 @@ where
                 }
             }
 
-            let r: Vec<(usize, ufield)> = vars.iter()
+            let r: Vec<(usize, ufield)> = vars
+                .iter()
                 .map(|i| (i.clone(), range.sample(&mut rng)))
                 .collect();
 
@@ -1212,7 +1218,8 @@ where
 
         if !ap.is_zero() && !bp.is_zero() {
             for var in vars.iter() {
-                let mut vvars = vars.iter()
+                let mut vvars = vars
+                    .iter()
                     .filter(|i| *i != var)
                     .cloned()
                     .collect::<Vec<_>>();
@@ -1375,7 +1382,8 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
             let mut gm = MultivariatePolynomial::with_nvars(gp.nvars);
             gm.nterms = gp.nterms;
             gm.exponents = gp.exponents.clone();
-            gm.coefficients = gp.coefficients
+            gm.coefficients = gp
+                .coefficients
                 .iter()
                 .map(|x| Number::from_finite_field(&(x.clone() * gammap / gpc)))
                 .collect();
@@ -1392,7 +1400,8 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                     // divide by integer content
                     let gmc = gm.content();
                     let mut gc = gm.clone();
-                    gc.coefficients = gc.coefficients
+                    gc.coefficients = gc
+                        .coefficients
                         .iter()
                         .map(|x| x.clone() / gmc.clone())
                         .collect();
