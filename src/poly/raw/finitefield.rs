@@ -14,8 +14,17 @@ pub struct FiniteField {
 }
 
 impl FiniteField {
+    #[inline]
     pub fn new(n: ufield, p: ufield) -> FiniteField {
-        FiniteField { n: n % p, p: p }
+        if n >= p {
+            if n == p {
+                FiniteField { n: 0, p: p }
+            } else {
+                FiniteField { n: n % p, p: p }
+            }
+        } else {
+            FiniteField { n: n, p: p }
+        }
     }
 
     pub fn from_i64(n: i64, p: ufield) -> FiniteField {

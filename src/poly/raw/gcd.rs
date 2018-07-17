@@ -256,6 +256,7 @@ fn construct_new_image<E: Exponent>(
                     }
 
                     // move the coefficients of the image to the rhs
+                    assert!(i < g.nterms && g.exponents(i)[var].as_() == *ex);
                     rhs[j] = zp::sub(rhs[j], (g.coefficients[i] * scale_factor.clone()).n, &fastp);
                     gfm.extend(row);
                 }
@@ -308,7 +309,7 @@ fn construct_new_image<E: Exponent>(
             // multiple scaling case: construct subsystems with augmented
             // columns for the scaling factors
             let mut subsystems = Vec::with_capacity(gfu.len());
-            for (i, &(ref c, ref _e)) in gfu.iter().enumerate() {
+            for (i, &(ref c, ref ex)) in gfu.iter().enumerate() {
                 let mut gfm = vec![];
 
                 for (j, &(ref r, ref g, ref _scale_factor)) in system.iter().enumerate() {
@@ -324,9 +325,26 @@ fn construct_new_image<E: Exponent>(
                         row.push(coeff.n);
                     }
 
+                    // it could be that some coefficients of g are
+                    // 0, so we have to be careful to find the matching monomial
                     for ii in 1..system.len() {
                         if ii == j {
-                            row.push(g.coefficients[i].n);
+                            if i < g.nterms && g.exponents(i)[var].as_() == *ex {
+                                row.push(g.coefficients[i].n);
+                            } else {
+                                // find the matching term or otherwise, push 0
+                                let mut found = false;
+                                for m in g.into_iter() {
+                                    if m.exponents[var].as_() == *ex {
+                                        row.push(m.coefficient.n);
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                                if !found {
+                                    row.push(0);
+                                }
+                            }
                         } else {
                             row.push(0);
                         }
@@ -335,7 +353,22 @@ fn construct_new_image<E: Exponent>(
                     // the scaling of the first image is fixed to 1
                     // we add it as a last column, since that is the rhs
                     if j == 0 {
-                        row.push(g.coefficients[i].n);
+                        if i < g.nterms && g.exponents(i)[var].as_() == *ex {
+                            row.push(g.coefficients[i].n);
+                        } else {
+                            // find the matching term or otherwise, push 0
+                            let mut found = false;
+                            for m in g.into_iter() {
+                                if m.exponents[var].as_() == *ex {
+                                    row.push(m.coefficient.n);
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            if !found {
+                                row.push(0);
+                            }
+                        }
                     } else {
                         row.push(0);
                     }
@@ -695,12 +728,13 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             tm[expv] = zp::add(tm[expv], c, p);
         }
 
+        // TODO: add bounds estimate
         let mut res = MultivariatePolynomial::with_nvars(self.nvars);
         let mut e = vec![E::zero(); self.nvars];
         for (k, c) in tm.iter_mut().enumerate() {
             if *c > 0 {
                 e[v] = E::from_usize(k).unwrap();
-                res.append_monomial(FiniteField::new(mem::replace(c, 0), p.value()), &e);
+                res.append_monomial_back(FiniteField::new(mem::replace(c, 0), p.value()), &e);
                 e[v] = E::zero();
             }
         }
@@ -987,14 +1021,26 @@ where
 
         loop {
             let a = f.swap_remove(index_smallest);
-            let mut b = MultivariatePolynomial::with_nvars(a.nvars);
 
-            for p in f.iter() {
-                for v in p.into_iter() {
-                    b.append_monomial(v.coefficient.mul_num(k), &v.exponents);
+            let term_bound = f.iter().map(|x| x.nterms).sum();
+            let mut b = MultivariatePolynomial::with_nvars_and_capacity(a.nvars, term_bound);
+
+            // Add all the monomials to a vector, sort them and build a new polynomial.
+            // The last step will merge equal monomials.
+            {
+                let mut c = Vec::with_capacity(f.iter().map(|x| x.nterms).sum());
+
+                for p in f.iter() {
+                    for v in p.into_iter() {
+                        c.push((v.coefficient.mul_num(k), v.exponents));
+                    }
+                    k = rng.gen_range(2, MAX_RNG_PREFACTOR);
                 }
 
-                k = rng.gen_range(2, MAX_RNG_PREFACTOR);
+                c.sort_unstable_by(|a, b| a.1.cmp(b.1));
+                for m in c {
+                    b.append_monomial_back(m.0, m.1);
+                }
             }
 
             gcd = MultivariatePolynomial::gcd(&a, &b);
