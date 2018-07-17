@@ -173,7 +173,13 @@ impl Neg for Number {
 
     fn neg(self) -> Self::Output {
         match self {
-            Number::SmallInt(i) => Number::SmallInt(-i),
+            Number::SmallInt(i) => {
+                if i == isize::min_value() {
+                    Number::BigInt(Integer::from(i) * -1)
+                } else {
+                    Number::SmallInt(-i)
+                }
+            }
             Number::BigInt(i) => Number::BigInt(-i),
             Number::SmallRat(n, d) => Number::SmallRat(-n, d),
             Number::BigRat(f) => Number::BigRat(Box::new(-*f)),
@@ -243,18 +249,17 @@ impl Add for Number {
             (SmallInt(i1), BigInt(i2)) | (BigInt(i2), SmallInt(i1)) => {
                 BigInt(Integer::from(i1) + i2)
             }
-            (SmallInt(i1), SmallRat(n2, d2)) | (SmallRat(n2, d2), SmallInt(i1)) => {
-                match i1.checked_mul(d2) {
-                    Some(num1) => match n2.checked_add(num1) {
-                        Some(num) => Number::SmallRat(num, d2).normalized(),
-                        None => Number::BigRat(Box::new(
-                            Rational::from(i1) + Rational::from((n2, d2)),
-                        )).normalized(),
-                    },
+            (SmallInt(i1), SmallRat(n2, d2)) | (SmallRat(n2, d2), SmallInt(i1)) => match i1
+                .checked_mul(d2)
+            {
+                Some(num1) => match n2.checked_add(num1) {
+                    Some(num) => Number::SmallRat(num, d2).normalized(),
                     None => Number::BigRat(Box::new(Rational::from(i1) + Rational::from((n2, d2))))
                         .normalized(),
-                }
-            }
+                },
+                None => Number::BigRat(Box::new(Rational::from(i1) + Rational::from((n2, d2))))
+                    .normalized(),
+            },
             (SmallRat(n1, d1), SmallRat(n2, d2)) => match d2.checked_mul(d1 / GCD::gcd(d1, d2)) {
                 Some(lcm) => match n2.checked_mul(lcm / d2) {
                     Some(num2) => match n1.checked_mul(lcm / d1) {

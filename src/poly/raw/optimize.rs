@@ -66,8 +66,7 @@ impl<R: Ring, E: Exponent> PolynomialSampler<R, E> {
         trace!("poly {}", poly);
         trace!("apf {:?}", apf);
 
-        let evalap = apf
-            .iter()
+        let evalap = apf.iter()
             .map(|(p, x)| {
                 let mut h = p.horner(&occ_order, true);
                 trace!("h {:?}", h);
@@ -144,7 +143,7 @@ impl<E: Exponent> PolynomialSampler<FiniteField, E> {
         for (p, i) in &pfrag.2 {
             let mut exp = vec![E::zero(); pfrag.0];
             exp[pfrag.1] = E::from_u32(*p).unwrap();
-            poly.append_monomial(self.result[*i], exp);
+            poly.append_monomial(self.result[*i], &exp);
         }
 
         poly
@@ -546,11 +545,11 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
 
         for m in self.into_iter() {
             if m.exponents[v].is_zero() {
-                rest.append_monomial(m.coefficient.clone(), m.exponents.to_vec());
+                rest.append_monomial(m.coefficient.clone(), &m.exponents);
             } else {
                 let mut ex = m.exponents.to_vec();
                 ex[v] = ex[v] - pow;
-                sub.append_monomial(m.coefficient.clone(), ex);
+                sub.append_monomial(m.coefficient.clone(), &ex);
             }
         }
 

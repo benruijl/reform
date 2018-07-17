@@ -1,6 +1,7 @@
 pub mod finitefield;
 pub mod fraction;
 pub mod gcd;
+pub mod monomial;
 pub mod multivar;
 pub mod optimize;
 pub mod overflowing;
