@@ -315,8 +315,6 @@ fn construct_new_image<E: Exponent>(
                 for (j, &(ref r, ref g, ref _scale_factor)) in system.iter().enumerate() {
                     let mut row = Vec::with_capacity(c.nterms + system.len());
 
-                    debug_assert_eq!(g.nterms, gfu.len());
-
                     for t in 0..c.nterms {
                         let mut coeff = FiniteField::new(1, p);
                         for &(n, v) in r.iter() {
@@ -1257,21 +1255,30 @@ where
 
         // find better upper bounds for all variables
         // these bounds could actually be wrong due to an unfortunate prime or sampling points
-        // TODO: make sure not too many terms cancel due to an unlucky prime choice
-        let ap = a.to_finite_field(LARGE_U32_PRIMES[0]);
-        let bp = b.to_finite_field(LARGE_U32_PRIMES[0]);
         let mut tight_bounds = bounds.clone();
-
-        if !ap.is_zero() && !bp.is_zero() {
-            for var in vars.iter() {
-                let mut vvars = vars
-                    .iter()
-                    .filter(|i| *i != var)
-                    .cloned()
-                    .collect::<Vec<_>>();
-                tight_bounds[*var] = MultivariatePolynomial::<Number, E>::get_gcd_var_bound(
-                    &ap, &bp, &vvars, *var,
-                ).as_();
+        let mut i = 0;
+        loop {
+            let ap = a.to_finite_field(LARGE_U32_PRIMES[i]);
+            let bp = b.to_finite_field(LARGE_U32_PRIMES[i]);
+            if ap.nterms > 0
+                && bp.nterms > 0
+                && ap.last_exponents() == a.last_exponents()
+                && bp.last_exponents() == b.last_exponents()
+            {
+                for var in vars.iter() {
+                    let mut vvars = vars
+                        .iter()
+                        .filter(|i| *i != var)
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    tight_bounds[*var] = MultivariatePolynomial::<Number, E>::get_gcd_var_bound(
+                        &ap, &bp, &vvars, *var,
+                    ).as_();
+                }
+                break;
+            } else {
+                debug!("Variable bounds failed due to unlucky prime");
+                i += 1;
             }
         }
 
@@ -1347,6 +1354,12 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
     ) -> MultivariatePolynomial<Number, E> {
         debug!("Compute modular gcd({},{})", a, b);
 
+        #[cfg(debug_assertions)]
+        {
+            a.check_consistency();
+            b.check_consistency();
+        }
+
         // compute scaling factor in Z
         let gamma = GCD::gcd(a.lcoeff_varorder(vars), b.lcoeff_varorder(vars));
         debug!("gamma {}", gamma);
@@ -1363,7 +1376,12 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
             }
 
             if pi == LARGE_U32_PRIMES.len() {
-                panic!("Ran out of primes for gcd reconstruction");
+                a.check_consistency();
+                b.check_consistency();
+                panic!(
+                    "Ran out of primes for gcd reconstruction.\ngcd({},{})",
+                    a, b
+                );
             }
 
             let mut p = LARGE_U32_PRIMES[pi];
@@ -1472,7 +1490,12 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                 }
 
                 if pi == LARGE_U32_PRIMES.len() {
-                    panic!("Ran out of primes for gcd images");
+                    a.check_consistency();
+                    b.check_consistency();
+                    panic!(format!(
+                        "Ran out of primes for gcd images.\ngcd({},{})\nAttempt: {}",
+                        a, b, gm
+                    ));
                 }
 
                 p = LARGE_U32_PRIMES[pi];

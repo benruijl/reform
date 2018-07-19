@@ -213,6 +213,32 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
         }
     }
 
+    /// Check if the polynomial is sorted and has only non-zero coefficients
+    pub fn check_consistency(&self) {
+        assert_eq!(self.coefficients.len(), self.nterms);
+        assert_eq!(self.exponents.len(), self.nterms * self.nvars);
+
+        for c in &self.coefficients {
+            if c.is_zero() {
+                panic!("Inconsistent polynomial (0 coefficient): {}", self);
+            }
+        }
+
+        for t in 1..self.nterms {
+            match MultivariatePolynomial::<R, E>::cmp_exponents(
+                self.exponents(t),
+                &self.exponents(t - 1),
+            ) {
+                Ordering::Equal => panic!("Inconsistent polynomial (equal monomials): {}", self),
+                Ordering::Less => panic!(
+                    "Inconsistent polynomial (wrong monomial ordering): {}",
+                    self
+                ),
+                Ordering::Greater => {}
+            }
+        }
+    }
+
     /// Append a monomial to the back. It merges with the last monomial if the
     /// exponents are equal.
     #[inline]
@@ -394,9 +420,6 @@ impl<R: Ring + fmt::Display, E: Exponent + One + fmt::Display> fmt::Display
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut is_first_term = true;
         for monomial in self {
-            if monomial.coefficient.is_zero() {
-                continue;
-            }
             let mut is_first_factor = true;
             if monomial.coefficient.eq(&R::one()) {
                 if !is_first_term {
