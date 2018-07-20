@@ -156,8 +156,7 @@ fn construct_new_image<E: Exponent>(
                 }
             }
 
-            let r: Vec<(usize, ufield)> = vars
-                .iter()
+            let r: Vec<(usize, ufield)> = vars.iter()
                 .map(|i| (i.clone(), range.sample(&mut rng)))
                 .collect();
 
@@ -256,8 +255,26 @@ fn construct_new_image<E: Exponent>(
                     }
 
                     // move the coefficients of the image to the rhs
-                    assert!(i < g.nterms && g.exponents(i)[var].as_() == *ex);
-                    rhs[j] = zp::sub(rhs[j], (g.coefficients[i] * scale_factor.clone()).n, &fastp);
+                    if i < g.nterms && g.exponents(i)[var].as_() == *ex {
+                        rhs[j] = zp::sub(
+                            rhs[j],
+                            zp::mul(g.coefficients[i].n, scale_factor.n, &fastp),
+                            &fastp,
+                        );
+                    } else {
+                        // find the matching term if it exists
+                        for m in g.into_iter() {
+                            if m.exponents[var].as_() == *ex {
+                                rhs[j] = zp::sub(
+                                    rhs[j],
+                                    zp::mul(m.coefficient.n, scale_factor.n, &fastp),
+                                    &fastp,
+                                );
+                                break;
+                            }
+                        }
+                    }
+
                     gfm.extend(row);
                 }
 
@@ -861,7 +878,10 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                 let v = loop {
                     let v = FiniteField::new(range.sample(&mut rng), a.coefficients[0].p);
                     if !gamma.replace(lastvar, v).is_zero() {
-                        break v;
+                        // we need unique sampling points
+                        if !vseq.contains(&v) {
+                            break v;
+                        }
                     }
                 };
 
@@ -926,8 +946,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                     })
                     .collect::<Vec<_>>();
 
-                let r: Vec<(usize, FiniteField)> = vars
-                    .iter()
+                let r: Vec<(usize, FiniteField)> = vars.iter()
                     .skip(1)
                     .map(|i| (*i, FiniteField::new(range.sample(&mut rng), p)))
                     .collect();
@@ -1010,8 +1029,7 @@ where
         let mut gcd;
 
         // take the smallest element
-        let mut index_smallest = f
-            .iter()
+        let mut index_smallest = f.iter()
             .enumerate()
             .min_by_key(|(_, v)| v.nterms)
             .unwrap()
@@ -1145,8 +1163,7 @@ where
                 }
             }
 
-            let r: Vec<(usize, ufield)> = vars
-                .iter()
+            let r: Vec<(usize, ufield)> = vars.iter()
                 .map(|i| (i.clone(), range.sample(&mut rng)))
                 .collect();
 
@@ -1173,6 +1190,10 @@ where
         b: &MultivariatePolynomial<R, E>,
     ) -> MultivariatePolynomial<R, E> {
         debug_assert_eq!(a.nvars, b.nvars);
+
+        if a.is_zero() || b.is_zero() {
+            return MultivariatePolynomial::one();
+        }
 
         // if we have two numbers, use the integer gcd
         if a.is_constant() && b.is_constant() {
@@ -1266,8 +1287,7 @@ where
                 && bp.last_exponents() == b.last_exponents()
             {
                 for var in vars.iter() {
-                    let mut vvars = vars
-                        .iter()
+                    let mut vvars = vars.iter()
                         .filter(|i| *i != var)
                         .cloned()
                         .collect::<Vec<_>>();
@@ -1329,7 +1349,7 @@ where
                 }
             }
 
-            let gcd = c * PolynomialGCD::gcd(
+            let gcd = PolynomialGCD::gcd(
                 &aa,
                 &bb,
                 &(0..vars.len()).collect::<Vec<_>>(),

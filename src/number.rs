@@ -21,7 +21,7 @@ const DOWNGRADE_LIMIT: isize = 4294967296; // if a bigint is smaller than this n
 ///
 /// The mathematical operations on a number automatically upgrade
 /// and downgrade to bigint/smallint etc.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum Number {
     SmallInt(isize),
     BigInt(Integer),
@@ -112,6 +112,23 @@ impl Number {
         }
     }
 }
+
+impl PartialEq for Number {
+    /// Compare numbers. Big integers can also match small integers.
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Number::SmallInt(i1), Number::SmallInt(i2)) => i1 == i2,
+            (Number::BigInt(i1), Number::BigInt(i2)) => i1 == i2,
+            (Number::SmallInt(i1), Number::BigInt(i2)) => i1 == i2,
+            (Number::BigInt(i1), Number::SmallInt(i2)) => i1 == i2,
+            (Number::SmallRat(i1, d1), Number::SmallRat(i2, d2)) => i1 == i2 && d1 == d2,
+            (Number::BigRat(i1), Number::BigRat(i2)) => i1 == i2,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Number {}
 
 impl fmt::Display for Number {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -249,17 +266,18 @@ impl Add for Number {
             (SmallInt(i1), BigInt(i2)) | (BigInt(i2), SmallInt(i1)) => {
                 BigInt(Integer::from(i1) + i2)
             }
-            (SmallInt(i1), SmallRat(n2, d2)) | (SmallRat(n2, d2), SmallInt(i1)) => match i1
-                .checked_mul(d2)
-            {
-                Some(num1) => match n2.checked_add(num1) {
-                    Some(num) => Number::SmallRat(num, d2).normalized(),
+            (SmallInt(i1), SmallRat(n2, d2)) | (SmallRat(n2, d2), SmallInt(i1)) => {
+                match i1.checked_mul(d2) {
+                    Some(num1) => match n2.checked_add(num1) {
+                        Some(num) => Number::SmallRat(num, d2).normalized(),
+                        None => Number::BigRat(Box::new(
+                            Rational::from(i1) + Rational::from((n2, d2)),
+                        )).normalized(),
+                    },
                     None => Number::BigRat(Box::new(Rational::from(i1) + Rational::from((n2, d2))))
                         .normalized(),
-                },
-                None => Number::BigRat(Box::new(Rational::from(i1) + Rational::from((n2, d2))))
-                    .normalized(),
-            },
+                }
+            }
             (SmallRat(n1, d1), SmallRat(n2, d2)) => match d2.checked_mul(d1 / GCD::gcd(d1, d2)) {
                 Some(lcm) => match n2.checked_mul(lcm / d2) {
                     Some(num2) => match n1.checked_mul(lcm / d1) {
