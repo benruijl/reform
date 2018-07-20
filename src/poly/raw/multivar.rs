@@ -831,6 +831,9 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     /// Get the leading coefficient viewed as a polynomial
     /// in all variables except the last variable `n`.
     pub fn lcoeff_last(&self, n: usize) -> MultivariatePolynomial<R, E> {
+        if self.is_zero() {
+            return MultivariatePolynomial::zero();
+        }
         // the last variable should have the least sorting priority,
         // so the last term should still be the lcoeff
         let last = self.last_exponents();
@@ -854,6 +857,10 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
     /// in all variables with order as described in `vars` except the last variable in `vars`.
     /// This operation is O(n) if the variables are out of order.
     pub fn lcoeff_last_varorder(&self, vars: &[usize]) -> MultivariatePolynomial<R, E> {
+        if self.is_zero() {
+            return MultivariatePolynomial::zero();
+        }
+
         if vars.windows(2).all(|s| s[0] < s[1]) {
             return self.lcoeff_last(*vars.last().unwrap());
         }
@@ -948,7 +955,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             for &(n, ref vv) in r {
                 let p = self.exponents(t)[n].as_() as usize;
                 if p > 0 {
-                    if n < cache[n].len() {
+                    if p < cache[n].len() {
                         if cache[n][p].is_zero() {
                             cache[n][p] = vv.clone().pow(p as u32);
                         }
@@ -1226,8 +1233,7 @@ impl<R: Ring, E: Exponent> MultivariatePolynomial<R, E> {
             let tc =
                 r.coefficients.last().unwrap().clone() / div.coefficients.last().unwrap().clone();
 
-            let tp: Vec<E> = r
-                .last_exponents()
+            let tp: Vec<E> = r.last_exponents()
                 .iter()
                 .zip(divdeg.iter())
                 .map(|(e1, e2)| e1.clone() - e2.clone())

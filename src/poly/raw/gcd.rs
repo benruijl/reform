@@ -56,7 +56,7 @@ enum GCDError {
 fn newton_interpolation<E: Exponent>(
     a: &[FiniteField],
     u: &[MultivariatePolynomial<FiniteField, E>],
-    p: ufield,
+    p: &FastModulus,
     x: usize, // the variable indexs to extend the polynomial by
 ) -> MultivariatePolynomial<FiniteField, E> {
     // compute inverses
@@ -66,7 +66,7 @@ fn newton_interpolation<E: Exponent>(
         for i in 1..k {
             pr = pr * (a[k] - a[i]);
         }
-        gammas.push(FiniteField::new(FiniteField::inverse(pr.n, p), p));
+        gammas.push(FiniteField::new(zp::inv(pr.n, p), p.value()));
     }
 
     // compute Newton coefficients
@@ -82,7 +82,7 @@ fn newton_interpolation<E: Exponent>(
     // convert to standard form
     let mut e = vec![E::zero(); u[0].nvars];
     e[x] = E::one();
-    let xp = MultivariatePolynomial::from_monomial(FiniteField::new(1, p), e);
+    let xp = MultivariatePolynomial::from_monomial(FiniteField::new(1, p.value()), e);
     let mut u = v[v.len() - 1].clone();
     for k in (0..v.len() - 1).rev() {
         u = u * (xp.clone() - MultivariatePolynomial::from_constant_with_nvars(a[k], xp.nvars))
@@ -102,11 +102,10 @@ fn construct_new_image<E: Exponent>(
     vars: &[usize],
     var: usize,
     gfu: &[(MultivariatePolynomial<FiniteField, E>, u32)],
+    p: &FastModulus,
 ) -> Result<MultivariatePolynomial<FiniteField, E>, GCDError> {
-    let p = ap.coefficients[0].p;
-    let fastp = FastModulus::from(ap.coefficients[0].p);
     let mut rng = rand::thread_rng();
-    let mut range = Range::new(1, p);
+    let mut range = Range::new(1, p.value());
 
     let mut system = vec![]; // coefficients for the linear system
     let mut ni = 0;
@@ -149,6 +148,7 @@ fn construct_new_image<E: Exponent>(
     'newimage: loop {
         // generate random numbers for all non-leading variables
         // TODO: apply a Horner scheme to speed up the substitution?
+        let mut failcount = 0;
         let (r, a1, b1) = loop {
             for v in &mut cache {
                 for vi in v {
@@ -161,18 +161,33 @@ fn construct_new_image<E: Exponent>(
                 .collect();
 
             let a1 = if has_small_exp {
-                ap.sample_polynomial_small_exponent(var, &fastp, &r, &mut cache, &mut tm_fixed)
+                ap.sample_polynomial_small_exponent(var, p, &r, &mut cache, &mut tm_fixed)
             } else {
-                ap.sample_polynomial(var, &fastp, &r, &mut cache, &mut tm)
+                ap.sample_polynomial(var, p, &r, &mut cache, &mut tm)
             };
             let b1 = if has_small_exp {
-                bp.sample_polynomial_small_exponent(var, &fastp, &r, &mut cache, &mut tm_fixed)
+                bp.sample_polynomial_small_exponent(var, p, &r, &mut cache, &mut tm_fixed)
             } else {
-                bp.sample_polynomial(var, &fastp, &r, &mut cache, &mut tm)
+                bp.sample_polynomial(var, p, &r, &mut cache, &mut tm)
             };
 
             if a1.ldegree(var) == aldegree && b1.ldegree(var) == bldegree {
                 break (r, a1, b1);
+            }
+
+            failcount += 1;
+            if failcount > 10 {
+                panic!(
+                "Cannot find samples with the right bounds after 10 tries: {} {} {} {}\nap={}\nbp={}\na1={}\nb1={}",
+                a1.ldegree(var),
+                aldegree,
+                b1.ldegree(var),
+                bldegree,
+                ap,
+                bp,
+                a1,
+                b1
+            )
             }
         };
 
@@ -191,7 +206,14 @@ fn construct_new_image<E: Exponent>(
             failure_count += 1;
             if failure_count > 2 || failure_count > ni {
                 // p is likely unlucky
-                debug!("Bad current image");
+                debug!(
+                    "Bad current image: gcd({},{}) mod {} under {:?} = {}",
+                    ap,
+                    bp,
+                    p.value(),
+                    r,
+                    g1
+                );
                 return Err(GCDError::BadCurrentImage);
             }
             debug!("Degree too high");
@@ -199,13 +221,13 @@ fn construct_new_image<E: Exponent>(
         }
 
         // check if the single scaling is there, if we had a single scale
-        let mut scale_factor = FiniteField::new(1, p);
+        let mut scale_factor = FiniteField::new(1, p.value());
         if let Some(scaling_index) = single_scale {
             // construct the scaling coefficient
-            let mut coeff = FiniteField::new(1, p);
+            let mut coeff = FiniteField::new(1, p.value());
             let (ref c, ref d) = gfu[scaling_index];
             for &(n, v) in r.iter() {
-                coeff = coeff * zp::pow(v, c.exponents(0)[n].as_(), &fastp);
+                coeff = coeff * zp::pow(v, c.exponents(0)[n].as_(), p);
             }
 
             let mut found = false;
@@ -247,29 +269,23 @@ fn construct_new_image<E: Exponent>(
 
                     // note that we ignore the coefficient of the shape
                     for t in 0..c.nterms {
-                        let mut coeff = FiniteField::new(1, p);
+                        let mut coeff = FiniteField::new(1, p.value());
                         for &(n, v) in r.iter() {
-                            coeff = coeff * zp::pow(v, c.exponents(t)[n].as_(), &fastp);
+                            coeff = coeff * zp::pow(v, c.exponents(t)[n].as_(), p);
                         }
                         row.push(coeff.n);
                     }
 
                     // move the coefficients of the image to the rhs
                     if i < g.nterms && g.exponents(i)[var].as_() == *ex {
-                        rhs[j] = zp::sub(
-                            rhs[j],
-                            zp::mul(g.coefficients[i].n, scale_factor.n, &fastp),
-                            &fastp,
-                        );
+                        rhs[j] =
+                            zp::sub(rhs[j], zp::mul(g.coefficients[i].n, scale_factor.n, p), p);
                     } else {
                         // find the matching term if it exists
                         for m in g.into_iter() {
                             if m.exponents[var].as_() == *ex {
-                                rhs[j] = zp::sub(
-                                    rhs[j],
-                                    zp::mul(m.coefficient.n, scale_factor.n, &fastp),
-                                    &fastp,
-                                );
+                                rhs[j] =
+                                    zp::sub(rhs[j], zp::mul(m.coefficient.n, scale_factor.n, p), p);
                                 break;
                             }
                         }
@@ -280,7 +296,7 @@ fn construct_new_image<E: Exponent>(
 
                 let m = Array::from_shape_vec((system.len(), c.nterms), gfm).unwrap();
 
-                match solve(&m, &arr1(&rhs), &fastp) {
+                match solve(&m, &arr1(&rhs), p) {
                     Ok(x) => {
                         debug!("Solution: {:?}", x);
 
@@ -289,12 +305,12 @@ fn construct_new_image<E: Exponent>(
                             let mut ee = mv.exponents.to_vec();
                             ee[var] = E::from_u32(ex.clone()).unwrap();
 
-                            gp.append_monomial(FiniteField::new(x[i].clone(), p), &ee);
+                            gp.append_monomial(FiniteField::new(x[i].clone(), p.value()), &ee);
                             i += 1;
                         }
                     }
                     Err(LinearSolverError::Underdetermined { min_rank, max_rank }) => {
-                        debug!("Underdetermined system");
+                        debug!("Underdetermined system 1");
 
                         if last_rank == (min_rank, max_rank) {
                             rank_failure_count += 1;
@@ -333,9 +349,9 @@ fn construct_new_image<E: Exponent>(
                     let mut row = Vec::with_capacity(c.nterms + system.len());
 
                     for t in 0..c.nterms {
-                        let mut coeff = FiniteField::new(1, p);
+                        let mut coeff = FiniteField::new(1, p.value());
                         for &(n, v) in r.iter() {
-                            coeff = coeff * zp::pow(v, c.exponents(t)[n].as_(), &fastp);
+                            coeff = coeff * zp::pow(v, c.exponents(t)[n].as_(), p);
                         }
                         row.push(coeff.n);
                     }
@@ -395,12 +411,12 @@ fn construct_new_image<E: Exponent>(
                 let mut m =
                     Array::from_shape_vec((system.len(), c.nterms + system.len()), gfm).unwrap();
 
-                match solve_subsystem(&mut m, c.nterms, &fastp) {
+                match solve_subsystem(&mut m, c.nterms, p) {
                     Ok(..) => {
                         subsystems.push(m);
                     }
                     Err(LinearSolverError::Underdetermined { min_rank, max_rank }) => {
-                        debug!("Underdetermined system");
+                        debug!("Underdetermined system 2");
 
                         if last_rank == (min_rank, max_rank) {
                             rank_failure_count += 1;
@@ -442,12 +458,12 @@ fn construct_new_image<E: Exponent>(
                                 .cloned(),
                         );
 
-                        rhs.push(zp::neg(r.iter().last().unwrap().clone(), &fastp));
+                        rhs.push(zp::neg(r.iter().last().unwrap().clone(), p));
                     }
                 }
 
                 let m = Array::from_shape_vec((rhs.len(), system.len() - 1), sys).unwrap();
-                match solve(&m, &arr1(&rhs), &fastp) {
+                match solve(&m, &arr1(&rhs), p) {
                     Ok(x) => {
                         debug!("Solved scaling constants: {:?}", x);
 
@@ -471,13 +487,9 @@ fn construct_new_image<E: Exponent>(
                                         m.push(xx);
                                     } else {
                                         if i == r.len() - 1 {
-                                            coeff = zp::sub(coeff, xx, &fastp);
+                                            coeff = zp::sub(coeff, xx, p);
                                         } else {
-                                            coeff = zp::sub(
-                                                coeff,
-                                                zp::mul(xx, x[i - k], &fastp),
-                                                &fastp,
-                                            );
+                                            coeff = zp::sub(coeff, zp::mul(xx, x[i - k], p), p);
                                         }
                                     }
                                 }
@@ -486,7 +498,7 @@ fn construct_new_image<E: Exponent>(
 
                             // solve the system and plug in the scaling constants
                             let mm = Array::from_shape_vec((rhs.len(), k), m).unwrap();
-                            match solve(&mm, &arr1(&rhs), &fastp) {
+                            match solve(&mm, &arr1(&rhs), p) {
                                 Ok(x) => {
                                     // for every power of the main variable
                                     let mut i = 0; // index in the result x
@@ -495,12 +507,15 @@ fn construct_new_image<E: Exponent>(
                                         let mut ee = mv.exponents.to_vec();
                                         ee[var] = E::from_u32(ex.clone()).unwrap();
 
-                                        gp.append_monomial(FiniteField::new(x[i].clone(), p), &ee);
+                                        gp.append_monomial(
+                                            FiniteField::new(x[i].clone(), p.value()),
+                                            &ee,
+                                        );
                                         i += 1;
                                     }
                                 }
                                 Err(LinearSolverError::Underdetermined { min_rank, max_rank }) => {
-                                    debug!("Underdetermined system");
+                                    debug!("Underdetermined system 3: {}/{}", ni, nx);
 
                                     if last_rank == (min_rank, max_rank) {
                                         rank_failure_count += 1;
@@ -532,7 +547,10 @@ fn construct_new_image<E: Exponent>(
                         }
                     }
                     Err(LinearSolverError::Underdetermined { min_rank, max_rank }) => {
-                        debug!("Underdetermined system");
+                        debug!(
+                            "Underdetermined system 4: {}/{}, rank: {}/{}",
+                            ni, nx, min_rank, max_rank
+                        );
 
                         if last_rank == (min_rank, max_rank) {
                             rank_failure_count += 1;
@@ -634,7 +652,12 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
         a: &MultivariatePolynomial<FiniteField, E>,
         b: &MultivariatePolynomial<FiniteField, E>,
     ) -> MultivariatePolynomial<FiniteField, E> {
-        assert!(!a.is_zero() && !b.is_zero());
+        if a.is_zero() {
+            return b.clone();
+        }
+        if b.is_zero() {
+            return a.clone();
+        }
 
         let mut c = a.clone();
         let mut d = b.clone();
@@ -765,13 +788,19 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
         vars: &[usize],           // variables
         bounds: &mut [u32],       // degree bounds
         tight_bounds: &mut [u32], // tighter degree bounds
+        p: &FastModulus,
     ) -> Option<MultivariatePolynomial<FiniteField, E>> {
         let lastvar = vars.last().unwrap().clone();
 
         // if we are in the univariate case, return the univariate gcd
         // TODO: this is a modification of the algorithm!
         if vars.len() == 1 {
-            return Some(MultivariatePolynomial::univariate_gcd(&a, &b));
+            let gg = MultivariatePolynomial::univariate_gcd(&a, &b);
+            if gg.degree(vars[0]).as_() > bounds[vars[0]] {
+                return None;
+            }
+            bounds[vars[0]] = gg.degree(vars[0]).as_(); // update degree bound
+            return Some(gg);
         }
 
         // the gcd of the content in the last variable should be 1
@@ -786,9 +815,8 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             &b.lcoeff_last_varorder(vars),
         );
 
-        let p = a.coefficients[0].p;
         let mut rng = rand::thread_rng();
-        let mut range = Range::new(1, p);
+        let mut range = Range::new(1, p.value());
 
         let mut failure_count = 0;
 
@@ -796,12 +824,16 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
             // if we had two failures, it may be that the tight degree bound
             // was too tight due to an unfortunate prime/evaluation, so we relax it
             if failure_count == 2 {
+                debug!(
+                    "Changing tight bound for x{} from {} to {}",
+                    lastvar, tight_bounds[lastvar], bounds[lastvar]
+                );
                 tight_bounds[lastvar] = bounds[lastvar];
             }
             failure_count += 1;
 
             let v = loop {
-                let a = FiniteField::new(range.sample(&mut rng), p);
+                let a = FiniteField::new(range.sample(&mut rng), p.value());
                 if !gamma.replace(lastvar, a).is_zero() {
                     break a;
                 }
@@ -819,6 +851,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                     &vars[..vars.len() - 1],
                     bounds,
                     tight_bounds,
+                    p,
                 ) {
                     Some(x) => x,
                     None => return None,
@@ -891,14 +924,18 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                 match construct_new_image(
                     &av,
                     &bv,
-                    a.degree(vars[0]),
-                    b.degree(vars[0]),
+                    // NOTE: different from paper where they use a.degree(..)
+                    // it could be that the degree in av is lower than that of a
+                    // which means the sampling will never terminate
+                    av.degree(vars[0]),
+                    bv.degree(vars[0]),
                     bounds,
                     single_scale,
                     nx,
                     &vars[1..vars.len() - 1],
                     vars[0],
                     &gfu,
+                    p,
                 ) {
                     Ok(r) => {
                         gv = r;
@@ -948,7 +985,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
 
                 let r: Vec<(usize, FiniteField)> = vars.iter()
                     .skip(1)
-                    .map(|i| (*i, FiniteField::new(range.sample(&mut rng), p)))
+                    .map(|i| (*i, FiniteField::new(range.sample(&mut rng), p.value())))
                     .collect();
 
                 let g1 = gc.replace_all_except(vars[0], &r, &mut cache);
@@ -966,7 +1003,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
 
             // if the gcd is bad, we had a bad number
             debug!(
-                "Division test failed: gcd may be bad or probabilistic division test is unlucky"
+                "Division test failed: gcd may be bad or probabilistic division test is unlucky: a1 {} b1 {} g1 {}", a1, b1, g1
             );
         }
     }
@@ -1133,7 +1170,7 @@ where
         var: usize,
     ) -> E {
         let p = ap.coefficients[0].p;
-        let fastp = FastModulus::from(ap.coefficients[0].p);
+        let fastp = FastModulus::from(p);
         let mut rng = rand::thread_rng();
         let mut range = Range::new(1, p);
 
@@ -1191,8 +1228,11 @@ where
     ) -> MultivariatePolynomial<R, E> {
         debug_assert_eq!(a.nvars, b.nvars);
 
-        if a.is_zero() || b.is_zero() {
-            return MultivariatePolynomial::one();
+        if a.is_zero() {
+            return b.clone();
+        }
+        if b.is_zero() {
+            return a.clone();
         }
 
         // if we have two numbers, use the integer gcd
@@ -1405,6 +1445,7 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
             }
 
             let mut p = LARGE_U32_PRIMES[pi];
+            let mut fastp = FastModulus::from(p);
 
             let mut gammap = gamma.to_finite_field(p);
             let ap = a.to_finite_field(p);
@@ -1419,6 +1460,7 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                 vars,
                 bounds,
                 tight_bounds,
+                &fastp,
             ) {
                 Some(x) => x,
                 None => {
@@ -1466,8 +1508,7 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
             let mut gm = MultivariatePolynomial::with_nvars(gp.nvars);
             gm.nterms = gp.nterms;
             gm.exponents = gp.exponents.clone();
-            gm.coefficients = gp
-                .coefficients
+            gm.coefficients = gp.coefficients
                 .iter()
                 .map(|x| Number::from_finite_field(&(x.clone() * gammap / gpc)))
                 .collect();
@@ -1484,8 +1525,7 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                     // divide by integer content
                     let gmc = gm.content();
                     let mut gc = gm.clone();
-                    gc.coefficients = gc
-                        .coefficients
+                    gc.coefficients = gc.coefficients
                         .iter()
                         .map(|x| x.clone() / gmc.clone())
                         .collect();
@@ -1513,12 +1553,13 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                     a.check_consistency();
                     b.check_consistency();
                     panic!(format!(
-                        "Ran out of primes for gcd images.\ngcd({},{})\nAttempt: {}",
-                        a, b, gm
+                        "Ran out of primes for gcd images.\ngcd({},{})\nAttempt: {}\n vars: {:?}, bounds: {:?}; {:?}",
+                        a, b, gm, vars, bounds, tight_bounds
                     ));
                 }
 
                 p = LARGE_U32_PRIMES[pi];
+                fastp = FastModulus::from(p);
 
                 gammap = gamma.to_finite_field(p);
                 let ap = a.to_finite_field(p);
@@ -1528,18 +1569,33 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                 // for the univariate case, we don't need to construct an image
                 if vars.len() == 1 {
                     gp = MultivariatePolynomial::univariate_gcd(&ap, &bp);
+                    if gp.degree(vars[0]).as_() < bounds[vars[0]] {
+                        // original image and variable bound unlucky: restart
+                        debug!("Unlucky original image: restart");
+                        continue 'newfirstprime;
+                    }
+
+                    if gp.degree(vars[0]).as_() > bounds[vars[0]] {
+                        // prime is probably unlucky
+                        debug!("Unlucky current image: try new one");
+                        continue 'newprime;
+                    }
                 } else {
                     match construct_new_image(
                         &ap,
                         &bp,
-                        a.degree(vars[0]),
-                        b.degree(vars[0]),
+                        // NOTE: different from paper where they use a.degree(..)
+                        // it could be that the degree in ap is lower than that of a
+                        // which means the sampling will never terminate
+                        ap.degree(vars[0]),
+                        bp.degree(vars[0]),
                         bounds,
                         single_scale,
                         nx,
                         &vars[1..],
                         vars[0],
                         &gfu,
+                        &fastp,
                     ) {
                         Ok(r) => {
                             gp = r;
@@ -1607,6 +1663,18 @@ impl<E: Exponent> PolynomialGCD for MultivariatePolynomial<FiniteField, E> {
         bounds: &mut [u32],
         tight_bounds: &mut [u32],
     ) -> MultivariatePolynomial<FiniteField, E> {
-        MultivariatePolynomial::gcd_shape_modular(&a, &b, vars, bounds, tight_bounds).unwrap()
+        assert!(!a.is_zero() || !b.is_zero());
+        MultivariatePolynomial::gcd_shape_modular(
+            &a,
+            &b,
+            vars,
+            bounds,
+            tight_bounds,
+            &FastModulus::from(if a.is_zero() {
+                b.coefficients[0].p
+            } else {
+                a.coefficients[0].p
+            }),
+        ).unwrap()
     }
 }

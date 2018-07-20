@@ -31,10 +31,11 @@ impl FiniteField {
         // TODO: this code is not safe on 32-bit machines
         if n < 0 {
             // note that the remainder % will be negative
-            FiniteField {
-                n: (p as i64 + (n % p as i64)) as ufield,
-                p: p,
+            let mut nn = (p as i64 + (n % p as i64)) as ufield;
+            if nn == p {
+                nn = 0;
             }
+            FiniteField { n: nn, p: p }
         } else {
             FiniteField {
                 n: (n % p as i64) as ufield,
