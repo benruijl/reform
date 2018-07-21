@@ -909,7 +909,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                 }
 
                 let v = loop {
-                    let v = FiniteField::new(range.sample(&mut rng), a.coefficients[0].p);
+                    let v = FiniteField::new(range.sample(&mut rng), p.value());
                     if !gamma.replace(lastvar, v).is_zero() {
                         // we need unique sampling points
                         if !vseq.contains(&v) {
