@@ -1611,7 +1611,17 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                 debug!("gp: {} mod {}", gp, gpc.p);
 
                 // use chinese remainder theorem to merge coefficients and map back to Z
-                for (gmc, gpc) in gm.coefficients.iter_mut().zip(gp.coefficients) {
+                // terms could be missing in gp, but not in gm (TODO: check this?)
+                let mut gpi = 0;
+                for t in 0..gm.nterms {
+                    let gpc = if gm.exponents(t) == gp.exponents(gpi) {
+                        gpi += 1;
+                        gp.coefficients[gpi - 1].n
+                    } else {
+                        0
+                    };
+
+                    let mut gmc = &mut gm.coefficients[t];
                     let mut coeff = if *gmc < Number::SmallInt(0) {
                         gmc.clone() + m.clone()
                     } else {
@@ -1620,9 +1630,9 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
 
                     *gmc = number::chinese_remainder(
                         coeff,
-                        Number::SmallInt(gpc.n as isize),
+                        Number::SmallInt(gpc as isize),
                         m.clone(),
-                        Number::SmallInt(gpc.p as isize),
+                        Number::SmallInt(p as isize),
                     );
                 }
 
