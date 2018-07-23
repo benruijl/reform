@@ -246,6 +246,15 @@ fn construct_new_image<E: Exponent>(
             }
         }
 
+        // check if all the monomials of the image appear in the shape
+        // if not, the original shape is bad
+        for m in g1.into_iter() {
+            if gfu.iter().all(|(_, pow)| *pow != m.exponents[var].as_()) {
+                debug!("Bad shape: terms missing");
+                return Err(GCDError::BadOriginalImage);
+            }
+        }
+
         system.push((r, g1, scale_factor));
         ni += 1;
 
@@ -898,6 +907,11 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                 debug!("Multiple scaling case: sample {} times", nx);
             }
 
+            // we need one extra sample to detect inconsistencies, such
+            // as missing terms in the shape.
+            // NOTE: not in paper
+            nx += 1;
+
             let mut lc = gv.lcoeff_varorder(vars);
             let mut gseq = vec![gv * (gamma.replace(lastvar, v).coefficients[0].clone() / lc)];
             let mut vseq = vec![v];
@@ -1502,6 +1516,11 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                 debug!("Multiple scaling case: sample {} times", nx);
             }
 
+            // we need one extra sample to detect inconsistencies, such
+            // as missing terms in the shape.
+            // NOTE: not in paper
+            nx += 1;
+
             let gpc = gp.lcoeff_varorder(vars);
 
             // construct the gcd suggestion in Z
@@ -1515,7 +1534,7 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
 
             let mut m = Number::SmallInt(p as isize); // used for CRT
 
-            debug!("GCD suggestion with gamma: {}", gm);
+            debug!("GCD suggestion with gamma: {} mod {} ", gm, p);
 
             let mut old_gm = MultivariatePolynomial::with_nvars(a.nvars);
 
@@ -1579,6 +1598,15 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                         // prime is probably unlucky
                         debug!("Unlucky current image: try new one");
                         continue 'newprime;
+                    }
+
+                    for m in gp.into_iter() {
+                        if gfu.iter()
+                            .all(|(_, pow)| *pow != m.exponents[vars[0]].as_())
+                        {
+                            debug!("Bad shape: terms missing");
+                            continue 'newfirstprime;
+                        }
                     }
                 } else {
                     match construct_new_image(

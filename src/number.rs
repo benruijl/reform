@@ -111,6 +111,24 @@ impl Number {
             Number::BigRat(..) => panic!("Cannot take factorial of fraction"),
         }
     }
+
+    pub fn abs(&self) -> Number {
+        match self {
+            Number::SmallInt(i) => match i.checked_abs() {
+                Some(x) => Number::SmallInt(x),
+                None => -self.clone(),
+            },
+            Number::SmallRat(n, d) => match n.checked_abs() {
+                Some(x) => Number::SmallRat(x, *d),
+                None => Number::BigRat(Box::new(Rational::from((
+                    -Integer::from(*n),
+                    Integer::from(*d),
+                )))),
+            },
+            Number::BigInt(ref i) => Number::BigInt(i.clone().abs()),
+            Number::BigRat(ref r) => Number::BigRat(Box::new(r.clone().abs())),
+        }
+    }
 }
 
 impl PartialEq for Number {
@@ -192,13 +210,20 @@ impl Neg for Number {
         match self {
             Number::SmallInt(i) => {
                 if i == isize::min_value() {
-                    Number::BigInt(Integer::from(i) * -1)
+                    Number::BigInt(-Integer::from(i))
                 } else {
                     Number::SmallInt(-i)
                 }
             }
             Number::BigInt(i) => Number::BigInt(-i),
-            Number::SmallRat(n, d) => Number::SmallRat(-n, d),
+            Number::SmallRat(n, d) => if n == isize::min_value() {
+                Number::BigRat(Box::new(Rational::from((
+                    -Integer::from(n),
+                    Integer::from(d),
+                ))))
+            } else {
+                Number::SmallRat(-n, d)
+            },
             Number::BigRat(f) => Number::BigRat(Box::new(-*f)),
         }
     }
@@ -250,6 +275,12 @@ impl PartialOrd for Number {
             (&BigRat(ref f1), SmallRat(n2, d2)) => (**f1).partial_cmp(&Rational::from((*n2, *d2))),
             (&BigRat(ref f1), BigRat(ref f2)) => f1.partial_cmp(f2),
         }
+    }
+}
+
+impl Ord for Number {
+    fn cmp(&self, other: &Number) -> Ordering {
+        self.partial_cmp(other).unwrap()
     }
 }
 
@@ -506,7 +537,7 @@ pub fn chinese_remainder(n1: Number, n2: Number, p1: Number, p2: Number) -> Numb
     // convert to standard representation
     let mut r = v1 * p1.clone() + n1;
     r.normalize_inplace(); // potentially downgrade from bigint
-    if r > p1.clone() / Number::SmallInt(2) * p2.clone() {
+    if r.clone() * Number::SmallInt(2) > p1.clone() * p2.clone() {
         r - p1 * p2
     } else {
         r
