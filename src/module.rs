@@ -11,7 +11,7 @@ use std::thread;
 use std::time;
 
 use crossbeam;
-use crossbeam::sync::MsQueue;
+use crossbeam::queue::MsQueue;
 
 use id::{MatchIterator, MatchKind};
 use streaming::MAXTERMMEM;

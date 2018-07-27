@@ -15,7 +15,7 @@ use poly::raw::MultivariatePolynomial;
 use poly::ring::MulModNum;
 use poly::ring::ToFiniteField;
 use rand;
-use rand::distributions::{Range, Sample};
+use rand::distributions::{Distribution, Uniform};
 use rand::Rng;
 use std::cmp::{max, min};
 use std::collections::hash_map::Entry;
@@ -105,7 +105,7 @@ fn construct_new_image<E: Exponent>(
     p: &FastModulus,
 ) -> Result<MultivariatePolynomial<FiniteField, E>, GCDError> {
     let mut rng = rand::thread_rng();
-    let mut range = Range::new(1, p.value());
+    let range = Uniform::new(1, p.value());
 
     let mut system = vec![]; // coefficients for the linear system
     let mut ni = 0;
@@ -156,7 +156,8 @@ fn construct_new_image<E: Exponent>(
                 }
             }
 
-            let r: Vec<(usize, ufield)> = vars.iter()
+            let r: Vec<(usize, ufield)> = vars
+                .iter()
                 .map(|i| (i.clone(), range.sample(&mut rng)))
                 .collect();
 
@@ -825,7 +826,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
         );
 
         let mut rng = rand::thread_rng();
-        let mut range = Range::new(1, p.value());
+        let range = Uniform::new(1, p.value());
 
         let mut failure_count = 0;
 
@@ -997,7 +998,8 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
                     })
                     .collect::<Vec<_>>();
 
-                let r: Vec<(usize, FiniteField)> = vars.iter()
+                let r: Vec<(usize, FiniteField)> = vars
+                    .iter()
                     .skip(1)
                     .map(|i| (*i, FiniteField::new(range.sample(&mut rng), p.value())))
                     .collect();
@@ -1080,7 +1082,8 @@ where
         let mut gcd;
 
         // take the smallest element
-        let mut index_smallest = f.iter()
+        let mut index_smallest = f
+            .iter()
             .enumerate()
             .min_by_key(|(_, v)| v.nterms)
             .unwrap()
@@ -1186,7 +1189,7 @@ where
         let p = ap.coefficients[0].p;
         let fastp = FastModulus::from(p);
         let mut rng = rand::thread_rng();
-        let mut range = Range::new(1, p);
+        let range = Uniform::new(1, p);
 
         // store a table for variables raised to a certain power
         let mut cache = (0..ap.nvars)
@@ -1214,7 +1217,8 @@ where
                 }
             }
 
-            let r: Vec<(usize, ufield)> = vars.iter()
+            let r: Vec<(usize, ufield)> = vars
+                .iter()
                 .map(|i| (i.clone(), range.sample(&mut rng)))
                 .collect();
 
@@ -1341,7 +1345,8 @@ where
                 && bp.last_exponents() == b.last_exponents()
             {
                 for var in vars.iter() {
-                    let mut vvars = vars.iter()
+                    let mut vvars = vars
+                        .iter()
                         .filter(|i| *i != var)
                         .cloned()
                         .collect::<Vec<_>>();
@@ -1527,7 +1532,8 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
             let mut gm = MultivariatePolynomial::with_nvars(gp.nvars);
             gm.nterms = gp.nterms;
             gm.exponents = gp.exponents.clone();
-            gm.coefficients = gp.coefficients
+            gm.coefficients = gp
+                .coefficients
                 .iter()
                 .map(|x| Number::from_finite_field(&(x.clone() * gammap / gpc)))
                 .collect();
@@ -1544,7 +1550,8 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                     // divide by integer content
                     let gmc = gm.content();
                     let mut gc = gm.clone();
-                    gc.coefficients = gc.coefficients
+                    gc.coefficients = gc
+                        .coefficients
                         .iter()
                         .map(|x| x.clone() / gmc.clone())
                         .collect();
@@ -1601,7 +1608,8 @@ impl<E: Exponent> MultivariatePolynomial<Number, E> {
                     }
 
                     for m in gp.into_iter() {
-                        if gfu.iter()
+                        if gfu
+                            .iter()
                             .all(|(_, pow)| *pow != m.exponents[vars[0]].as_())
                         {
                             debug!("Bad shape: terms missing");
