@@ -13,6 +13,94 @@ pub struct Polynomial<'a> {
     var_info: &'a VarInfo,
 }
 
+#[derive(Clone)]
+pub struct RationalPolynomial<'a> {
+    num: Polynomial<'a>,
+    den: Polynomial<'a>,
+}
+
+impl<'a> RationalPolynomial<'a> {
+    fn from_poly(mut num: Polynomial<'a>, mut den: Polynomial<'a>) -> RationalPolynomial<'a> {
+        assert_eq!(
+            &num.var_info.global_info as *const _,
+            &den.var_info.global_info as *const _
+        );
+
+        polynomial::rationalpolynomial_normalize(num, den);
+
+        // will also unify varmaps
+        let gcd = num.gcd(&mut den);
+        // FIXME: this looks horrible. done to avoid copying
+        num.poly.poly = num.poly.poly.divmod(&gcd.poly.poly).0;
+        den.poly.poly = den.poly.poly.divmod(&gcd.poly.poly).0;
+
+        RationalPolynomial { num, den }
+    }
+
+    fn to_string(&self) -> String {
+        format!("({})/({})", self.num.to_string(), self.den.to_string())
+    }
+
+    fn neg(&self) -> RationalPolynomial {
+        RationalPolynomial {
+            num: self.num.neg(),
+            den: self.den.clone(),
+        }
+    }
+
+    fn add(&self, rhs: &RationalPolynomial) -> RationalPolynomial<'a> {
+        let mut l = self.clone();
+        let mut r = rhs.clone();
+        // TODO: unify?
+        polynomial::rationalpolynomial_add(
+            &mut l.num.poly,
+            &mut l.den.poly,
+            &mut r.num.poly,
+            &mut r.den.poly,
+        );
+        l
+    }
+
+    fn sub(&self, rhs: &RationalPolynomial) -> RationalPolynomial<'a> {
+        let mut l = self.clone();
+        let mut r = rhs.clone();
+        // TODO: unify?
+        polynomial::rationalpolynomial_sub(
+            &mut l.num.poly,
+            &mut l.den.poly,
+            &mut r.num.poly,
+            &mut r.den.poly,
+        );
+        l
+    }
+
+    fn mul(&self, rhs: &RationalPolynomial) -> RationalPolynomial<'a> {
+        let mut l = self.clone();
+        let mut r = rhs.clone();
+        // TODO: unify?
+        polynomial::rationalpolynomial_mul(
+            &mut l.num.poly,
+            &mut l.den.poly,
+            &mut r.num.poly,
+            &mut r.den.poly,
+        );
+        l
+    }
+
+    fn div(&self, rhs: &RationalPolynomial) -> RationalPolynomial<'a> {
+        let mut l = self.clone();
+        let mut r = rhs.clone();
+        // TODO: unify?
+        polynomial::rationalpolynomial_div(
+            &mut l.num.poly,
+            &mut l.den.poly,
+            &mut r.num.poly,
+            &mut r.den.poly,
+        );
+        l
+    }
+}
+
 impl<'a> Polynomial<'a> {
     fn new(expr: &str, var_info: &'a mut VarInfo) -> Polynomial<'a> {
         let mut e = Element::<String>::from_str(expr).unwrap();
@@ -23,10 +111,7 @@ impl<'a> Polynomial<'a> {
         Polynomial { poly, var_info }
     }
 
-    fn add(&mut self, rhs: &mut Polynomial) -> Polynomial<'a> {
-        // note that self == rhs is a possibility
-        // unify the variable names first
-        self.poly.unify_varmaps(&mut rhs.poly);
+    fn add(&self, rhs: &Polynomial) -> Polynomial<'a> {
         let r = self.poly.clone().add(rhs.poly.clone());
 
         Polynomial {
@@ -35,9 +120,7 @@ impl<'a> Polynomial<'a> {
         }
     }
 
-    fn sub(&mut self, rhs: &mut Polynomial) -> Polynomial<'a> {
-        // unify the variable names first
-        self.poly.unify_varmaps(&mut rhs.poly);
+    fn sub(&self, rhs: &Polynomial) -> Polynomial<'a> {
         let r = self.poly.clone().sub(rhs.poly.clone());
 
         Polynomial {
@@ -46,9 +129,7 @@ impl<'a> Polynomial<'a> {
         }
     }
 
-    fn div(&mut self, rhs: &mut Polynomial) -> Polynomial<'a> {
-        // unify the variable names first
-        self.poly.unify_varmaps(&mut rhs.poly);
+    fn div(&self, rhs: &Polynomial) -> Polynomial<'a> {
         let r = self.poly.clone().div(rhs.poly.clone());
 
         Polynomial {
@@ -57,9 +138,7 @@ impl<'a> Polynomial<'a> {
         }
     }
 
-    fn mul(&mut self, rhs: &mut Polynomial) -> Polynomial<'a> {
-        // unify the variable names first
-        self.poly.unify_varmaps(&mut rhs.poly);
+    fn mul(&self, rhs: &Polynomial) -> Polynomial<'a> {
         let r = self.poly.clone().mul(rhs.poly.clone());
 
         Polynomial {
@@ -68,8 +147,8 @@ impl<'a> Polynomial<'a> {
         }
     }
 
-    fn gcd(&mut self, rhs: &mut Polynomial) -> Polynomial<'a> {
-        let r = self.poly.gcd(&mut rhs.poly);
+    fn gcd(&self, rhs: &Polynomial) -> Polynomial<'a> {
+        let r = self.poly.clone().gcd(&mut rhs.poly.clone());
         Polynomial {
             poly: r,
             var_info: self.var_info,
@@ -139,13 +218,12 @@ pub extern "C" fn polynomial_free(ptr: *mut Polynomial) {
 }
 
 #[no_mangle]
-pub extern "C" fn polynomial_to_string(ptr: *mut Polynomial) -> *mut c_char {
+pub extern "C" fn polynomial_to_string(ptr: *const Polynomial) -> *mut c_char {
     let poly = unsafe {
         assert!(!ptr.is_null());
-        &mut *ptr
+        &*ptr
     };
 
-    // TODO: this string must be freed too
     let c_str_poly = CString::new(poly.to_string()).unwrap();
     c_str_poly.into_raw()
 }
@@ -161,10 +239,10 @@ pub extern "C" fn polynomial_string_free(s: *mut c_char) {
 }
 
 #[no_mangle]
-pub extern "C" fn polynomial_clone<'a>(poly: *mut Polynomial<'a>) -> *mut Polynomial<'a> {
+pub extern "C" fn polynomial_clone<'a>(poly: *const Polynomial<'a>) -> *const Polynomial<'a> {
     let polyp = unsafe {
         assert!(!poly.is_null());
-        &mut *poly
+        &*poly
     };
 
     Box::into_raw(Box::new(polyp.clone()))
@@ -172,17 +250,17 @@ pub extern "C" fn polynomial_clone<'a>(poly: *mut Polynomial<'a>) -> *mut Polyno
 
 #[no_mangle]
 pub extern "C" fn polynomial_add<'a>(
-    lhs: *mut Polynomial<'a>,
-    rhs: *mut Polynomial<'a>,
+    lhs: *const Polynomial<'a>,
+    rhs: *const Polynomial<'a>,
 ) -> *mut Polynomial<'a> {
     let lhsp = unsafe {
         assert!(!lhs.is_null());
-        &mut *lhs
+        &*lhs
     };
 
     let rhsp = unsafe {
         assert!(!rhs.is_null());
-        &mut *rhs
+        &*rhs
     };
 
     Box::into_raw(Box::new(lhsp.add(rhsp)))
@@ -190,17 +268,17 @@ pub extern "C" fn polynomial_add<'a>(
 
 #[no_mangle]
 pub extern "C" fn polynomial_sub<'a>(
-    lhs: *mut Polynomial<'a>,
-    rhs: *mut Polynomial<'a>,
-) -> *mut Polynomial<'a> {
+    lhs: *const Polynomial<'a>,
+    rhs: *const Polynomial<'a>,
+) -> *const Polynomial<'a> {
     let lhsp = unsafe {
         assert!(!lhs.is_null());
-        &mut *lhs
+        &*lhs
     };
 
     let rhsp = unsafe {
         assert!(!rhs.is_null());
-        &mut *rhs
+        &*rhs
     };
 
     Box::into_raw(Box::new(lhsp.sub(rhsp)))
@@ -208,17 +286,17 @@ pub extern "C" fn polynomial_sub<'a>(
 
 #[no_mangle]
 pub extern "C" fn polynomial_div<'a>(
-    lhs: *mut Polynomial<'a>,
-    rhs: *mut Polynomial<'a>,
+    lhs: *const Polynomial<'a>,
+    rhs: *const Polynomial<'a>,
 ) -> *mut Polynomial<'a> {
     let lhsp = unsafe {
         assert!(!lhs.is_null());
-        &mut *lhs
+        &*lhs
     };
 
     let rhsp = unsafe {
         assert!(!rhs.is_null());
-        &mut *rhs
+        &*rhs
     };
 
     Box::into_raw(Box::new(lhsp.div(rhsp)))
@@ -226,27 +304,27 @@ pub extern "C" fn polynomial_div<'a>(
 
 #[no_mangle]
 pub extern "C" fn polynomial_mul<'a>(
-    lhs: *mut Polynomial<'a>,
-    rhs: *mut Polynomial<'a>,
-) -> *mut Polynomial<'a> {
+    lhs: *const Polynomial<'a>,
+    rhs: *const Polynomial<'a>,
+) -> *const Polynomial<'a> {
     let lhsp = unsafe {
         assert!(!lhs.is_null());
-        &mut *lhs
+        &*lhs
     };
 
     let rhsp = unsafe {
         assert!(!rhs.is_null());
-        &mut *rhs
+        &*rhs
     };
 
     Box::into_raw(Box::new(lhsp.mul(rhsp)))
 }
 
 #[no_mangle]
-pub extern "C" fn polynomial_neg<'a>(lhs: *mut Polynomial<'a>) -> *mut Polynomial<'a> {
+pub extern "C" fn polynomial_neg<'a>(lhs: *const Polynomial<'a>) -> *const Polynomial<'a> {
     let lhsp = unsafe {
         assert!(!lhs.is_null());
-        &mut *lhs
+        &*lhs
     };
 
     Box::into_raw(Box::new(lhsp.neg()))
@@ -254,18 +332,156 @@ pub extern "C" fn polynomial_neg<'a>(lhs: *mut Polynomial<'a>) -> *mut Polynomia
 
 #[no_mangle]
 pub extern "C" fn polynomial_gcd<'a>(
-    lhs: *mut Polynomial<'a>,
-    rhs: *mut Polynomial<'a>,
-) -> *mut Polynomial<'a> {
+    lhs: *const Polynomial<'a>,
+    rhs: *const Polynomial<'a>,
+) -> *const Polynomial<'a> {
     let lhsp = unsafe {
         assert!(!lhs.is_null());
-        &mut *lhs
+        &*lhs
     };
 
     let rhsp = unsafe {
         assert!(!rhs.is_null());
-        &mut *rhs
+        &*rhs
     };
 
     Box::into_raw(Box::new(lhsp.gcd(rhsp)))
+}
+
+#[no_mangle]
+pub extern "C" fn rationalpolynomial_new<'a>(
+    num: *const Polynomial<'a>,
+    den: *const Polynomial<'a>,
+) -> *mut RationalPolynomial<'a> {
+    let nump = unsafe {
+        assert!(!num.is_null());
+        &*num
+    };
+
+    let denp = unsafe {
+        assert!(!den.is_null());
+        &*den
+    };
+
+    Box::into_raw(Box::new(RationalPolynomial::from_poly(
+        nump.clone(),
+        denp.clone(),
+    )))
+}
+
+#[no_mangle]
+pub extern "C" fn rationalpolynomial_free(ptr: *mut RationalPolynomial) {
+    if ptr.is_null() {
+        return;
+    }
+    unsafe {
+        Box::from_raw(ptr);
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn rationalpolynomial_clone<'a>(
+    poly: *const RationalPolynomial<'a>,
+) -> *const RationalPolynomial<'a> {
+    let polyp = unsafe {
+        assert!(!poly.is_null());
+        &*poly
+    };
+
+    Box::into_raw(Box::new(polyp.clone()))
+}
+
+#[no_mangle]
+pub extern "C" fn rationalpolynomial_to_string(ptr: *const RationalPolynomial) -> *mut c_char {
+    let poly = unsafe {
+        assert!(!ptr.is_null());
+        &*ptr
+    };
+
+    let c_str_poly = CString::new(poly.to_string()).unwrap();
+    c_str_poly.into_raw()
+}
+
+#[no_mangle]
+pub extern "C" fn rationalpolynomial_neg<'a>(
+    lhs: *const RationalPolynomial<'a>,
+) -> *const RationalPolynomial<'a> {
+    let lhsp = unsafe {
+        assert!(!lhs.is_null());
+        &*lhs
+    };
+
+    Box::into_raw(Box::new(lhsp.neg()))
+}
+
+#[no_mangle]
+pub extern "C" fn rationalpolynomial_add<'a>(
+    lhs: *const RationalPolynomial<'a>,
+    rhs: *const RationalPolynomial<'a>,
+) -> *const RationalPolynomial<'a> {
+    let lhsp = unsafe {
+        assert!(!lhs.is_null());
+        &*lhs
+    };
+
+    let rhsp = unsafe {
+        assert!(!rhs.is_null());
+        &*rhs
+    };
+
+    Box::into_raw(Box::new(lhsp.add(rhsp)))
+}
+
+#[no_mangle]
+pub extern "C" fn rationalpolynomial_sub<'a>(
+    lhs: *const RationalPolynomial<'a>,
+    rhs: *const RationalPolynomial<'a>,
+) -> *const RationalPolynomial<'a> {
+    let lhsp = unsafe {
+        assert!(!lhs.is_null());
+        &*lhs
+    };
+
+    let rhsp = unsafe {
+        assert!(!rhs.is_null());
+        &*rhs
+    };
+
+    Box::into_raw(Box::new(lhsp.sub(rhsp)))
+}
+
+#[no_mangle]
+pub extern "C" fn rationalpolynomial_mul<'a>(
+    lhs: *const RationalPolynomial<'a>,
+    rhs: *const RationalPolynomial<'a>,
+) -> *const RationalPolynomial<'a> {
+    let lhsp = unsafe {
+        assert!(!lhs.is_null());
+        &*lhs
+    };
+
+    let rhsp = unsafe {
+        assert!(!rhs.is_null());
+        &*rhs
+    };
+
+    Box::into_raw(Box::new(lhsp.mul(rhsp)))
+}
+
+#[no_mangle]
+pub extern "C" fn rationalpolynomial_div<'a>(
+    lhs: *const RationalPolynomial<'a>,
+    rhs: *const RationalPolynomial<'a>,
+) -> *const RationalPolynomial<'a> {
+    let lhsp = unsafe {
+        assert!(!lhs.is_null());
+        &*lhs
+    };
+
+    let rhsp = unsafe {
+        assert!(!rhs.is_null());
+        &*rhs
+    };
+
+    Box::into_raw(Box::new(lhsp.div(rhsp)))
 }

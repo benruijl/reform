@@ -1,6 +1,8 @@
 use num_traits::{One, Pow, Zero};
 use number::Number;
-use poly::polynomial::Polynomial;
+use poly::polynomial::{
+    rationalpolynomial_add, rationalpolynomial_mul, rationalpolynomial_normalize, Polynomial,
+};
 use sort::split_merge;
 use std::mem;
 use structure::{
@@ -71,12 +73,11 @@ impl Element {
                         }
 
                         // convert to polyratfun if possible
-                        // TODO: what to do with variable mappings?
-                        // we don't want an enormous array
                         if a.len() == 1 {
                             if let Ok(mut prf) = Polynomial::from(&a[0]) {
                                 let mut one = prf.cloned_one();
-                                prf.unify_varmaps(&mut one); // make sure the variables are shared
+
+                                rationalpolynomial_normalize(&mut prf, &mut one);
                                 Element::RationalPolynomialCoefficient(false, Box::new((prf, one)))
                             } else {
                                 return false;
@@ -85,7 +86,7 @@ impl Element {
                             match Polynomial::from(&a[0]) {
                                 Ok(mut num) => match Polynomial::from(&a[1]) {
                                     Ok(mut den) => {
-                                        num.unify_varmaps(&mut den); // make sure the variables are shared
+                                        rationalpolynomial_normalize(&mut num, &mut den);
                                         Element::RationalPolynomialCoefficient(
                                             false,
                                             Box::new((num, den)),
@@ -574,22 +575,7 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
             let (ref mut num, ref mut den) = &mut **p;
             let (ref mut num1, ref mut den1) = &mut **p1;
 
-            let mut g1 = num.gcd(den1);
-            let mut g2 = num1.gcd(den);
-
-            let numnew = num.divmod(&mut g1).0;
-            let num1new = num1.divmod(&mut g2).0;
-            let dennew = den.divmod(&mut g2).0;
-            let den1new = den1.divmod(&mut g1).0;
-
-            *num = numnew * num1new;
-            *den = dennew * den1new;
-
-            let mut g = num.gcd(den);
-
-            *num = num.divmod(&mut g).0;
-            *den = den.divmod(&mut g).0;
-
+            rationalpolynomial_mul(num, den, num1, den1);
             return true;
         }
     }
@@ -713,23 +699,7 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
                     let (ref mut num, ref mut den) = &mut **p1; // note the switch
                     let (ref mut num1, ref mut den1) = &mut **p;
 
-                    if den == den1 {
-                        *num = mem::replace(num, Polynomial::new())
-                            + mem::replace(num1, Polynomial::new());
-                    } else {
-                        let mut g = den.gcd(den1);
-                        let mut scale = den1.divmod(&mut g).0;
-                        let mut scale1 = den.divmod(&mut g).0;
-                        *num = mem::replace(num, Polynomial::new()) * scale.clone()
-                            + mem::replace(num1, Polynomial::new()) * scale1;
-                        *den = mem::replace(den, Polynomial::new()) * scale;
-                    }
-
-                    let mut g1 = num.gcd(den);
-                    *num = num.divmod(&mut g1).0;
-                    *den = den.divmod(&mut g1).0;
-
-                    if num.is_zero() {
+                    if rationalpolynomial_add(num, den, num1, den1) {
                         return true;
                     }
                 }
@@ -811,22 +781,7 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
             let (ref mut num, ref mut den) = &mut **p1;
             let (ref mut num1, ref mut den1) = &mut **p;
 
-            if den == den1 {
-                *num = mem::replace(num, Polynomial::new()) + mem::replace(num1, Polynomial::new());
-            } else {
-                let mut g = den.gcd(den1);
-                let mut scale = den1.divmod(&mut g).0;
-                let mut scale1 = den.divmod(&mut g).0;
-                *num = mem::replace(num, Polynomial::new()) * scale.clone()
-                    + mem::replace(num1, Polynomial::new()) * scale1;
-                *den = mem::replace(den, Polynomial::new()) * scale;
-            }
-
-            let mut g1 = num.gcd(den);
-            *num = num.divmod(&mut g1).0;
-            *den = den.divmod(&mut g1).0;
-
-            if num.is_zero() {
+            if rationalpolynomial_add(num, den, num1, den1) {
                 return true;
             }
         }

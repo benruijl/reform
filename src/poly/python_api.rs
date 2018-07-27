@@ -23,6 +23,7 @@ py_module_initializer!(reform, initreform, PyInit_reform, |py, m| {
     )?;
     m.add_class::<VarInfo>(py)?;
     m.add_class::<Polynomial>(py)?;
+    m.add_class::<RationalPolynomial>(py)?;
     Ok(())
 });
 
@@ -58,10 +59,6 @@ py_class!(class Polynomial |py| {
         let lhsp = lhs.extract::<Polynomial>(py)?;
         let rhsp = rhs.extract::<Polynomial>(py)?;
 
-        // unify the variable names first if lhs != rhs
-        if lhsp.poly(py).as_ptr() != rhsp.poly(py).as_ptr() {
-            lhsp.poly(py).borrow_mut().unify_varmaps(&mut rhsp.poly(py).borrow_mut());
-        }
         let r = lhsp.poly(py).borrow().clone().add(rhsp.poly(py).borrow().clone());
 
         Polynomial::create_instance(py, RefCell::new(r), clone_varmap(&lhsp.var_info(py), &rhsp.var_info(py)))
@@ -71,20 +68,12 @@ py_class!(class Polynomial |py| {
         let lhsp = lhs.extract::<Polynomial>(py)?;
         let rhsp = rhs.extract::<Polynomial>(py)?;
 
-        // unify the variable names first if lhs != rhs
-        if lhsp.poly(py).as_ptr() != rhsp.poly(py).as_ptr() {
-            lhsp.poly(py).borrow_mut().unify_varmaps(&mut rhsp.poly(py).borrow_mut());
-        }
         let r = lhsp.poly(py).borrow().clone().sub(rhsp.poly(py).borrow().clone());
 
         Polynomial::create_instance(py, RefCell::new(r), clone_varmap(&lhsp.var_info(py), &rhsp.var_info(py)))
     }
 
     def div(&self, other: &Polynomial) -> PyResult<Polynomial> {
-        // unify the variable names first if lhs != rhs
-        if self.poly(py).as_ptr() != other.poly(py).as_ptr() {
-            self.poly(py).borrow_mut().unify_varmaps(&mut other.poly(py).borrow_mut());
-        }
         let r = self.poly(py).borrow().clone().div(other.poly(py).borrow().clone());
 
         Polynomial::create_instance(py, RefCell::new(r), clone_varmap(&self.var_info(py), &other.var_info(py)))
@@ -94,10 +83,6 @@ py_class!(class Polynomial |py| {
         let lhsp = lhs.extract::<Polynomial>(py)?;
         let rhsp = rhs.extract::<Polynomial>(py)?;
 
-        // unify the variable names first if lhs != rhs
-        if lhsp.poly(py).as_ptr() != rhsp.poly(py).as_ptr() {
-            lhsp.poly(py).borrow_mut().unify_varmaps(&mut rhsp.poly(py).borrow_mut());
-        }
         let r = lhsp.poly(py).borrow().clone().mul(rhsp.poly(py).borrow().clone());
 
         Polynomial::create_instance(py, RefCell::new(r), clone_varmap(&lhsp.var_info(py), &rhsp.var_info(py)))
@@ -109,13 +94,105 @@ py_class!(class Polynomial |py| {
     }
 
     def gcd(&self, other: &Polynomial) -> PyResult<Polynomial> {
+        // FIXME: we are modifying the original polynomials
         if self.poly(py).as_ptr() != other.poly(py).as_ptr() {
             Polynomial::create_instance(py, RefCell::new(self.poly(py).borrow_mut().gcd(&mut other.poly(py).borrow_mut())),
                 clone_varmap(&self.var_info(py), &other.var_info(py)))
         } else {
-            let mut c = other.poly(py).borrow().clone(); // TODO: move the varmap merge out of the gcd routine, so we don't have to copy
+            let mut c = other.poly(py).borrow().clone();
             Polynomial::create_instance(py, RefCell::new(self.poly(py).borrow_mut().gcd(&mut c)),
                 clone_varmap(&self.var_info(py), &other.var_info(py)))
         }
     }
+});
+
+py_class!(class RationalPolynomial |py| {
+    data num: Polynomial;
+    data den: Polynomial;
+    def __new__(_cls, num: &Polynomial, den: &Polynomial) -> PyResult<RationalPolynomial> {
+        let np = num.__copy__(py).unwrap();
+        let dp = den.__copy__(py).unwrap();
+        polynomial::rationalpolynomial_normalize(&mut np.poly(py).borrow_mut(), &mut dp.poly(py).borrow_mut());
+
+        RationalPolynomial::create_instance(py, np, dp)
+    }
+
+    def __copy__(&self) -> PyResult<RationalPolynomial> {
+        RationalPolynomial::create_instance(py, self.num(py).__copy__(py).unwrap(), self.den(py).__copy__(py).unwrap())
+    }
+
+    def __str__(&self) -> PyResult<String> {
+        Ok(format!("({})/({})", self.num(py).__str__(py).unwrap(), self.den(py).__str__(py).unwrap()))
+    }
+
+    def __neg__(&self) -> PyResult<RationalPolynomial> {
+        let r = self.num(py).clone().__neg__(py).unwrap();
+        RationalPolynomial::create_instance(py, r, self.den(py).__copy__(py).unwrap())
+    }
+
+    def __mul__(lhs, rhs) -> PyResult<RationalPolynomial> {
+        let lhsp = lhs.extract::<RationalPolynomial>(py)?;
+        let rhsp = rhs.extract::<RationalPolynomial>(py)?;
+
+        let num = lhsp.num(py).__copy__(py).unwrap();
+        let den = lhsp.den(py).__copy__(py).unwrap();
+        let num1 = rhsp.num(py).__copy__(py).unwrap();
+        let den1 = rhsp.den(py).__copy__(py).unwrap();
+
+        polynomial::rationalpolynomial_mul(&mut num.poly(py).borrow_mut(),
+            &mut den.poly(py).borrow_mut(),
+            &mut num1.poly(py).borrow_mut(),
+            &mut den1.poly(py).borrow_mut());
+
+        RationalPolynomial::create_instance(py, num, den)
+    }
+
+    def __add__(lhs, rhs) -> PyResult<RationalPolynomial> {
+        let lhsp = lhs.extract::<RationalPolynomial>(py)?;
+        let rhsp = rhs.extract::<RationalPolynomial>(py)?;
+
+        let num = lhsp.num(py).__copy__(py).unwrap();
+        let den = lhsp.den(py).__copy__(py).unwrap();
+        let num1 = rhsp.num(py).__copy__(py).unwrap();
+        let den1 = rhsp.den(py).__copy__(py).unwrap();
+
+        polynomial::rationalpolynomial_add(&mut num.poly(py).borrow_mut(),
+            &mut den.poly(py).borrow_mut(),
+            &mut num1.poly(py).borrow_mut(),
+            &mut den1.poly(py).borrow_mut());
+
+        RationalPolynomial::create_instance(py, num, den)
+    }
+
+    def __sub__(lhs, rhs) -> PyResult<RationalPolynomial> {
+        let lhsp = lhs.extract::<RationalPolynomial>(py)?;
+        let rhsp = rhs.extract::<RationalPolynomial>(py)?;
+
+        let num = lhsp.num(py).__copy__(py).unwrap();
+        let den = lhsp.den(py).__copy__(py).unwrap();
+        let num1 = rhsp.num(py).__copy__(py).unwrap();
+        let den1 = rhsp.den(py).__copy__(py).unwrap();
+
+        polynomial::rationalpolynomial_sub(&mut num.poly(py).borrow_mut(),
+            &mut den.poly(py).borrow_mut(),
+            &mut num1.poly(py).borrow_mut(),
+            &mut den1.poly(py).borrow_mut());
+
+        RationalPolynomial::create_instance(py, num, den)
+    }
+
+    def div(&self, rhs: &RationalPolynomial) -> PyResult<RationalPolynomial> {
+        let num = self.num(py).__copy__(py).unwrap();
+        let den = self.den(py).__copy__(py).unwrap();
+        let num1 = rhs.num(py).__copy__(py).unwrap();
+        let den1 = rhs.den(py).__copy__(py).unwrap();
+
+        polynomial::rationalpolynomial_div(&mut num.poly(py).borrow_mut(),
+            &mut den.poly(py).borrow_mut(),
+            &mut num1.poly(py).borrow_mut(),
+            &mut den1.poly(py).borrow_mut());
+
+        RationalPolynomial::create_instance(py, num, den)
+    }
+
 });
