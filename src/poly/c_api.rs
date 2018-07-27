@@ -26,14 +26,7 @@ impl<'a> RationalPolynomial<'a> {
             &den.var_info.global_info as *const _
         );
 
-        polynomial::rationalpolynomial_normalize(num, den);
-
-        // will also unify varmaps
-        let gcd = num.gcd(&mut den);
-        // FIXME: this looks horrible. done to avoid copying
-        num.poly.poly = num.poly.poly.divmod(&gcd.poly.poly).0;
-        den.poly.poly = den.poly.poly.divmod(&gcd.poly.poly).0;
-
+        polynomial::rationalpolynomial_normalize(&mut num.poly, &mut den.poly);
         RationalPolynomial { num, den }
     }
 
