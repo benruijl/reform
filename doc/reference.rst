@@ -560,7 +560,7 @@ Functions
     
         576
 
-.. frm:function:: nargs_(a1,...an)
+.. frm:function:: nargs_(a1,...,an)
 
     :param a1,...,an: A list of expressions
 
@@ -619,3 +619,21 @@ Functions
     .. code-block:: reform
     
         29
+
+.. frm:function:: takearg_(k,a1,...,an)
+
+    :param k: The index of the argument to take
+    :param a1,...,an: Arguments
+
+    Return the ``k`` th argument of the list ``a1,...,an`` .
+    If the index is out of bounds, no substitution takes place.
+
+    .. code-block:: reform
+
+        expr F = takearg_(2, x1, x2, x3);
+
+    yields
+    
+    .. code-block:: reform
+    
+        x2

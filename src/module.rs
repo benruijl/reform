@@ -48,21 +48,22 @@ impl TermStreamWrapper {
 }
 
 impl Element {
-    pub fn append_factors(self, other: Element) -> Element {
+    pub fn append_factors(self, other: &Element) -> Element {
         match (self, other) {
-            (Element::Term(_, mut t1), Element::Term(_, t2)) => {
-                t1.extend(t2);
-                Element::Term(true, t1)
+            (Element::Term(_, ref mut t1), Element::Term(_, t2)) => {
+                t1.extend(t2.iter().cloned());
+                Element::Term(true, mem::replace(t1, vec![]))
             }
             (Element::Term(_, mut t1), x) => {
-                t1.push(x);
+                t1.push(x.clone());
                 Element::Term(true, t1)
             }
-            (x, Element::Term(_, mut t2)) => {
-                t2.push(x);
-                Element::Term(true, t2)
+            (ref x, Element::Term(_, t2)) => {
+                let mut k = t2.clone();
+                k.push(x.clone());
+                Element::Term(true, k)
             }
-            (x1, x2) => Element::Term(true, vec![x1, x2]),
+            (x1, x2) => Element::Term(true, vec![x1, x2.clone()]),
         }
     }
 
@@ -85,17 +86,16 @@ impl Element {
                     let fe = f.expand(var_info);
                     match fe {
                         Element::SubExpr(_, s) => {
-                            r = r
-                                .into_iter()
-                                .flat_map(|x| {
-                                    s.iter()
-                                        .map(|y| x.clone().append_factors(y.clone()))
-                                        .collect::<Vec<_>>()
-                                })
-                                .collect();
+                            let mut rnew = Vec::with_capacity(r.len() * s.len());
+
+                            for x in r {
+                                rnew.extend(s.iter().map(|y| x.clone().append_factors(y)));
+                            }
+
+                            r = rnew;
                         }
                         _ => for rr in &mut r {
-                            *rr = mem::replace(rr, DUMMY_ELEM!()).append_factors(fe.clone());
+                            *rr = mem::replace(rr, DUMMY_ELEM!()).append_factors(&fe);
                         },
                     }
                 }

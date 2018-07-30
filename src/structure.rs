@@ -8,14 +8,16 @@ use std::fmt;
 use std::mem;
 use streaming::InputTermStreamer;
 
-pub const BUILTIN_FUNCTIONS: &'static [&'static str] =
-    &["delta_", "nargs_", "sum_", "mul_", "rat_", "gcd_"];
+pub const BUILTIN_FUNCTIONS: &'static [&'static str] = &[
+    "delta_", "nargs_", "sum_", "mul_", "rat_", "gcd_", "takearg_",
+];
 pub const FUNCTION_DELTA: VarName = 0;
 pub const FUNCTION_NARGS: VarName = 1;
 pub const FUNCTION_SUM: VarName = 2;
 pub const FUNCTION_MUL: VarName = 3;
 pub const FUNCTION_RAT: VarName = 4;
 pub const FUNCTION_GCD: VarName = 5;
+pub const FUNCTION_TAKEARG: VarName = 6;
 
 /// Trait for variable ID. Normally `VarName` or `String`.
 pub trait Id: Ord + fmt::Debug {}

@@ -7,7 +7,7 @@ use sort::split_merge;
 use std::mem;
 use structure::{
     Element, FunctionAttributes, GlobalVarInfo, FUNCTION_DELTA, FUNCTION_GCD, FUNCTION_MUL,
-    FUNCTION_NARGS, FUNCTION_RAT, FUNCTION_SUM,
+    FUNCTION_NARGS, FUNCTION_RAT, FUNCTION_SUM, FUNCTION_TAKEARG,
 };
 use tools::add_num_poly;
 
@@ -38,6 +38,22 @@ impl Element {
                     FUNCTION_NARGS => {
                         // get the number of arguments
                         Element::Num(false, Number::SmallInt(a.len() as isize))
+                    }
+                    FUNCTION_TAKEARG => {
+                        // take the nth argument, starting from 1
+                        if a.len() > 2 {
+                            if let Element::Num(_, Number::SmallInt(n1)) = a[0] {
+                                if n1 > 0 && (n1 as usize) < a.len() {
+                                    a.swap_remove(n1 as usize)
+                                } else {
+                                    return false;
+                                }
+                            } else {
+                                return false;
+                            }
+                        } else {
+                            return false;
+                        }
                     }
                     FUNCTION_SUM | FUNCTION_MUL => {
                         if a.len() == 4 {
@@ -107,6 +123,14 @@ impl Element {
                         let mut br = Polynomial::from(&a[1]);
 
                         if let (Ok(mut a1), Ok(mut a2)) = (ar, br) {
+                            // check if the polynomials have integer coefficients
+                            for x in a1.poly.coefficients.iter().chain(&a2.poly.coefficients) {
+                                match x {
+                                    Number::SmallRat(..) | Number::BigInt(..) => return false,
+                                    _ => {}
+                                }
+                            }
+
                             let gcd = a1.gcd(&mut a2);
 
                             // TODO: convert back to a subexpression
