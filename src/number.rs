@@ -21,7 +21,7 @@ const DOWNGRADE_LIMIT: isize = 4294967296; // if a bigint is smaller than this n
 ///
 /// The mathematical operations on a number automatically upgrade
 /// and downgrade to bigint/smallint etc.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum Number {
     SmallInt(isize),
     BigInt(Integer),
@@ -39,7 +39,12 @@ impl Number {
                 } else if *d < 0 {
                     *d = -*d;
                     *n = -*n;
-                    return true;
+
+                    if *d == 1 {
+                        Number::SmallInt(*n)
+                    } else {
+                        return true;
+                    }
                 } else {
                     return false;
                 }
@@ -65,6 +70,7 @@ impl Number {
         true
     }
 
+    #[inline]
     pub fn normalized(mut self) -> Self {
         self.normalize_inplace();
         self
@@ -105,7 +111,42 @@ impl Number {
             Number::BigRat(..) => panic!("Cannot take factorial of fraction"),
         }
     }
+
+    pub fn abs(&self) -> Number {
+        match self {
+            Number::SmallInt(i) => match i.checked_abs() {
+                Some(x) => Number::SmallInt(x),
+                None => -self.clone(),
+            },
+            Number::SmallRat(n, d) => match n.checked_abs() {
+                Some(x) => Number::SmallRat(x, *d),
+                None => Number::BigRat(Box::new(Rational::from((
+                    -Integer::from(*n),
+                    Integer::from(*d),
+                )))),
+            },
+            Number::BigInt(ref i) => Number::BigInt(i.clone().abs()),
+            Number::BigRat(ref r) => Number::BigRat(Box::new(r.clone().abs())),
+        }
+    }
 }
+
+impl PartialEq for Number {
+    /// Compare numbers. Big integers can also match small integers.
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Number::SmallInt(i1), Number::SmallInt(i2)) => i1 == i2,
+            (Number::BigInt(i1), Number::BigInt(i2)) => i1 == i2,
+            (Number::SmallInt(i1), Number::BigInt(i2)) => i1 == i2,
+            (Number::BigInt(i1), Number::SmallInt(i2)) => i1 == i2,
+            (Number::SmallRat(i1, d1), Number::SmallRat(i2, d2)) => i1 == i2 && d1 == d2,
+            (Number::BigRat(i1), Number::BigRat(i2)) => i1 == i2,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Number {}
 
 impl fmt::Display for Number {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -142,7 +183,7 @@ impl GCD for Number {
                 BigInt(i2.gcd(&Integer::from(i1)))
             }
             (BigInt(i1), BigInt(i2)) => BigInt(i1.gcd(&i2)),
-            _ => unreachable!(),
+            (x, y) => unreachable!(format!("Cannot compute gcd of {:?} and {:?}", x, y)),
         }
     }
 }
@@ -167,9 +208,22 @@ impl Neg for Number {
 
     fn neg(self) -> Self::Output {
         match self {
-            Number::SmallInt(i) => Number::SmallInt(-i),
+            Number::SmallInt(i) => {
+                if i == isize::min_value() {
+                    Number::BigInt(-Integer::from(i))
+                } else {
+                    Number::SmallInt(-i)
+                }
+            }
             Number::BigInt(i) => Number::BigInt(-i),
-            Number::SmallRat(n, d) => Number::SmallRat(-n, d),
+            Number::SmallRat(n, d) => if n == isize::min_value() {
+                Number::BigRat(Box::new(Rational::from((
+                    -Integer::from(n),
+                    Integer::from(d),
+                ))))
+            } else {
+                Number::SmallRat(-n, d)
+            },
             Number::BigRat(f) => Number::BigRat(Box::new(-*f)),
         }
     }
@@ -224,6 +278,12 @@ impl PartialOrd for Number {
     }
 }
 
+impl Ord for Number {
+    fn cmp(&self, other: &Number) -> Ordering {
+        self.partial_cmp(other).unwrap()
+    }
+}
+
 impl Add for Number {
     type Output = Self;
 
@@ -237,15 +297,18 @@ impl Add for Number {
             (SmallInt(i1), BigInt(i2)) | (BigInt(i2), SmallInt(i1)) => {
                 BigInt(Integer::from(i1) + i2)
             }
-            (SmallInt(i1), SmallRat(n2, d2)) | (SmallRat(n2, d2), SmallInt(i1)) => match i1
-                .checked_mul(d2)
-            {
-                Some(num1) => match n2.checked_add(num1) {
-                    Some(num) => Number::SmallRat(num, d2),
-                    None => Number::BigRat(Box::new(Rational::from(i1) + Rational::from((n2, d2)))),
-                },
-                None => Number::BigRat(Box::new(Rational::from(i1) + Rational::from((n2, d2)))),
-            },
+            (SmallInt(i1), SmallRat(n2, d2)) | (SmallRat(n2, d2), SmallInt(i1)) => {
+                match i1.checked_mul(d2) {
+                    Some(num1) => match n2.checked_add(num1) {
+                        Some(num) => Number::SmallRat(num, d2).normalized(),
+                        None => Number::BigRat(Box::new(
+                            Rational::from(i1) + Rational::from((n2, d2)),
+                        )).normalized(),
+                    },
+                    None => Number::BigRat(Box::new(Rational::from(i1) + Rational::from((n2, d2))))
+                        .normalized(),
+                }
+            }
             (SmallRat(n1, d1), SmallRat(n2, d2)) => match d2.checked_mul(d1 / GCD::gcd(d1, d2)) {
                 Some(lcm) => match n2.checked_mul(lcm / d2) {
                     Some(num2) => match n1.checked_mul(lcm / d1) {
@@ -320,7 +383,7 @@ impl Mul for Number {
                     Some(x) => if d2 == 1 {
                         Number::SmallInt(x)
                     } else {
-                        Number::SmallRat(x, d2)
+                        Number::SmallRat(x, d2).normalized()
                     },
                     None => if d2 == 1 {
                         Number::BigInt(Integer::from(n2) * Integer::from(i1 / gcd))
@@ -386,7 +449,7 @@ impl Rem for Number {
             (SmallInt(i1), BigInt(i2)) => BigInt(Integer::from(i1.clone()) % i2),
             (BigInt(i1), SmallInt(i2)) => BigInt(i1 % Integer::from(i2)),
             (BigInt(i1), BigInt(i2)) => BigInt(i1 % i2),
-            _ => unreachable!(),
+            (x, y) => unreachable!(format!("Cannot compute remainder {:?} rem {:?}", x, y)),
         }
     }
 }
@@ -474,7 +537,7 @@ pub fn chinese_remainder(n1: Number, n2: Number, p1: Number, p2: Number) -> Numb
     // convert to standard representation
     let mut r = v1 * p1.clone() + n1;
     r.normalize_inplace(); // potentially downgrade from bigint
-    if r > p1.clone() / Number::SmallInt(2) * p2.clone() {
+    if r.clone() * Number::SmallInt(2) > p1.clone() * p2.clone() {
         r - p1 * p2
     } else {
         r

@@ -11,7 +11,7 @@ use std::thread;
 use std::time;
 
 use crossbeam;
-use crossbeam::sync::MsQueue;
+use crossbeam::queue::MsQueue;
 
 use id::{MatchIterator, MatchKind, MatchOpt};
 use streaming::MAXTERMMEM;
@@ -443,21 +443,22 @@ impl<'a> ExpandIterator<'a> {
 }
 
 impl Element {
-    pub fn append_factors(self, other: Element) -> Element {
+    pub fn append_factors(self, other: &Element) -> Element {
         match (self, other) {
-            (Element::Term(_, mut t1), Element::Term(_, t2)) => {
-                t1.extend(t2);
-                Element::Term(true, t1)
+            (Element::Term(_, ref mut t1), Element::Term(_, t2)) => {
+                t1.extend(t2.iter().cloned());
+                Element::Term(true, mem::replace(t1, vec![]))
             }
             (Element::Term(_, mut t1), x) => {
-                t1.push(x);
+                t1.push(x.clone());
                 Element::Term(true, t1)
             }
-            (x, Element::Term(_, mut t2)) => {
-                t2.push(x);
-                Element::Term(true, t2)
+            (ref x, Element::Term(_, t2)) => {
+                let mut k = t2.clone();
+                k.push(x.clone());
+                Element::Term(true, k)
             }
-            (x1, x2) => Element::Term(true, vec![x1, x2]),
+            (x1, x2) => Element::Term(true, vec![x1, x2.clone()]),
         }
     }
 
@@ -480,17 +481,16 @@ impl Element {
                     let fe = f.expand(var_info);
                     match fe {
                         Element::SubExpr(_, s) => {
-                            r = r
-                                .into_iter()
-                                .flat_map(|x| {
-                                    s.iter()
-                                        .map(|y| x.clone().append_factors(y.clone()))
-                                        .collect::<Vec<_>>()
-                                })
-                                .collect();
+                            let mut rnew = Vec::with_capacity(r.len() * s.len());
+
+                            for x in r {
+                                rnew.extend(s.iter().map(|y| x.clone().append_factors(y)));
+                            }
+
+                            r = rnew;
                         }
                         _ => for rr in &mut r {
-                            *rr = mem::replace(rr, DUMMY_ELEM!()).append_factors(fe.clone());
+                            *rr = mem::replace(rr, DUMMY_ELEM!()).append_factors(&fe);
                         },
                     }
                 }
@@ -946,6 +946,49 @@ fn do_module_rec(
             if let Element::Dollar(ref d, ..) = *dollar {
                 local_var_info.add_dollar(d.clone(), ee);
             }
+            return do_module_rec(
+                input,
+                statements,
+                local_var_info,
+                global_var_info,
+                current_index + 1,
+                term_affected,
+                output,
+            );
+        }
+        Statement::MatchAssign(ref pat, ref ss) => {
+            let mut newss = vec![];
+            if let Some((_, ref m)) = MatchKind::from_element(
+                pat,
+                &input,
+                &BorrowedVarInfo {
+                    global_info: global_var_info,
+                    local_info: local_var_info,
+                },
+            ).next()
+            {
+                for s in ss {
+                    if let Statement::Assign(ref dollar, ref e) = s {
+                        newss.push(Statement::Assign(
+                            dollar.clone(),
+                            e.apply_map(m).into_single().0,
+                        ));
+                    }
+                }
+            }
+
+            for s in newss {
+                if let Statement::Assign(ref dollar, ref e) = s {
+                    let mut ee = e.clone();
+                    if ee.replace_vars(&local_var_info.variables, true) {
+                        ee.normalize_inplace(&global_var_info);
+                    }
+                    if let Element::Dollar(ref d, ..) = *dollar {
+                        local_var_info.add_dollar(d.clone(), ee);
+                    }
+                }
+            }
+
             return do_module_rec(
                 input,
                 statements,

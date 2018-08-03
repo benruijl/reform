@@ -30,14 +30,17 @@ An example Python program:
 
 	import reform
 
-	a = reform.Polynomial("1+x*y+5")
-	b = reform.Polynomial("x^2+2*x*y+y")
+	vi = reform.VarInfo();
+	a = reform.Polynomial("1+x*y+5", vi)
+	b = reform.Polynomial("x^2+2*x*y+y", vi)
 	g = a + b
 
 	ag = a * g
 	bg = b * g
 
-	print(ag.gcd(bg))
+	rat = reform.RationalPolynomial(ag, bg)
+	print('ag/bg:', rat)
+	print('gcd:', ag.gcd(bg))
 
 
 C API
@@ -47,7 +50,7 @@ To compile the reFORM C library, compile with the ``c_api`` feature:
 
 .. code-block:: bash
 
-	cargo build --release --features=python_api
+	cargo build --release --features=c_api
 
 Then, compile your C code as follows:
 
@@ -69,34 +72,61 @@ An example C program:
 	#include <stdint.h>
 
 	typedef struct polynomial Polynomial;
+	typedef struct varinfo VarInfo;
 
-	extern Polynomial* polynomial_new(const char *expr);
+	extern VarInfo * polynomial_varinfo();
+	extern void polynomial_varinfo_free(VarInfo *);
+
+	extern Polynomial * polynomial_new(const char *expr, VarInfo*);
 	extern void polynomial_free(Polynomial *);
-	extern char* polynomial_to_string(Polynomial *);
+	extern Polynomial * polynomial_clone(Polynomial *);
+	extern char * polynomial_to_string(Polynomial *);
 	extern void polynomial_string_free(char *);
-	extern Polynomial* polynomial_add(Polynomial *, Polynomial *);
-	extern Polynomial* polynomial_mul(Polynomial *, Polynomial *);
-	extern Polynomial* polynomial_gcd(Polynomial *, Polynomial *);
+	extern Polynomial * polynomial_add(const Polynomial *, const Polynomial *);
+	extern Polynomial * polynomial_mul(const Polynomial *, const Polynomial *);
+	extern Polynomial * polynomial_sub(const Polynomial *, const Polynomial *);
+	extern Polynomial * polynomial_div(const Polynomial *, const Polynomial *);
+	extern Polynomial * polynomial_neg(const Polynomial *);
+	extern Polynomial * polynomial_gcd(const Polynomial *, const Polynomial *);
+
+	extern RationalPolynomial * rationalpolynomial_new(const Polynomial *, const Polynomial *);
+	extern void rationalpolynomial_free(RationalPolynomial *);
+	extern Polynomial * rationalpolynomial_clone(Polynomial *);
+	extern char * rationalpolynomial_to_string(RationalPolynomial *);
+	extern Polynomial * rationalpolynomial_neg(const RationalPolynomial *);
+	extern RationalPolynomial * rationalpolynomial_add(const RationalPolynomial *, const RationalPolynomial *);
+	extern RationalPolynomial * rationalpolynomial_mul(const RationalPolynomial *, const RationalPolynomial *);
+	extern RationalPolynomial * rationalpolynomial_div(const RationalPolynomial *, const RationalPolynomial *);
+	extern RationalPolynomial * rationalpolynomial_sub(const RationalPolynomial *, const RationalPolynomial *);
 
 
 	int main(void) {
-	  Polynomial *a = polynomial_new("1+x*y+5");
-	  Polynomial *b = polynomial_new("x^2+2*x*y+y");
-	  Polynomial *g = polynomial_add(a, b);
+		VarInfo *vi = polynomial_varinfo();
+		Polynomial *a = polynomial_new("1+x*y+5", vi);
+		Polynomial *b = polynomial_new("x^2+2*x*y+y", vi);
+		Polynomial *g = polynomial_add(a, b);
 
-	  Polynomial *ag = polynomial_mul(a, g);
-	  Polynomial *bg = polynomial_mul(b, g);
+		Polynomial *ag = polynomial_mul(a, g);
+		Polynomial *bg = polynomial_mul(b, g);
 
-	  Polynomial *gcd = polynomial_gcd(ag, bg);
+		Polynomial *gcd = polynomial_gcd(ag, bg);
 
-	  char *str = polynomial_to_string(gcd);
-	  printf("%s\n", str);
+		char *str = polynomial_to_string(gcd);
+		printf("gcd: %s\n", str);
 
-	  polynomial_string_free(str);
-	  polynomial_free(a);
-	  polynomial_free(b);
-	  polynomial_free(g);
-	  polynomial_free(ag);
-	  polynomial_free(bg);
-	  polynomial_free(gcd);
+		RationalPolynomial *rat = rationalpolynomial_new(ag, bg); // g wil be removed
+		char *s = rationalpolynomial_to_string(mrat);
+		printf("ag/bg: %s\n", s);
+
+		polynomial_string_free(s);
+		polynomial_string_free(str);
+		rationalpolynomial_free(rat);
+		rationalpolynomial_free(mrat);
+		polynomial_free(a);
+		polynomial_free(b);
+		polynomial_free(g);
+		polynomial_free(ag);
+		polynomial_free(bg);
+		polynomial_free(gcd);
+		polynomial_varinfo_free(vi);
 	}

@@ -1,11 +1,13 @@
 use num_traits::{One, Pow, Zero};
 use number::Number;
-use poly::polynomial::Polynomial;
+use poly::polynomial::{
+    rationalpolynomial_add, rationalpolynomial_mul, rationalpolynomial_normalize, Polynomial,
+};
 use sort::split_merge;
 use std::mem;
 use structure::{
     Element, FunctionAttributes, GlobalVarInfo, FUNCTION_DELTA, FUNCTION_GCD, FUNCTION_MUL,
-    FUNCTION_NARGS, FUNCTION_RAT, FUNCTION_SUM,
+    FUNCTION_NARGS, FUNCTION_RAT, FUNCTION_SUM, FUNCTION_TAKEARG,
 };
 use tools::add_num_poly;
 
@@ -36,6 +38,22 @@ impl Element {
                     FUNCTION_NARGS => {
                         // get the number of arguments
                         Element::Num(false, Number::SmallInt(a.len() as isize))
+                    }
+                    FUNCTION_TAKEARG => {
+                        // take the nth argument, starting from 1
+                        if a.len() > 2 {
+                            if let Element::Num(_, Number::SmallInt(n1)) = a[0] {
+                                if n1 > 0 && (n1 as usize) < a.len() {
+                                    a.swap_remove(n1 as usize)
+                                } else {
+                                    return false;
+                                }
+                            } else {
+                                return false;
+                            }
+                        } else {
+                            return false;
+                        }
                     }
                     FUNCTION_SUM | FUNCTION_MUL => {
                         if a.len() == 4 {
@@ -71,12 +89,11 @@ impl Element {
                         }
 
                         // convert to polyratfun if possible
-                        // TODO: what to do with variable mappings?
-                        // we don't want an enormous array
                         if a.len() == 1 {
                             if let Ok(mut prf) = Polynomial::from(&a[0]) {
                                 let mut one = prf.cloned_one();
-                                prf.unify_varmaps(&mut one); // make sure the variables are shared
+
+                                rationalpolynomial_normalize(&mut prf, &mut one);
                                 Element::RationalPolynomialCoefficient(false, Box::new((prf, one)))
                             } else {
                                 return false;
@@ -85,7 +102,7 @@ impl Element {
                             match Polynomial::from(&a[0]) {
                                 Ok(mut num) => match Polynomial::from(&a[1]) {
                                     Ok(mut den) => {
-                                        num.unify_varmaps(&mut den); // make sure the variables are shared
+                                        rationalpolynomial_normalize(&mut num, &mut den);
                                         Element::RationalPolynomialCoefficient(
                                             false,
                                             Box::new((num, den)),
@@ -106,6 +123,14 @@ impl Element {
                         let mut br = Polynomial::from(&a[1]);
 
                         if let (Ok(mut a1), Ok(mut a2)) = (ar, br) {
+                            // check if the polynomials have integer coefficients
+                            for x in a1.poly.coefficients.iter().chain(&a2.poly.coefficients) {
+                                match x {
+                                    Number::SmallRat(..) | Number::BigInt(..) => return false,
+                                    _ => {}
+                                }
+                            }
+
                             let gcd = a1.gcd(&mut a2);
 
                             // TODO: convert back to a subexpression
@@ -574,22 +599,7 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
             let (ref mut num, ref mut den) = &mut **p;
             let (ref mut num1, ref mut den1) = &mut **p1;
 
-            let mut g1 = num.gcd(den1);
-            let mut g2 = num1.gcd(den);
-
-            let numnew = num.long_division(&mut g1).0;
-            let num1new = num1.long_division(&mut g2).0;
-            let dennew = den.long_division(&mut g2).0;
-            let den1new = den1.long_division(&mut g1).0;
-
-            *num = numnew * num1new;
-            *den = dennew * den1new;
-
-            let mut g = num.gcd(den);
-
-            *num = num.long_division(&mut g).0;
-            *den = den.long_division(&mut g).0;
-
+            rationalpolynomial_mul(num, den, num1, den1);
             return true;
         }
     }
@@ -713,15 +723,7 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
                     let (ref mut num, ref mut den) = &mut **p1; // note the switch
                     let (ref mut num1, ref mut den1) = &mut **p;
 
-                    // TODO: improve!
-                    let mut newnum = num.clone() * den1.clone() + num1.clone() * den.clone();
-                    let mut newden = den.clone() * den1.clone();
-                    let mut g1 = newnum.gcd(&mut newden);
-
-                    *num = newnum.long_division(&mut g1).0;
-                    *den = newden.long_division(&mut g1).0;
-
-                    if num.is_zero() {
+                    if rationalpolynomial_add(num, den, num1, den1) {
                         return true;
                     }
                 }
@@ -803,15 +805,7 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
             let (ref mut num, ref mut den) = &mut **p1;
             let (ref mut num1, ref mut den1) = &mut **p;
 
-            // TODO: improve!
-            let mut newnum = num.clone() * den1.clone() + num1.clone() * den.clone();
-            let mut newden = den.clone() * den1.clone();
-            let mut g1 = newnum.gcd(&mut newden);
-
-            *num = newnum.long_division(&mut g1).0;
-            *den = newden.long_division(&mut g1).0;
-
-            if num.is_zero() {
+            if rationalpolynomial_add(num, den, num1, den1) {
                 return true;
             }
         }

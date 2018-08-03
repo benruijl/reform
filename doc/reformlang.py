@@ -23,7 +23,7 @@ class ReformLexer(RegexLexer):
             (r'\.\.', Operator),
             (r'[;(),]', Punctuation),
             (r'[~!%^&*+=|?:<>/-]', Operator),
-            (words(('expr', 'id', 'apply', 'splitarg', 'inside',
+            (words(('expr', 'id', 'apply', 'splitarg', 'inside', 'matchassign', 'if', 'else',
                     'multiply', 'mularg', 'argument', 'print'), suffix=r'\b'), Keyword),
             include('expressions')
         ],

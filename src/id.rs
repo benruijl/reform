@@ -36,7 +36,7 @@ impl<'a> MatchOpt<'a> {
 }
 
 impl MatchOptOwned {
-    fn into_single(self) -> (Element, bool) {
+    pub fn into_single(self) -> (Element, bool) {
         match self {
             MatchOptOwned::Single(x, c) => (x, c),
             _ => panic!("Trying to get single element from a multiple"),
@@ -127,7 +127,7 @@ fn find_match<'a>(m: &'a MatchObject<'a>, k: &'a VarName) -> Option<&'a MatchOpt
 
 // apply a mapping of wildcards to a function argument
 impl Element {
-    fn apply_map<'a>(&self, m: &MatchObject<'a>) -> MatchOptOwned {
+    pub fn apply_map<'a>(&self, m: &MatchObject<'a>) -> MatchOptOwned {
         match *self {
             Element::VariableArgument(ref name) | Element::Wildcard(ref name, ..) => {
                 find_match(m, name)
@@ -589,7 +589,8 @@ impl<'a> FuncIterator<'a> {
         }
 
         // shortcut if the number of arguments is wrong
-        let varargcount = args.iter()
+        let varargcount = args
+            .iter()
             .filter(|x| match **x {
                 Element::VariableArgument { .. } => true,
                 _ => false,
@@ -791,7 +792,8 @@ impl<'a> SequenceIter<'a> {
                 let mut j = i + 1;
                 while j < self.iterators.len() {
                     // create a new iterator at j based on the previous match dictionary and slice
-                    self.iterators[j] = self.pattern
+                    self.iterators[j] = self
+                        .pattern
                         .index(j)
                         .to_iter_single(target[j], self.var_info);
 

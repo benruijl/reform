@@ -214,7 +214,7 @@ parser!{
             sep_by(attribs, lex_char('+')).skip(statementend())))
                  .map(|(d,e)| Statement::Attrib(d, e));
 
-    let assign = (dollarvar(), lex_char('=').with(expr()).skip(statementend()))
+    let assign = || (dollarvar(), lex_char('=').with(expr()).skip(statementend()))
         .map(|(d, e)| Statement::Assign(d, e));
     let symmetrize = keyword("symmetrize")
         .with(varname())
@@ -269,6 +269,10 @@ parser!{
         }
     }.map(|x| Statement::IdentityStatement(x));
 
+    let matchassign = keyword("matchassign").with(expr())
+        .and(between(lex_char('{'), lex_char('}'), many(assign())))
+        .map(|(x, ss)| Statement::MatchAssign(x, ss));
+
     let repeat = keyword("repeat").with(choice!(
         between(lex_char('{'), lex_char('}'), many(statement()))
             .map(|x| Statement::Repeat(x)),
@@ -318,7 +322,8 @@ parser!{
         extract,
         attrib,
         call_procedure,
-        assign,
+        matchassign,
+        assign(),
         maximum,
         print,
         ifelse,
@@ -446,7 +451,7 @@ parser!{
     where [I: Stream<Item=char>]
 {
     lex_char('-')
-        .with(choice!(parenexpr(), terms()))
+        .with(terms())
         .map(|mut x| {
             match x {
                 Element::Term(_, ref mut f) => f.push(Element::Num(false, Number::SmallInt(-1))),
@@ -463,7 +468,7 @@ parser!{
 {
     (
         optional(lex_char('+')).with(choice!(minexpr(), terms())),
-        many(choice!(minexpr(), lex_char('+').with(terms()))),
+        many(choice!(minexpr(), lex_char('+').with(choice!(minexpr(), terms())))),
     ).map(|(x, mut y): (Element<String>, Vec<Element<String>>)| {
             Element::SubExpr(true, {
                 y.push(x);

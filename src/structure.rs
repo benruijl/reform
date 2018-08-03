@@ -8,14 +8,16 @@ use std::fmt;
 use std::mem;
 use streaming::InputTermStreamer;
 
-pub const BUILTIN_FUNCTIONS: &'static [&'static str] =
-    &["delta_", "nargs_", "sum_", "mul_", "rat_", "gcd_"];
+pub const BUILTIN_FUNCTIONS: &'static [&'static str] = &[
+    "delta_", "nargs_", "sum_", "mul_", "rat_", "gcd_", "takearg_",
+];
 pub const FUNCTION_DELTA: VarName = 0;
 pub const FUNCTION_NARGS: VarName = 1;
 pub const FUNCTION_SUM: VarName = 2;
 pub const FUNCTION_MUL: VarName = 3;
 pub const FUNCTION_RAT: VarName = 4;
 pub const FUNCTION_GCD: VarName = 5;
+pub const FUNCTION_TAKEARG: VarName = 6;
 
 /// Trait for variable ID. Normally `VarName` or `String`.
 pub trait Id: Ord + fmt::Debug {}
@@ -336,6 +338,7 @@ pub enum Statement<ID: Id = VarName> {
     Symmetrize(ID),
     Collect(ID),
     Extract(Element<ID>, Vec<ID>),
+    MatchAssign(Element<ID>, Vec<Statement<ID>>),
     Assign(Element<ID>, Element<ID>),
     Maximum(Element<ID>),
     Call(String, Vec<Element<ID>>),
@@ -957,6 +960,13 @@ impl fmt::Display for Statement {
 
                 writeln!(f, ");")
             }
+            Statement::MatchAssign(ref e, ref ss) => {
+                writeln!(f, "matchassign {} {{", e)?;
+                for s in ss {
+                    writeln!(f, "\t{}", s)?;
+                }
+                writeln!(f, "}}")
+            }
             Statement::Assign(ref d, ref e) => writeln!(f, "{}={};", d, e),
             Statement::Attrib(ref ff, ref a) => {
                 writeln!(f, "Attrib {}=", ff)?;
@@ -1122,6 +1132,10 @@ impl Element {
             &Element::Term(_, ref factors) => {
                 match print_mode {
                     PrintMode::Form => {
+                        if let Some(n @ Element::Num(..)) = factors.last() {
+                            n.fmt_output(f, print_mode, var_info)?;
+                            write!(f, "*")?;
+                        }
                         match factors.first() {
                             Some(s @ &Element::SubExpr(..)) if factors.len() > 1 => {
                                 write!(f, "(")?;
@@ -1138,6 +1152,7 @@ impl Element {
                                     s.fmt_output(f, print_mode, var_info)?;
                                     write!(f, ")")?
                                 }
+                                Element::Num(..) => {}
                                 _ => {
                                     write!(f, "*")?;
                                     t.fmt_output(f, print_mode, var_info)?
@@ -1441,6 +1456,10 @@ impl Statement<String> {
                 ss.iter_mut().map(|s| s.to_statement(var_info)).collect(),
                 sse.iter_mut().map(|s| s.to_statement(var_info)).collect(),
             ),
+            Statement::MatchAssign(ref mut e, ref mut ss) => Statement::MatchAssign(
+                e.to_element(var_info),
+                ss.iter_mut().map(|s| s.to_statement(var_info)).collect(),
+            ),
             Statement::ForIn(ref mut d, ref mut l, ref mut ss) => Statement::ForIn(
                 d.to_element(var_info),
                 l.iter_mut().map(|s| s.to_element(var_info)).collect(),
@@ -1593,6 +1612,12 @@ impl Statement {
             Statement::Repeat(ref mut ss) => for s in ss {
                 changed |= s.replace_vars(map, dollar_only);
             },
+            Statement::MatchAssign(ref mut e, ref mut ss) => {
+                changed |= e.replace_vars(map, dollar_only);
+                for s in ss {
+                    changed |= s.replace_vars(map, dollar_only);
+                }
+            }
             Statement::IfElse(ref mut e, ref mut ss, ref mut sse) => {
                 changed |= e.replace_vars(map, dollar_only);
                 for s in ss {
@@ -1708,6 +1733,12 @@ impl Statement {
                 d.normalize_inplace(var_info);
                 u.normalize_inplace(var_info);
                 l.normalize_inplace(var_info);
+                for s in ss {
+                    s.normalize(var_info);
+                }
+            }
+            Statement::MatchAssign(ref mut pat, ref mut ss) => {
+                pat.normalize_inplace(var_info);
                 for s in ss {
                     s.normalize(var_info);
                 }

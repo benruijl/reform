@@ -335,6 +335,35 @@ Statements
 
         6 + 5*y
 
+.. frm:statement:: matchassign pattern { [assigns] };
+
+    :param pattern: A pattern to match the current expression to.
+    :param assigns: A list of :frm:st:`assign` statements.
+
+    Match the current term and use the matched wildcards in the
+    assignment of dollar variables.
+
+    .. code-block:: reform
+
+        expr F = f(x,1,2,3);
+
+        $a = 0;
+        $b = 0;
+        apply {
+            matchassign f(y?,?b) {
+                $a = 2*y?*f(?b);
+                $b = y?^5;
+            }
+        }
+        print $a,$b;
+
+    yields
+
+    .. code-block:: reform
+
+        2*f(1,2,3)*x
+        x^5
+
 .. frm:statement:: maximum x;
 
     :param x: A variable
@@ -531,7 +560,7 @@ Functions
     
         576
 
-.. frm:function:: nargs_(a1,...an)
+.. frm:function:: nargs_(a1,...,an)
 
     :param a1,...,an: A list of expressions
 
@@ -590,3 +619,21 @@ Functions
     .. code-block:: reform
     
         29
+
+.. frm:function:: takearg_(k,a1,...,an)
+
+    :param k: The index of the argument to take
+    :param a1,...,an: Arguments
+
+    Return the ``k`` th argument of the list ``a1,...,an`` .
+    If the index is out of bounds, no substitution takes place.
+
+    .. code-block:: reform
+
+        expr F = takearg_(2, x1, x2, x3);
+
+    yields
+    
+    .. code-block:: reform
+    
+        x2

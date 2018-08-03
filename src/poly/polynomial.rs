@@ -6,15 +6,17 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
 use std::io::{Error, Read, Write};
-use std::ops::{Add, Mul, Neg};
+use std::mem;
+use std::ops::{Add, Div, Mul, Neg, Sub};
 use structure::{fmt_varname, Element, GlobalVarInfo, VarName};
+use tools::GCD;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Polynomial {
-    poly: MultivariatePolynomial<Number, u32>,
+    varcount: usize,
     varmap: HashMap<VarName, usize>, // map from names to internal name
     inv_varmap: Vec<VarName>,
-    varcount: usize,
+    pub poly: MultivariatePolynomial<Number, u32>,
 }
 
 impl Polynomial {
@@ -50,8 +52,7 @@ impl Polynomial {
 
                 Ok(Number::one())
             }
-            Element::Num(_, ref nn @ Number::SmallInt(_))
-            | Element::Num(_, ref nn @ Number::BigInt(_)) => Ok(nn.clone()),
+            Element::Num(_, ref nn) => Ok(nn.clone()),
             Element::Pow(_, ref p) => {
                 let (ref b, ref ex) = **p;
                 if let Element::Var(ref x, Number::SmallInt(ee1)) = *b {
@@ -111,7 +112,7 @@ impl Polynomial {
                     if e.len() < varcount {
                         e.resize(varcount, 0);
                     }
-                    poly.append_monomial(c, e);
+                    poly.append_monomial(c, &e);
                 }
 
                 Ok(Polynomial {
@@ -132,8 +133,7 @@ impl Polynomial {
                     varcount: 1,
                 })
             }
-            Element::Num(_, ref nn @ Number::SmallInt(_))
-            | Element::Num(_, ref nn @ Number::BigInt(_)) => Ok(Polynomial {
+            Element::Num(_, ref nn) => Ok(Polynomial {
                 poly: MultivariatePolynomial::from_constant_with_nvars(nn.clone(), 0),
                 varmap: varmap,
                 inv_varmap: inv_varmap,
@@ -210,7 +210,7 @@ impl Polynomial {
                 }
                 Entry::Vacant(mut v) => {
                     // new variable
-                    self.inv_varmap[varcount] = *k1;
+                    self.inv_varmap.push(*k1);
                     map.insert(*v1, varcount);
                     v.insert(varcount);
                     varcount += 1;
@@ -220,7 +220,7 @@ impl Polynomial {
 
         if varcount > self.varcount {
             // we need to reconstruct the exponent in `self`
-            let mut newexp = vec![0; varcount * other.poly.nterms];
+            let mut newexp = vec![0; varcount * self.poly.nterms];
 
             for t in 0..self.poly.nterms {
                 newexp[t * varcount..t * varcount + self.varcount]
@@ -239,7 +239,7 @@ impl Polynomial {
             for e in 0..other.varcount {
                 newexp[*map.get(&e).unwrap()] = other.poly.exponents(t)[e];
             }
-            newother.append_monomial(other.poly.coefficients[t].clone(), newexp);
+            newother.append_monomial(other.poly.coefficients[t].clone(), &newexp);
         }
 
         other.varmap = self.varmap.clone();
@@ -265,7 +265,11 @@ impl Polynomial {
                 if is_first_term {
                     write!(f, "{}", monomial.coefficient)?;
                 } else {
-                    write!(f, "+{}", monomial.coefficient)?;
+                    if monomial.coefficient < &Number::zero() {
+                        write!(f, "{}", monomial.coefficient)?;
+                    } else {
+                        write!(f, "+{}", monomial.coefficient)?;
+                    }
                 }
                 is_first_factor = false;
             }
@@ -304,10 +308,10 @@ impl Polynomial {
         }
     }
 
-    pub fn long_division(&mut self, div: &mut Polynomial) -> (Polynomial, Polynomial) {
+    pub fn divmod(&mut self, div: &mut Polynomial) -> (Polynomial, Polynomial) {
         self.unify_varmaps(div);
 
-        let (q, r) = self.poly.long_division(&div.poly);
+        let (q, r) = self.poly.divmod(&div.poly);
 
         (
             Polynomial {
@@ -352,6 +356,21 @@ impl Mul<Number> for Polynomial {
     }
 }
 
+impl Div for Polynomial {
+    type Output = Self;
+
+    fn div(mut self, mut other: Self) -> Self::Output {
+        self.unify_varmaps(&mut other);
+
+        Polynomial {
+            poly: self.poly.divmod(&other.poly).0,
+            varmap: self.varmap,
+            inv_varmap: self.inv_varmap,
+            varcount: self.varcount,
+        }
+    }
+}
+
 impl Add for Polynomial {
     type Output = Self;
 
@@ -360,6 +379,34 @@ impl Add for Polynomial {
 
         Polynomial {
             poly: self.poly + other.poly,
+            varmap: self.varmap,
+            inv_varmap: self.inv_varmap,
+            varcount: self.varcount,
+        }
+    }
+}
+
+impl Sub for Polynomial {
+    type Output = Self;
+
+    fn sub(mut self, mut other: Self) -> Self::Output {
+        self.unify_varmaps(&mut other);
+
+        Polynomial {
+            poly: self.poly - other.poly,
+            varmap: self.varmap,
+            inv_varmap: self.inv_varmap,
+            varcount: self.varcount,
+        }
+    }
+}
+
+impl Neg for Polynomial {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Polynomial {
+            poly: self.poly.neg(),
             varmap: self.varmap,
             inv_varmap: self.inv_varmap,
             varcount: self.varcount,
@@ -424,13 +471,148 @@ impl<'a> fmt::Display for PolyPrinter<'a> {
     }
 }
 
+/// Normalize a rational polynomial where `num` and `den` serve as
+/// numerator and denominator. The gcd will be removed and
+/// all the rational coefficients will be made integers.
+pub fn rationalpolynomial_normalize(num: &mut Polynomial, den: &mut Polynomial) {
+    num.unify_varmaps(den);
+
+    // normalize all the coefficients by the lcm
+    let mut norm = Number::one();
+
+    for x in num.poly.coefficients.iter().chain(&den.poly.coefficients) {
+        match x {
+            Number::SmallRat(_, d) => {
+                norm = (norm.clone() / GCD::gcd(norm, Number::SmallInt(*d))) * Number::SmallInt(*d);
+            }
+            Number::BigRat(i) => {
+                norm = (norm.clone() / GCD::gcd(norm, Number::BigInt(i.denom().clone())))
+                    * Number::BigInt(i.denom().clone());
+            }
+            _ => {}
+        }
+    }
+
+    *num = mem::replace(num, Polynomial::new()) * norm.clone();
+    *den = mem::replace(den, Polynomial::new()) * norm.clone();
+
+    #[cfg(debug_assertions)]
+    {
+        // confirm that all fractions are gone
+        for x in num.poly.coefficients.iter().chain(&den.poly.coefficients) {
+            match x {
+                Number::SmallRat(..) | Number::BigInt(..) => panic!(
+                    "Fractions left in polynomial: {}; normalization: {}",
+                    x, norm
+                ),
+                _ => {}
+            }
+        }
+    }
+
+    let mut g1 = num.gcd(den);
+    *num = num.divmod(&mut g1).0;
+    *den = den.divmod(&mut g1).0;
+}
+
+/// Add two rational polynomials: num/den+num1/den1
+/// The function returns true iff the result is zero.
+pub fn rationalpolynomial_add(
+    num: &mut Polynomial,
+    den: &mut Polynomial,
+    num1: &mut Polynomial,
+    den1: &mut Polynomial,
+) -> bool {
+    if den == den1 {
+        *num = mem::replace(num, Polynomial::new()) + mem::replace(num1, Polynomial::new());
+    } else {
+        let mut g = den.gcd(den1);
+        let scale = den1.divmod(&mut g).0;
+        let scale1 = den.divmod(&mut g).0;
+        *num = mem::replace(num, Polynomial::new()) * scale.clone()
+            + mem::replace(num1, Polynomial::new()) * scale1;
+        *den = mem::replace(den, Polynomial::new()) * scale;
+    }
+
+    let mut g1 = num.gcd(den);
+    *num = num.divmod(&mut g1).0;
+    *den = den.divmod(&mut g1).0;
+
+    num.is_zero()
+}
+
+/// Subtract two rational polynomials: num/den-num1/den1
+/// The function returns true iff the result is zero.
+pub fn rationalpolynomial_sub(
+    num: &mut Polynomial,
+    den: &mut Polynomial,
+    num1: &mut Polynomial,
+    den1: &mut Polynomial,
+) -> bool {
+    if den == den1 {
+        *num = mem::replace(num, Polynomial::new()) - mem::replace(num1, Polynomial::new());
+    } else {
+        let mut g = den.gcd(den1);
+        let scale = den1.divmod(&mut g).0;
+        let scale1 = den.divmod(&mut g).0;
+        *num = mem::replace(num, Polynomial::new()) * scale.clone()
+            - mem::replace(num1, Polynomial::new()) * scale1;
+        *den = mem::replace(den, Polynomial::new()) * scale;
+    }
+
+    let mut g1 = num.gcd(den);
+    *num = num.divmod(&mut g1).0;
+    *den = den.divmod(&mut g1).0;
+
+    num.is_zero()
+}
+
+/// Multiply two rational polynomials: num/den * num1/den1
+/// The function returns true iff the result is zero.
+pub fn rationalpolynomial_mul(
+    num: &mut Polynomial,
+    den: &mut Polynomial,
+    num1: &mut Polynomial,
+    den1: &mut Polynomial,
+) -> bool {
+    let mut g1 = num.gcd(den1);
+    let mut g2 = num1.gcd(den);
+
+    let numnew = num.divmod(&mut g1).0;
+    let num1new = num1.divmod(&mut g2).0;
+    let dennew = den.divmod(&mut g2).0;
+    let den1new = den1.divmod(&mut g1).0;
+
+    *num = numnew * num1new;
+    *den = dennew * den1new;
+
+    let mut g = num.gcd(den);
+
+    *num = num.divmod(&mut g).0;
+    *den = den.divmod(&mut g).0;
+
+    num.is_zero()
+}
+
+/// Multiply two rational polynomials: num/den / num1/den1
+/// The function returns true iff the result is zero.
+#[inline]
+pub fn rationalpolynomial_div(
+    num: &mut Polynomial,
+    den: &mut Polynomial,
+    num1: &mut Polynomial,
+    den1: &mut Polynomial,
+) -> bool {
+    rationalpolynomial_mul(num, den, den1, num1)
+}
+
 #[test]
 fn serialize() {
     let mut a = MultivariatePolynomial::from_monomial(Number::SmallInt(100), vec![0, 0]);
-    a.append_monomial(Number::SmallInt(100), vec![1, 0]);
+    a.append_monomial(Number::SmallInt(100), &vec![1, 0]);
 
     let mut b = MultivariatePolynomial::from_monomial(Number::SmallInt(-3), vec![2, 3]);
-    b.append_monomial(Number::SmallInt(1), vec![1, 0]);
+    b.append_monomial(Number::SmallInt(1), &vec![1, 0]);
 
     let mut m = HashMap::new();
     m.insert(1, 0);
