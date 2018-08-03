@@ -109,7 +109,6 @@ impl<'a> ExpandIterator<'a> {
 
                 let inline = seqiter.iter().all(|x| match x.subiter {
                     ExpandSubIterator::Yield(..) | ExpandSubIterator::YieldMultiple(..) => true, _ => false });
-                println!("inline {}: {}", seqiter.len(), inline);
                 ExpandSubIterator::SubExpr(seqiter, 0, inline)
             }
             Element::Term(_, ref mut ts) => {
@@ -347,8 +346,10 @@ impl<'a> ExpandIterator<'a> {
     }
 }
 
-impl<'a> ExpandIterator<'a> {
-    fn next(&mut self) -> Option<MatchOpt<'a>> {
+impl<'a> Iterator for ExpandIterator<'a> {
+    type Item = MatchOpt<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
         if self.done {
             return None;
         }
@@ -550,8 +551,7 @@ impl Element {
                                                 Element::Num(false, Number::SmallInt(n)),
                                             )),
                                         )
-                                    })
-                                    .collect(),
+                                    }).collect(),
                             );
                             e.normalize_inplace(var_info);
                             return e.expand(var_info);
@@ -722,8 +722,7 @@ impl Statement {
                             .flat_map(|x| match *x {
                                 Element::SubExpr(_, ref y) => y.clone(),
                                 _ => vec![x.clone()],
-                            })
-                            .collect(),
+                            }).collect(),
                     )
                 };
 
@@ -739,8 +738,7 @@ impl Statement {
                                 .map(|f| match *f {
                                     Element::Fn(_, ref n, ref a) if *n == *name => subs(n, a),
                                     _ => f.clone(),
-                                })
-                                .collect(),
+                                }).collect(),
                         ),
                         false,
                     ),
@@ -821,8 +819,7 @@ impl Statement {
                                 .map(|f| match *f {
                                     Element::Fn(_, ref n, ref a) if *n == *name => subs(n, a),
                                     _ => f.clone(),
-                                })
-                                .collect(),
+                                }).collect(),
                         ),
                         false,
                     ),
@@ -902,7 +899,7 @@ fn do_module_rec(
                     local_info: local_var_info,
                 },
             ).next()
-                .is_some()
+            .is_some()
             {
                 return do_module_rec(
                     input,
@@ -1508,8 +1505,7 @@ impl Module {
                                         x.normalize(&var_info.global_info);
                                     }
                                     x
-                                })
-                                .collect::<Vec<_>>();
+                                }).collect::<Vec<_>>();
 
                             Module::statements_to_control_flow_stat(
                                 &mut newmod,
