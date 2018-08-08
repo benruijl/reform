@@ -207,8 +207,7 @@ impl Program {
                         let mut ns = s.to_element(&mut prog.var_info);
                         ns.normalize_inplace(&prog.var_info.global_info);
                         ns
-                    })
-                    .collect(),
+                    }).collect(),
                 local_args: m
                     .local_args
                     .iter_mut()
@@ -216,8 +215,7 @@ impl Program {
                         let mut ns = s.to_element(&mut prog.var_info);
                         ns.normalize_inplace(&prog.var_info.global_info);
                         ns
-                    })
-                    .collect(),
+                    }).collect(),
                 statements: m
                     .statements
                     .iter_mut()
@@ -533,9 +531,60 @@ impl Element {
         }
     }
 
+    #[inline(always)]
+    pub fn partial_cmp(
+        &self,
+        other: &Element,
+        var_info: &GlobalVarInfo,
+        ground_level: bool,
+    ) -> Option<Ordering> {
+        // try an inline partial comparsion first
+        if let Element::Term(_, ref ta) = self {
+            if let Element::Term(_, ref tb) = other {
+                let mut tbi = tb.iter();
+                for taa in ta.iter() {
+                    if let Some(tbb) = tbi.next() {
+                        let k = taa
+                            .simple_partial_cmp(tbb, var_info, ground_level)
+                            .or_else(|| taa.partial_cmp_full(tbb, var_info, ground_level));
+
+                        match k {
+                            Some(Ordering::Equal) => {}
+                            _ => return k,
+                        }
+                    } else {
+                        if ground_level {
+                            match taa {
+                                Element::Num(..) | Element::RationalPolynomialCoefficient(..) => {
+                                    return Some(Ordering::Equal);
+                                }
+                                _ => {}
+                            }
+                        }
+                        return Some(Ordering::Greater);
+                    };
+                }
+                if let Some(tbb) = tbi.next() {
+                    if ground_level {
+                        match tbb {
+                            Element::Num(..) | Element::RationalPolynomialCoefficient(..) => {
+                                return Some(Ordering::Equal);
+                            }
+                            _ => {}
+                        }
+                    }
+                    return Some(Ordering::Less);
+                };
+                return Some(Ordering::Equal);
+            }
+        }
+
+        self.partial_cmp_full(other, var_info, ground_level)
+    }
+
     /// A custom partial order that ignores coefficients for
     /// the ground level, i.e., x and x*2 are considered equal.
-    pub fn partial_cmp(
+    pub fn partial_cmp_full(
         &self,
         other: &Element,
         var_info: &GlobalVarInfo,

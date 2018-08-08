@@ -1,5 +1,6 @@
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use gmp_mpfr_sys::gmp;
+use num_traits::{One, Zero};
 use number::Number;
 use poly::polynomial::Polynomial;
 use poly::raw::MultivariatePolynomial;
@@ -7,6 +8,7 @@ use rug::{Integer, Rational};
 use std::cmp::Ordering;
 use std::io::Cursor;
 use std::io::{Error, Read, Seek, SeekFrom, Write};
+use std::ops::{Deref, DerefMut};
 use std::os::raw::c_void;
 use structure::*;
 
@@ -23,6 +25,35 @@ const NUM_SMALLINT_ID: u8 = 1;
 const NUM_BIGINT_ID: u8 = 2;
 const NUM_SMALLRAT_ID: u8 = 3;
 const NUM_BIGRAT_ID: u8 = 4;
+
+struct SerializedTerm(Vec<u8>);
+
+impl Default for SerializedTerm {
+    fn default() -> SerializedTerm {
+        SerializedTerm(vec![])
+    }
+}
+
+impl Deref for SerializedTerm {
+    type Target = Vec<u8>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for SerializedTerm {
+    fn deref_mut(&mut self) -> &mut Vec<u8> {
+        &mut self.0
+    }
+}
+
+impl SerializedTerm {
+    #[allow(dead_code)]
+    pub fn into_inner(self) -> Vec<u8> {
+        self.0
+    }
+}
 
 fn serialize_list(args: &[Element], buffer: &mut Write) -> usize {
     let mut len = 4;
@@ -139,7 +170,7 @@ impl Number {
         })
     }
 
-    pub fn compare_serialized(b1: &mut Cursor<&[u8]>, b2: &mut Cursor<&[u8]>) -> Ordering {
+    pub fn compare_serialized(b1: &mut Cursor<&Vec<u8>>, b2: &mut Cursor<&Vec<u8>>) -> Ordering {
         // TODO: compare bytes?
         let num1 = Number::deserialize(b1).unwrap();
         let num2 = Number::deserialize(b2).unwrap();
@@ -265,8 +296,8 @@ impl Element {
 
     /// Compare normalized terms in serialized form.
     pub fn compare_term_serialized(
-        b1: &mut Cursor<&[u8]>,
-        b2: &mut Cursor<&[u8]>,
+        b1: &mut Cursor<&Vec<u8>>,
+        b2: &mut Cursor<&Vec<u8>>,
         ground_level: bool,
     ) -> Ordering {
         match (b1.read_u8().unwrap(), b2.read_u8().unwrap()) {
@@ -318,42 +349,41 @@ impl Element {
             (POW_ID, _) => Ordering::Less, // TODO: check if this is correct
             (_, POW_ID) => Ordering::Greater,
             (TERM_ID, TERM_ID) => {
+                // FIXME: the cursor won't always be at the end of the term!
+                // is this a problem for sub-terms? maybe when we return equal!
                 let len1 = b1.read_u32::<LittleEndian>().unwrap();
                 let len2 = b2.read_u32::<LittleEndian>().unwrap();
 
-                // do a quick length check
-                // TODO: check if the terms have coefficients
-                if (!ground_level && len1 != len2)
-                    || (ground_level && (len1 + 1 < len2 || len1 > len2 + 1))
-                {
-                    return len1.cmp(&len2);
+                let mut i = 0;
+                loop {
+                    if i < len2 {
+                        match Element::compare_term_serialized(b1, b2, false) {
+                            Ordering::Equal => {}
+                            x => return x,
+                        }
+                    } else {
+                        let e1 = b1.read_u8().unwrap();
+                        b1.seek(SeekFrom::Current(-1)).unwrap();
+                        if ground_level && (e1 == NUM_ID || e1 == PRF_ID) {
+                            return Ordering::Equal;
+                        }
+
+                        return Ordering::Greater;
+                    }
+
+                    i += 1;
+                    if i == len1 {
+                        break;
+                    }
                 }
 
-                let maxlen = if len1 > len2 { len1 } else { len2 };
-
-                for i in 0..maxlen {
-                    // ignore coefficients on ground level
-                    if ground_level {
-                        if i < len1 {
-                            let e1 = b1.read_u8().unwrap();
-                            b1.seek(SeekFrom::Current(-1)).unwrap();
-                            if e1 == NUM_ID || e1 == PRF_ID {
-                                continue;
-                            }
-                        }
-
-                        if i < len2 {
-                            let e2 = b2.read_u8().unwrap();
-                            b2.seek(SeekFrom::Current(-1)).unwrap();
-                            if e2 == NUM_ID || e2 == PRF_ID {
-                                continue;
-                            }
-                        }
+                if i < len2 {
+                    let e2 = b2.read_u8().unwrap();
+                    b2.seek(SeekFrom::Current(-1)).unwrap();
+                    if ground_level && (e2 == NUM_ID || e2 == PRF_ID) {
+                        return Ordering::Equal;
                     }
-                    match Element::compare_term_serialized(b1, b2, false) {
-                        Ordering::Equal => {}
-                        x => return x,
-                    }
+                    return Ordering::Greater;
                 }
 
                 Ordering::Equal
@@ -362,7 +392,7 @@ impl Element {
                 let len = b2.read_u32::<LittleEndian>().unwrap();
                 if ground_level && len == 2 {
                     let e = b2.read_u8().unwrap();
-                    if e == NUM_ID {
+                    if e == NUM_ID || e == PRF_ID {
                         b2.seek(SeekFrom::Current(-1)).unwrap();
                         return Element::compare_term_serialized(b1, b2, ground_level);
                     }
@@ -374,7 +404,7 @@ impl Element {
                 let len = b1.read_u32::<LittleEndian>().unwrap();
                 if ground_level && len == 2 {
                     let e = b1.read_u8().unwrap();
-                    if e == NUM_ID {
+                    if e == NUM_ID || e == PRF_ID {
                         b1.seek(SeekFrom::Current(-1)).unwrap();
                         return Element::compare_term_serialized(b1, b2, ground_level);
                     }
@@ -401,10 +431,196 @@ impl Element {
                 Ordering::Equal
             }
             (EXPR_ID, _) => Ordering::Less,
-            (VAR_ID, VAR_ID) => b1.read_u32::<LittleEndian>()
+            (VAR_ID, VAR_ID) => b1
+                .read_u32::<LittleEndian>()
                 .unwrap()
                 .cmp(&b2.read_u32::<LittleEndian>().unwrap()),
             _ => Ordering::Less,
         }
     }
+
+    /// Serialize a term. Extra information is stored to quickly
+    /// jump to the coefficient in the case terms have to be merged.
+    pub fn serialize_term<W: Write + Seek>(&self, buffer: &mut W) {
+        match self {
+            Element::Term(_, fs) => {
+                buffer.write_u32::<LittleEndian>(0u32).unwrap(); // placeholder for total length
+                buffer.write_u32::<LittleEndian>(0u32).unwrap(); // placeholder for start of coeff
+                buffer.write_u8(TERM_ID).unwrap();
+                // FIXME: could be plus 0 if coeff is 0
+                buffer.write_u32::<LittleEndian>(fs.len() as u32).unwrap(); // write number of terms.
+                let mut len = 9; // TODO: why 9?
+                let mut coefflen = 0;
+                for x in fs {
+                    match x {
+                        Element::Num(..) | Element::RationalPolynomialCoefficient(..) => {
+                            // TODO: align to word bounds so that we can use words
+                            // to count the length?
+                            coefflen += x.serialize(buffer);
+                        }
+                        _ => {
+                            len += x.serialize(buffer);
+                        }
+                    }
+                }
+
+                if coefflen == 0 {
+                    // if there is no coefficient, we add one
+                    coefflen = Element::Num(false, Number::one()).serialize(buffer);
+                }
+
+                buffer.seek(SeekFrom::Start(0)).unwrap();
+                buffer
+                    .write_u32::<LittleEndian>((len + coefflen) as u32)
+                    .unwrap();
+                buffer.write_u32::<LittleEndian>(len as u32).unwrap();
+                buffer.seek(SeekFrom::End(0)).unwrap();
+            }
+            Element::Fn(..) => {
+                buffer.write_u32::<LittleEndian>(0u32).unwrap();
+                buffer.write_u32::<LittleEndian>(0u32).unwrap();
+                buffer.write_u8(TERM_ID).unwrap();
+                buffer.write_u32::<LittleEndian>(2u32).unwrap();
+                let len = 9 + self.serialize(buffer);
+                let coefflen = Element::Num(false, Number::one()).serialize(buffer);
+                buffer.seek(SeekFrom::Start(0)).unwrap();
+                buffer
+                    .write_u32::<LittleEndian>((len + coefflen) as u32)
+                    .unwrap();
+                buffer.write_u32::<LittleEndian>(len as u32).unwrap();
+                buffer.seek(SeekFrom::End(0)).unwrap();
+            }
+            _ => unimplemented!(),
+        }
+    }
+
+    /// Add two serialized terms which are identical in all but the coefficient.
+    /// The result will be written in `b1`.
+    /// Returns true if the result is 0.
+    pub fn serialized_terms_add(
+        b1: &mut Cursor<&mut Vec<u8>>,
+        b2: &mut Cursor<&mut Vec<u8>>,
+    ) -> bool {
+        // fast-forward to the coefficient
+        b1.read_u32::<LittleEndian>().unwrap();
+        let b1coeffstart = b1.read_u32::<LittleEndian>().unwrap();
+        b2.read_u32::<LittleEndian>().unwrap();
+        let b2coeffstart = b2.read_u32::<LittleEndian>().unwrap();
+
+        b1.seek(SeekFrom::Start(b1coeffstart as u64)).unwrap();
+        b2.seek(SeekFrom::Start(b2coeffstart as u64)).unwrap();
+
+        let coeff1 = Element::deserialize(b1).unwrap();
+        let coeff2 = Element::deserialize(b2).unwrap();
+
+        // TODO: add coeffs, for now: assume it's numbers
+        let mut num = Number::zero();
+        if let Element::Num(_, x1) = coeff1 {
+            if let Element::Num(_, x2) = coeff2 {
+                num = x1 + x2;
+            }
+        }
+
+        if num.is_zero() {
+            true
+        } else {
+            // write the result in b1
+            // since b1 is a vector, the buffer can grow if the result is larger
+            b1.seek(SeekFrom::Start(b1coeffstart as u64)).unwrap();
+            Element::Num(false, num).serialize(b1);
+
+            false
+        }
+    }
+}
+
+#[test]
+fn serializeterm() {
+    let e1 = Element::Term(
+        false,
+        vec![
+            Element::Var(8, Number::SmallInt(2)),
+            Element::Num(false, Number::SmallInt(4223372036854775807)),
+        ],
+    );
+
+    let e2 = Element::Term(
+        false,
+        vec![
+            Element::Var(8, Number::SmallInt(2)),
+            Element::Num(false, Number::SmallInt(5223372036854775807)),
+        ],
+    );
+
+    let mut storage1 = vec![];
+    let mut storage2 = vec![];
+
+    let mut b1 = Cursor::new(storage1);
+    e1.serialize_term(&mut b1);
+
+    let mut b2 = Cursor::new(storage2);
+    e2.serialize_term(&mut b2);
+
+    {
+        use sort::split_merge;
+
+        // go back to the beginning to read
+        b1.seek(SeekFrom::Start(0)).unwrap();
+        b2.seek(SeekFrom::Start(0)).unwrap();
+
+        let mut b = vec![
+            SerializedTerm(b1.into_inner()),
+            SerializedTerm(b2.into_inner()),
+        ];
+        println!(
+            "{:?}",
+            split_merge(
+                &mut b,
+                &|x1, x2| Element::compare_term_serialized(
+                    &mut Cursor::new(x1),
+                    &mut Cursor::new(x2),
+                    true
+                ),
+                &|x1: &mut SerializedTerm, x2: &mut SerializedTerm| Element::serialized_terms_add(
+                    &mut Cursor::new(x1),
+                    &mut Cursor::new(x2)
+                )
+            )
+        );
+
+        b1 = Cursor::new(b.swap_remove(0).into_inner());
+        b2 = Cursor::new(b.swap_remove(0).into_inner());
+    }
+
+    // go back to the beginning to read
+    b1.seek(SeekFrom::Start(0)).unwrap();
+    b2.seek(SeekFrom::Start(0)).unwrap();
+
+    println!("b1 {:?}", b1);
+    println!("b2 {:?}", b2);
+
+    storage1 = b1.into_inner();
+    storage2 = b2.into_inner();
+
+    println!(
+        "cmp {:?}",
+        Element::compare_term_serialized(
+            &mut Cursor::new(&storage1),
+            &mut Cursor::new(&storage2),
+            true
+        )
+    );
+
+    let r = Element::serialized_terms_add(
+        &mut Cursor::new(&mut storage1),
+        &mut Cursor::new(&mut storage2),
+    );
+    println!("zero? {}", r);
+
+    let mut b1 = Cursor::new(&mut storage1);
+    println!("r {:?}", b1);
+
+    b1.seek(SeekFrom::Start(8)).unwrap(); // skip the header
+    let rd = Element::deserialize(&mut b1).unwrap();
+    println!("res: {}", rd);
 }
