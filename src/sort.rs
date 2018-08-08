@@ -1,55 +1,67 @@
-use normalize;
-use num_traits::One;
-use number::Number;
+use std::cmp::Ordering;
 use std::cmp::Ordering::*;
 use std::mem;
 use std::ptr;
-use structure::{Element, GlobalVarInfo};
 
-///
-/// Gets a vector terms of Term's, sorts them according to compare, adds
-/// equal Term's according to add_term and returns a vector of usize
-/// elements giving the numbers of vector elements in terms in the proper
+/// Sorts a vector of `T` according to `cmp`, adds
+/// equal elements according to `merger`, and returns an index map of
+/// the (merged) elements in the proper
 /// order. We allocate the necessary vectors once and use a separate
 /// recursive routine after that. Reading the output properly is done with
-/// for i in ..row.len() { ..... terms[row[i]] ..... }
-///
-pub fn split_merge(mut terms: &mut [Element], var_info: &GlobalVarInfo) -> Vec<usize> {
+/// ```
+/// for i in ..row.len() {
+///     ...
+///     terms[row[i]]
+///     ...
+/// }```
+pub fn split_merge<T: Default, F1, F2>(mut terms: &mut [T], cmp: &F1, merger: &F2) -> Vec<usize>
+where
+    F1: Fn(&T, &T) -> Ordering,
+    F2: Fn(&mut T, &mut T) -> bool,
+{
     let n = terms.len();
     let mut row: Vec<usize> = (0..n).collect();
 
     let mut sbuf = vec![0; n / 2];
     unsafe {
-        let n_out = split_merge_rec(&mut terms, &mut row, &mut sbuf, n, var_info);
+        let n_out = split_merge_rec(&mut terms, &mut row, &mut sbuf, n, cmp, merger);
         row.truncate(n_out);
     }
     row
 }
 
-unsafe fn split_merge_rec(
-    mut terms: &mut [Element],
+unsafe fn split_merge_rec<T: Default, F1, F2>(
+    mut terms: &mut [T],
     row: &mut [usize],
     mut sbuf: &mut [usize],
     n: usize,
-    var_info: &GlobalVarInfo,
-) -> usize {
+    cmp: &F1,
+    merger: &F2,
+) -> usize
+where
+    F1: Fn(&T, &T) -> Ordering,
+    F2: Fn(&mut T, &mut T) -> bool,
+{
     //==================================================================
     #[inline]
-    unsafe fn add_one(
-        terms: &mut [Element],
+    unsafe fn add_one<T: Default, F>(
+        terms: &mut [T],
         row: &mut [usize],
         one: usize,
         two: usize,
-        var_info: &GlobalVarInfo,
-    ) -> bool {
+        merger: &F,
+    ) -> bool
+    where
+        F: Fn(&mut T, &mut T) -> bool,
+    {
         let mut term = mem::replace(
             terms.get_unchecked_mut(*row.get_unchecked(two)),
-            DUMMY_ELEM!(),
+            T::default(),
         );
 
         let v = terms.get_unchecked_mut(*row.get_unchecked(one));
 
-        normalize::merge_terms(v, &mut term, var_info)
+        merger(v, &mut term)
     }
     //==================================================================
     //
@@ -68,17 +80,16 @@ unsafe fn split_merge_rec(
     if n < 2 {
         return n;
     } else if n == 2 {
-        match terms
-            .get_unchecked(*row.get_unchecked(0))
-            .partial_cmp(terms.get_unchecked(*row.get_unchecked(1)), var_info, true)
-            .unwrap()
-        {
+        match cmp(
+            terms.get_unchecked(*row.get_unchecked(0)),
+            terms.get_unchecked(*row.get_unchecked(1)),
+        ) {
             Greater => {
-                ptr::swap(row.get_unchecked_mut(0), row.get_unchecked_mut(1));
+                ptr::swap_nonoverlapping(row.get_unchecked_mut(0), row.get_unchecked_mut(1), 1);
             }
             Less => (),
             Equal => {
-                if add_one(terms, row, 0, 1, var_info) {
+                if add_one(terms, row, 0, 1, merger) {
                     return 0;
                 }
                 return 1;
@@ -92,14 +103,16 @@ unsafe fn split_merge_rec(
         row.get_unchecked_mut(0..split),
         &mut sbuf,
         split,
-        var_info,
+        cmp,
+        merger,
     );
     let len2 = split_merge_rec(
         &mut terms,
         row.get_unchecked_mut(split..n),
         &mut sbuf,
         n - split,
-        var_info,
+        cmp,
+        merger,
     );
     if len1 > 0 && len2 > 0 {
         //------------------------------------------------------------
@@ -108,15 +121,10 @@ unsafe fn split_merge_rec(
         //  first part in its entirety. This ensures that when there is
         //  a very high degree of order, things will go at top speed.
         //
-        match terms
-            .get_unchecked(*row.get_unchecked(len1 - 1))
-            .partial_cmp(
-                terms.get_unchecked(*row.get_unchecked(split)),
-                var_info,
-                true,
-            )
-            .unwrap()
-        {
+        match cmp(
+            terms.get_unchecked(*row.get_unchecked(len1 - 1)),
+            terms.get_unchecked(*row.get_unchecked(split)),
+        ) {
             Greater => (), // Out of order. Do it the hard way!
             Less => {
                 // lucky
@@ -127,7 +135,7 @@ unsafe fn split_merge_rec(
             }
             Equal => {
                 // (lucky)^2
-                if add_one(terms, row, len1 - 1, split, var_info) {
+                if add_one(terms, row, len1 - 1, split, merger) {
                     len1 -= 1;
                 }
                 ptr::copy(
@@ -160,15 +168,10 @@ unsafe fn split_merge_rec(
         let mut size1 = len1;
         while size1 > 8 {
             let ins = size1 / 2;
-            match terms
-                .get_unchecked(*row.get_unchecked(i1 + ins - 1))
-                .partial_cmp(
-                    terms.get_unchecked(*row.get_unchecked(split)),
-                    var_info,
-                    true,
-                )
-                .unwrap()
-            {
+            match cmp(
+                terms.get_unchecked(*row.get_unchecked(i1 + ins - 1)),
+                terms.get_unchecked(*row.get_unchecked(split)),
+            ) {
                 Greater => {
                     size1 = ins;
                 }
@@ -178,7 +181,7 @@ unsafe fn split_merge_rec(
                     ifill = i1;
                 }
                 Equal => {
-                    if add_one(terms, row, i1 + ins - 1, split, var_info) {
+                    if add_one(terms, row, i1 + ins - 1, split, merger) {
                         i1 += ins;
                         ifill = i1 - 1;
                     } else {
@@ -200,15 +203,10 @@ unsafe fn split_merge_rec(
         //------------------------------------------------------------
         if i2 < len2 {
             loop {
-                match terms
-                    .get_unchecked(*sbuf.get_unchecked(i1))
-                    .partial_cmp(
-                        terms.get_unchecked(*row.get_unchecked(i2 + split)),
-                        var_info,
-                        true,
-                    )
-                    .unwrap()
-                {
+                match cmp(
+                    terms.get_unchecked(*sbuf.get_unchecked(i1)),
+                    terms.get_unchecked(*row.get_unchecked(i2 + split)),
+                ) {
                     Greater => {
                         *row.get_unchecked_mut(ifill) = *row.get_unchecked(i2 + split);
                         i2 += 1;
@@ -227,7 +225,7 @@ unsafe fn split_merge_rec(
                     }
                     Equal => {
                         *row.get_unchecked_mut(ifill) = *sbuf.get_unchecked(i1);
-                        if !add_one(terms, row, ifill, i2 + split, var_info) {
+                        if !add_one(terms, row, ifill, i2 + split, merger) {
                             ifill += 1;
                         }
                         i1 += 1;

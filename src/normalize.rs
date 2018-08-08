@@ -469,7 +469,11 @@ impl Element {
 
                     // sort and merge the terms at the same time
                     if true {
-                        let map = split_merge(ts, var_info);
+                        let map = split_merge(
+                            ts,
+                            &|a: &Element, b: &Element| a.partial_cmp(b, var_info, true).unwrap(),
+                            &|a: &mut Element, b: &mut Element| merge_terms(a, b, var_info),
+                        );
                         let mut res = Vec::with_capacity(map.len());
 
                         if map.len() != ts.len() {
