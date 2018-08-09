@@ -4,8 +4,8 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::str::FromStr;
 use structure::{
-    Element, FunctionAttributes, IdentityStatement, IdentityStatementMode, Module, NumOrder,
-    PrintMode, Procedure, Program, Statement,
+    Element, FunctionAttributes, IdentityStatement, IdentityStatementMode, IfCondition, Module,
+    Ordering, PrintMode, Procedure, Program, Statement,
 };
 
 use combine::char::*;
@@ -301,18 +301,19 @@ parser!{
 
     let forin = try(forinlist).or(forinrange);
 
-    let ifclause = between(
-        lex_char('('),
-        lex_char(')'),
-        keyword("match").with(between(lex_char('('), lex_char(')'), expr())),
-    );
-    let ifelse = (keyword("if").with(ifclause)
+    //let comparison = (expr(), ordering(), expr()).map(|(e1, c, e2)|
+    //    Element::Comparison(Box::new((e1, e2)), c));
+
+    let ifcondition = choice!( keyword("match").with(between(lex_char('('), lex_char(')'), expr())).map(|e| IfCondition::Match(e)),
+            (expr(), ordering(), expr()).map(|(e1, c, e2)| IfCondition::Comparison(e1, e2, c)));
+
+    let ifelse = (keyword("if").with(ifcondition)
         ,choice!(between(lex_char('{'), lex_char('}'), many(statement())),
         statement().map(|x: Statement<String>| vec![x])),
         optional(keyword("else").with(choice!(between(lex_char('{'), lex_char('}'), many(statement())),
             statement().map(|x: Statement<String>| vec![x]))))
         .map(|x : Option<Vec<Statement<String>>>| x.unwrap_or(vec![]))). // parse the else
-        map(|(q,x,e) : (Element<String>, Vec<Statement<String>>, Vec<Statement<String>>)|
+        map(|(q,x,e) : (IfCondition<String>, Vec<Statement<String>>, Vec<Statement<String>>)|
             Statement::IfElse(q, x, e));
 
     choice!(
@@ -357,22 +358,29 @@ parser!{
 }
 
 parser!{
+   fn ordering[I]()(I) -> Ordering
+    where [I: Stream<Item=char>]
+{
+    choice!(
+        try(string(">=")).map(|_| Ordering::GreaterEqual),
+        string(">").map(|_| Ordering::Greater),
+        string("==").map(|_| Ordering::Equal),
+        try(string("<=")).map(|_| Ordering::SmallerEqual),
+        string("<").map(|_| Ordering::Smaller)).skip(spaces())
+}
+}
+
+parser!{
    fn factor[I]()(I) -> Element<String>
     where [I: Stream<Item=char>]
 {
     let funcarg = between(lex_char('('), lex_char(')'), sep_by(expr(), lex_char(',')));
 
-    let numorder = choice!(
-        try(string(">=")).map(|_| NumOrder::GreaterEqual),
-        string(">").map(|_| NumOrder::Greater),
-        string("==").map(|_| NumOrder::Equal),
-        try(string("<=")).map(|_| NumOrder::SmallerEqual),
-        string("<").map(|_| NumOrder::Smaller)
-    ).skip(spaces());
-    let numrange = (numorder, number()).map(|(r, b)| match b {
+    let numrange = (ordering(), number()).map(|(r, b)| match b {
         Element::Num(_, num) => Element::NumberRange(num, r),
         _ => unreachable!(),
     });
+
     let set = between(
         lex_char('{'),
         lex_char('}'),

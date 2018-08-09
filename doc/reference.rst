@@ -293,25 +293,37 @@ Statements
     Only execute if a condition holds. If there is an
     ``else`` block, that will only be executed if ``cond`` does not hold.
 
-    .. note:
+    The condition can test if a pattern exists (see frm:st:`id`) using the ``match`` option.
+    The condition can also be a comparison of two expressions, i.e.,
+    ``<=, >=, <, >, ==``.
 
-        At the moment, only the ``match`` variant is activated.
+    .. note::
+
+        Inequalities use reFORM's internal ordering which may
+        give unexpected results.
 
     .. code-block:: reform
 
         expr F = f(1);
 
-        if match(f(1)) {
-            id f(1) = f(2);
-        } else {
-            id f(x?) = f(1);
+        apply {
+            if match(f(1)) {
+                id f(1) = f(2);
+            } else {
+                id f(x?) = f(1);
+            }
+
+            if f(1) < f(2) {
+                id f(2) = f(3);
+            }
+            print;
         }
 
     yields
     
     .. code-block:: reform
 
-        f(2)
+        f(3)
 
 .. frm:statement:: inside x1,x2,... { [statements] }
 
@@ -374,7 +386,7 @@ Statements
 
         $a = 0;
         apply {
-            if (match(f(1))) {
+            if match(f(1)) {
                 $a = 2;
             } else {
                 $a = 1;

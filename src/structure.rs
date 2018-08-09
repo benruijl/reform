@@ -2,7 +2,7 @@ use num_traits::One;
 use number::Number;
 use poly::polynomial::PolyPrinter;
 use poly::polynomial::Polynomial;
-use std::cmp::Ordering;
+use std::cmp;
 use std::collections::HashMap;
 use std::fmt;
 use std::mem;
@@ -33,6 +33,82 @@ pub struct Program {
     pub statements: Vec<Statement>,
     pub procedures: Vec<Procedure>,
     pub var_info: VarInfo,
+}
+
+#[derive(Debug, Clone)]
+pub enum IfCondition<ID: Id = VarName> {
+    Match(Element<ID>),                             // if match(x?^2)
+    Comparison(Element<ID>, Element<ID>, Ordering), // if x*y == x*y
+}
+
+impl IfCondition<String> {
+    fn to_element(&mut self, var_info: &mut VarInfo) -> IfCondition {
+        match self {
+            IfCondition::Match(e) => IfCondition::Match(e.to_element(var_info)),
+            IfCondition::Comparison(e1, e2, c) => {
+                IfCondition::Comparison(e1.to_element(var_info), e2.to_element(var_info), c.clone())
+            }
+        }
+    }
+}
+
+impl fmt::Display for IfCondition {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            IfCondition::Match(e) => write!(f, "match({})", e),
+            IfCondition::Comparison(e1, e2, c) => write!(f, "{} {} {}", e1, c, e2),
+        }
+    }
+}
+
+impl IfCondition {
+    pub fn contains_dollar(&self) -> bool {
+        match self {
+            IfCondition::Match(e) => e.contains_dollar(),
+            IfCondition::Comparison(e1, e2, _) => e1.contains_dollar() || e2.contains_dollar(),
+        }
+    }
+
+    pub fn replace_vars(&mut self, map: &HashMap<VarName, Element>, dollar_only: bool) -> bool {
+        match self {
+            IfCondition::Match(e) => e.replace_vars(map, dollar_only),
+            IfCondition::Comparison(e1, e2, _) => {
+                e1.replace_vars(map, dollar_only) || e2.replace_vars(map, dollar_only)
+            }
+        }
+    }
+
+    pub fn normalize_inplace(&mut self, var_info: &GlobalVarInfo) {
+        match self {
+            IfCondition::Match(e) => {
+                e.normalize_inplace(var_info);
+            }
+            IfCondition::Comparison(e1, e2, _) => {
+                e1.normalize_inplace(var_info);
+                e2.normalize_inplace(var_info);
+            }
+        }
+    }
+
+    pub fn fmt_output(
+        &self,
+        f: &mut fmt::Formatter,
+        print_mode: PrintMode,
+        var_info: &GlobalVarInfo,
+    ) -> fmt::Result {
+        match self {
+            IfCondition::Match(e) => {
+                write!(f, "match(")?;
+                e.fmt_output(f, print_mode, var_info)?;
+                write!(f, ")")
+            }
+            IfCondition::Comparison(e1, e2, c) => {
+                e1.fmt_output(f, print_mode, var_info)?;
+                write!(f, " {} ", c)?;
+                e2.fmt_output(f, print_mode, var_info)
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -192,8 +268,11 @@ impl Program {
 
         let parsed_statements = statements
             .iter_mut()
-            .map(|s| s.to_statement(&mut prog.var_info))
-            .collect();
+            .map(|s| {
+                let mut rs = s.to_statement(&mut prog.var_info);
+                rs.normalize(&prog.var_info.global_info);
+                rs
+            }).collect();
 
         // NOTE: the names of the arguments are not substituted
         let mut parsed_procedures = vec![];
@@ -279,7 +358,7 @@ pub struct Procedure<ID: Id = VarName> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum NumOrder {
+pub enum Ordering {
     Greater,
     Smaller,
     Equal,
@@ -287,18 +366,34 @@ pub enum NumOrder {
     SmallerEqual,
 }
 
+impl Ordering {
+    pub fn cmp_rel(&self, rel: cmp::Ordering) -> bool {
+        match (self, rel) {
+            (Ordering::Greater, cmp::Ordering::Greater)
+            | (Ordering::GreaterEqual, cmp::Ordering::Greater)
+            | (Ordering::GreaterEqual, cmp::Ordering::Equal)
+            | (Ordering::Smaller, cmp::Ordering::Less)
+            | (Ordering::SmallerEqual, cmp::Ordering::Less)
+            | (Ordering::SmallerEqual, cmp::Ordering::Equal)
+            | (Ordering::Equal, cmp::Ordering::Equal) => true,
+            _ => false,
+        }
+    }
+}
+
 // all the algebraic elements. A bool as the first
 // argument is the dirty flag, which is set to true
 // if a normalization needs to happen
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Element<ID: Id = VarName> {
-    VariableArgument(ID),                       // ?a
-    Wildcard(ID, Vec<Element<ID>>),             // x?{...}
-    Dollar(ID, Option<Box<Element<ID>>>),       // $x[y]
-    Var(ID, Number),                            // x^n
-    Pow(bool, Box<(Element<ID>, Element<ID>)>), // (1+x)^3; dirty, base, exponent
-    NumberRange(Number, NumOrder),              // >0, <=-5/2
-    Fn(bool, ID, Vec<Element<ID>>),             // f(...)
+    VariableArgument(ID),                                  // ?a
+    Wildcard(ID, Vec<Element<ID>>),                        // x?{...}
+    Dollar(ID, Option<Box<Element<ID>>>),                  // $x[y]
+    Var(ID, Number),                                       // x^n
+    Pow(bool, Box<(Element<ID>, Element<ID>)>),            // (1+x)^3; dirty, base, exponent
+    NumberRange(Number, Ordering),                         // >0, <=-5/2
+    Comparison(Box<(Element<ID>, Element<ID>)>, Ordering), // x < y, x >= y, $a == 2
+    Fn(bool, ID, Vec<Element<ID>>),                        // f(...)
     Term(bool, Vec<Element<ID>>),
     SubExpr(bool, Vec<Element<ID>>),
     Num(bool, Number),
@@ -306,16 +401,10 @@ pub enum Element<ID: Id = VarName> {
 }
 
 impl<ID: Id> Default for Element<ID> {
+    #[inline]
     fn default() -> Element<ID> {
         Element::Num(false, Number::one())
     }
-}
-
-#[macro_export]
-macro_rules! DUMMY_ELEM {
-    () => {
-        Element::Num(false, Number::one())
-    };
 }
 
 #[derive(Debug, Clone)]
@@ -327,7 +416,7 @@ pub enum Statement<ID: Id = VarName> {
     Repeat(Vec<Statement<ID>>),
     Argument(Element<ID>, Vec<Statement<ID>>),
     Inside(Vec<Element<ID>>, Vec<Statement<ID>>),
-    IfElse(Element<ID>, Vec<Statement<ID>>, Vec<Statement<ID>>),
+    IfElse(IfCondition<ID>, Vec<Statement<ID>>, Vec<Statement<ID>>),
     ForIn(Element<ID>, Vec<Element<ID>>, Vec<Statement<ID>>),
     ForInRange(Element<ID>, Element<ID>, Element<ID>, Vec<Statement<ID>>),
     Expand,
@@ -343,7 +432,7 @@ pub enum Statement<ID: Id = VarName> {
     Attrib(Element<ID>, Vec<FunctionAttributes>),
     // internal commands
     Jump(usize),              // unconditional jump
-    Eval(Element<ID>, usize), // evaluate and jump if eval is false
+    Eval(IfCondition, usize), // evaluate and jump if eval is false
     JumpIfChanged(usize),     // jump and pop change flag
     PushChange,               // push a new change flag
 }
@@ -368,7 +457,7 @@ impl PartialEq for Element {
     Wildcard(VarName, Vec<Element>),       // x?{...}
     Var(VarName),                          // x
     Pow(bool, Box<Element>, Box<Element>), // (1+x)^3
-    NumberRange(bool, u64, u64, NumOrder), // >0, <=-5/2
+    NumberRange(bool, u64, u64, Ordering), // >0, <=-5/2
     Fn(bool, Func),                        // f(...)
     Term(bool, Vec<Element>),
     SubExpr(bool, Vec<Element>),
@@ -390,11 +479,11 @@ impl Element {
         other: &Element,
         _var_info: &GlobalVarInfo,
         ground_level: bool,
-    ) -> Option<Ordering> {
+    ) -> Option<cmp::Ordering> {
         match (self, other) {
             (&Element::Var(ref a, ref e1), &Element::Var(ref b, ref e2)) => {
                 match a.partial_cmp(b) {
-                    Some(Ordering::Equal) => {
+                    Some(cmp::Ordering::Equal) => {
                         if let Number::SmallInt(ref b1) = e1 {
                             if let Number::SmallInt(ref b2) = e2 {
                                 return b1.partial_cmp(b2);
@@ -405,47 +494,47 @@ impl Element {
                     x => x,
                 }
             }
-            (Element::Var(..), &Element::Num(..)) => Some(Ordering::Less),
-            (Element::Num(..), &Element::Var(..)) => Some(Ordering::Greater),
+            (Element::Var(..), &Element::Num(..)) => Some(cmp::Ordering::Less),
+            (Element::Num(..), &Element::Var(..)) => Some(cmp::Ordering::Greater),
             (&Element::Num(_, ref n1), &Element::Num(_, ref n2)) => if ground_level {
-                Some(Ordering::Equal)
+                Some(cmp::Ordering::Equal)
             } else {
                 n1.partial_cmp(n2)
             },
             (&Element::RationalPolynomialCoefficient(..), &Element::Num(..)) => if ground_level {
-                Some(Ordering::Equal)
+                Some(cmp::Ordering::Equal)
             } else {
-                Some(Ordering::Less)
+                Some(cmp::Ordering::Less)
             },
             (&Element::Num(..), &Element::RationalPolynomialCoefficient(..)) => if ground_level {
-                Some(Ordering::Equal)
+                Some(cmp::Ordering::Equal)
             } else {
-                Some(Ordering::Less)
+                Some(cmp::Ordering::Less)
             },
-            (_, &Element::Num(..)) => Some(Ordering::Less),
-            (&Element::Num(..), _) => Some(Ordering::Greater),
+            (_, &Element::Num(..)) => Some(cmp::Ordering::Less),
+            (&Element::Num(..), _) => Some(cmp::Ordering::Greater),
             //(&Element::SubExpr(..), &Element::SubExpr(..)) => None,
             //(&Element::Term(..), &Element::Term(..)) => None,
             /*(&Element::Fn(_, ref namea, _), &Element::Fn(_, ref nameb, _)) => {
                 let k = namea.partial_cmp(nameb);
                 match k {
-                    Some(Ordering::Equal) => {}
+                    Some(cmp::Ordering::Equal) => {}
                     _ => return k,
                 }
 
                 // for non-commutative functions, we keep the order
                 if let Some(attribs) = var_info.func_attribs.get(namea) {
                     if attribs.contains(&FunctionAttributes::NonCommutative) {
-                        return Some(Ordering::Greater);
+                        return Some(cmp::Ordering::Greater);
                     }
                 }
                 None
             }*/
-            /*(&Element::Fn(..), _) => Some(Ordering::Less),
-            (_, &Element::Fn(..)) => Some(Ordering::Greater),
+            /*(&Element::Fn(..), _) => Some(cmp::Ordering::Less),
+            (_, &Element::Fn(..)) => Some(cmp::Ordering::Greater),
             (_, &Element::Term(..)) => None,
             (&Element::Term(..), _) => None,
-            (&Element::SubExpr(..), _) => Some(Ordering::Less),*/
+            (&Element::SubExpr(..), _) => Some(cmp::Ordering::Less),*/
             _ => None,
         }
     }
@@ -456,29 +545,29 @@ impl Element {
         &self,
         other: &Element,
         var_info: &GlobalVarInfo,
-    ) -> Option<Ordering> {
+    ) -> Option<cmp::Ordering> {
         match (self, other) {
             (&Element::Var(ref a, _), &Element::Var(ref b, _)) => a.partial_cmp(b),
-            (&Element::Num(..), &Element::Num(..)) => Some(Ordering::Equal),
+            (&Element::Num(..), &Element::Num(..)) => Some(cmp::Ordering::Equal),
             (&Element::RationalPolynomialCoefficient(..), &Element::Num(..)) => {
-                Some(Ordering::Equal)
+                Some(cmp::Ordering::Equal)
             }
             (&Element::Num(..), &Element::RationalPolynomialCoefficient(..)) => {
-                Some(Ordering::Equal)
+                Some(cmp::Ordering::Equal)
             }
-            (_, &Element::Num(..)) => Some(Ordering::Less),
-            (&Element::Num(..), _) => Some(Ordering::Greater),
+            (_, &Element::Num(..)) => Some(cmp::Ordering::Less),
+            (&Element::Num(..), _) => Some(cmp::Ordering::Greater),
             (&Element::Fn(_, ref namea, ref argsa), &Element::Fn(_, ref nameb, ref argsb)) => {
                 let k = namea.partial_cmp(nameb);
                 match k {
-                    Some(Ordering::Equal) => {}
+                    Some(cmp::Ordering::Equal) => {}
                     _ => return k,
                 }
 
                 // for non-commutative functions, we keep the order
                 if let Some(attribs) = var_info.func_attribs.get(namea) {
                     if attribs.contains(&FunctionAttributes::NonCommutative) {
-                        return Some(Ordering::Greater);
+                        return Some(cmp::Ordering::Greater);
                     }
                 }
 
@@ -491,25 +580,25 @@ impl Element {
                         .simple_partial_cmp(argsbb, var_info, false)
                         .or_else(|| argsaa.partial_cmp(argsbb, var_info, false));
                     match k {
-                        Some(Ordering::Equal) => {}
+                        Some(cmp::Ordering::Equal) => {}
                         _ => return k,
                     }
                 }
-                Some(Ordering::Equal)
+                Some(cmp::Ordering::Equal)
             }
             (
                 &Element::RationalPolynomialCoefficient(..),
                 &Element::RationalPolynomialCoefficient(..),
-            ) => Some(Ordering::Equal),
-            (_, &Element::RationalPolynomialCoefficient(..)) => Some(Ordering::Less),
-            (&Element::RationalPolynomialCoefficient(..), _) => Some(Ordering::Greater),
+            ) => Some(cmp::Ordering::Equal),
+            (_, &Element::RationalPolynomialCoefficient(..)) => Some(cmp::Ordering::Less),
+            (&Element::RationalPolynomialCoefficient(..), _) => Some(cmp::Ordering::Greater),
             (&Element::Pow(_, ref be1), &Element::Pow(_, ref be2)) => {
                 be1.0.partial_cmp(&be2.0, var_info, false)
             }
-            (&Element::Pow(..), _) => Some(Ordering::Less),
-            (_, &Element::Pow(..)) => Some(Ordering::Greater),
-            (&Element::Fn(..), _) => Some(Ordering::Less),
-            (_, &Element::Fn(..)) => Some(Ordering::Greater),
+            (&Element::Pow(..), _) => Some(cmp::Ordering::Less),
+            (_, &Element::Pow(..)) => Some(cmp::Ordering::Greater),
+            (&Element::Fn(..), _) => Some(cmp::Ordering::Less),
+            (_, &Element::Fn(..)) => Some(cmp::Ordering::Greater),
             (&Element::SubExpr(_, ref ta), &Element::SubExpr(_, ref tb)) => {
                 if ta.len() != tb.len() {
                     return ta.len().partial_cmp(&tb.len());
@@ -520,14 +609,14 @@ impl Element {
                         .simple_partial_cmp(tbb, var_info, false)
                         .or_else(|| taa.partial_cmp(tbb, var_info, false));
                     match k {
-                        Some(Ordering::Equal) => {}
+                        Some(cmp::Ordering::Equal) => {}
                         _ => return k,
                     }
                 }
-                Some(Ordering::Equal)
+                Some(cmp::Ordering::Equal)
             }
-            (&Element::SubExpr(..), _) => Some(Ordering::Less),
-            _ => Some(Ordering::Less),
+            (&Element::SubExpr(..), _) => Some(cmp::Ordering::Less),
+            _ => Some(cmp::Ordering::Less),
         }
     }
 
@@ -537,7 +626,7 @@ impl Element {
         other: &Element,
         var_info: &GlobalVarInfo,
         ground_level: bool,
-    ) -> Option<Ordering> {
+    ) -> Option<cmp::Ordering> {
         // try an inline partial comparsion first
         if let Element::Term(_, ref ta) = self {
             if let Element::Term(_, ref tb) = other {
@@ -549,33 +638,33 @@ impl Element {
                             .or_else(|| taa.partial_cmp_full(tbb, var_info, ground_level));
 
                         match k {
-                            Some(Ordering::Equal) => {}
+                            Some(cmp::Ordering::Equal) => {}
                             _ => return k,
                         }
                     } else {
                         if ground_level {
                             match taa {
                                 Element::Num(..) | Element::RationalPolynomialCoefficient(..) => {
-                                    return Some(Ordering::Equal);
+                                    return Some(cmp::Ordering::Equal);
                                 }
                                 _ => {}
                             }
                         }
-                        return Some(Ordering::Greater);
+                        return Some(cmp::Ordering::Greater);
                     };
                 }
                 if let Some(tbb) = tbi.next() {
                     if ground_level {
                         match tbb {
                             Element::Num(..) | Element::RationalPolynomialCoefficient(..) => {
-                                return Some(Ordering::Equal);
+                                return Some(cmp::Ordering::Equal);
                             }
                             _ => {}
                         }
                     }
-                    return Some(Ordering::Less);
+                    return Some(cmp::Ordering::Less);
                 };
-                return Some(Ordering::Equal);
+                return Some(cmp::Ordering::Equal);
             }
         }
 
@@ -589,11 +678,11 @@ impl Element {
         other: &Element,
         var_info: &GlobalVarInfo,
         ground_level: bool,
-    ) -> Option<Ordering> {
+    ) -> Option<cmp::Ordering> {
         match (self, other) {
             (&Element::Var(ref a, ref e1), &Element::Var(ref b, ref e2)) => {
                 match a.partial_cmp(b) {
-                    Some(Ordering::Equal) => e1.partial_cmp(e2),
+                    Some(cmp::Ordering::Equal) => e1.partial_cmp(e2),
                     x => x,
                 }
             }
@@ -614,33 +703,33 @@ impl Element {
                             .or_else(|| taa.partial_cmp(tbb, var_info, ground_level));
 
                         match k {
-                            Some(Ordering::Equal) => {}
+                            Some(cmp::Ordering::Equal) => {}
                             _ => return k,
                         }
                     } else {
                         if ground_level {
                             match taa {
                                 Element::Num(..) | Element::RationalPolynomialCoefficient(..) => {
-                                    return Some(Ordering::Equal);
+                                    return Some(cmp::Ordering::Equal);
                                 }
                                 _ => {}
                             }
                         }
-                        return Some(Ordering::Greater);
+                        return Some(cmp::Ordering::Greater);
                     };
                 }
                 if let Some(tbb) = tbi.next() {
                     if ground_level {
                         match tbb {
                             Element::Num(..) | Element::RationalPolynomialCoefficient(..) => {
-                                return Some(Ordering::Equal);
+                                return Some(cmp::Ordering::Equal);
                             }
                             _ => {}
                         }
                     }
-                    return Some(Ordering::Less);
+                    return Some(cmp::Ordering::Less);
                 };
-                return Some(Ordering::Equal);
+                return Some(cmp::Ordering::Equal);
                 /*
                 let mut tai = ta.iter();
                 let mut tbi = tb.iter();
@@ -654,7 +743,7 @@ impl Element {
                                 .or_else(|| taa.partial_cmp(tbb, var_info, ground_level));
 
                             match k {
-                                Some(Ordering::Equal) => {}
+                                Some(cmp::Ordering::Equal) => {}
                                 _ => return k,
                             }
                         }
@@ -663,32 +752,32 @@ impl Element {
                                 match taa {
                                     Element::Num(..)
                                     | Element::RationalPolynomialCoefficient(..) => {
-                                        return Some(Ordering::Equal);
+                                        return Some(cmp::Ordering::Equal);
                                     }
                                     _ => {}
                                 }
                             }
-                            return Some(Ordering::Greater);
+                            return Some(cmp::Ordering::Greater);
                         }
                         (None, Some(tbb)) => {
                             if ground_level {
                                 match tbb {
                                     Element::Num(..)
                                     | Element::RationalPolynomialCoefficient(..) => {
-                                        return Some(Ordering::Equal);
+                                        return Some(cmp::Ordering::Equal);
                                     }
                                     _ => {}
                                 }
                             }
-                            return Some(Ordering::Less);
+                            return Some(cmp::Ordering::Less);
                         }
-                        (None, None) => return Some(Ordering::Equal),
+                        (None, None) => return Some(cmp::Ordering::Equal),
                     }
                 }
 */
             }
             (&Element::Num(_, ref n1), &Element::Num(_, ref n2)) => if ground_level {
-                Some(Ordering::Equal)
+                Some(cmp::Ordering::Equal)
             } else {
                 n1.partial_cmp(n2)
             },
@@ -696,16 +785,16 @@ impl Element {
                 .simple_partial_cmp(&t[0], var_info, false)
                 .or_else(|| self.partial_cmp(&t[0], var_info, false))
             {
-                Some(Ordering::Equal) => {
+                Some(cmp::Ordering::Equal) => {
                     if t.len() == 2 {
                         match t[1] {
                             Element::Num(..) | Element::RationalPolynomialCoefficient(..) => {
-                                Some(Ordering::Equal)
+                                Some(cmp::Ordering::Equal)
                             }
-                            _ => Some(Ordering::Less),
+                            _ => Some(cmp::Ordering::Less),
                         }
                     } else {
-                        Some(Ordering::Less)
+                        Some(cmp::Ordering::Less)
                     }
                 }
                 x => x,
@@ -714,34 +803,34 @@ impl Element {
                 .simple_partial_cmp(other, var_info, false)
                 .or_else(|| t[0].partial_cmp(other, var_info, false))
             {
-                Some(Ordering::Equal) => {
+                Some(cmp::Ordering::Equal) => {
                     if t.len() == 2 {
                         match t[1] {
                             Element::Num(..) | Element::RationalPolynomialCoefficient(..) => {
-                                Some(Ordering::Equal)
+                                Some(cmp::Ordering::Equal)
                             }
-                            _ => Some(Ordering::Greater),
+                            _ => Some(cmp::Ordering::Greater),
                         }
                     } else {
-                        Some(Ordering::Greater)
+                        Some(cmp::Ordering::Greater)
                     }
                 }
                 x => x,
             },
             (&Element::RationalPolynomialCoefficient(..), &Element::Num(..)) => if ground_level {
-                Some(Ordering::Equal)
+                Some(cmp::Ordering::Equal)
             } else {
-                Some(Ordering::Less)
+                Some(cmp::Ordering::Less)
             },
             (&Element::Num(..), &Element::RationalPolynomialCoefficient(..)) => if ground_level {
-                Some(Ordering::Equal)
+                Some(cmp::Ordering::Equal)
             } else {
-                Some(Ordering::Less)
+                Some(cmp::Ordering::Less)
             },
             (&Element::Fn(_, ref namea, ref argsa), &Element::Fn(_, ref nameb, ref argsb)) => {
                 let k = namea.partial_cmp(nameb);
                 match k {
-                    Some(Ordering::Equal) => {}
+                    Some(cmp::Ordering::Equal) => {}
                     _ => return k,
                 }
 
@@ -754,27 +843,27 @@ impl Element {
                         .simple_partial_cmp(argsbb, var_info, false)
                         .or_else(|| argsaa.partial_cmp(argsbb, var_info, false));
                     match k {
-                        Some(Ordering::Equal) => {}
+                        Some(cmp::Ordering::Equal) => {}
                         _ => return k,
                     }
                 }
-                Some(Ordering::Equal)
+                Some(cmp::Ordering::Equal)
             }
-            (_, &Element::Num(..)) => Some(Ordering::Less),
-            (&Element::Num(..), _) => Some(Ordering::Greater),
+            (_, &Element::Num(..)) => Some(cmp::Ordering::Less),
+            (&Element::Num(..), _) => Some(cmp::Ordering::Greater),
             // TODO: if we allow polyratfuns in functions, we should add a partial_cmp between them
             (
                 &Element::RationalPolynomialCoefficient(..),
                 &Element::RationalPolynomialCoefficient(..),
-            ) => Some(Ordering::Equal),
-            (_, &Element::RationalPolynomialCoefficient(..)) => Some(Ordering::Less),
-            (&Element::RationalPolynomialCoefficient(..), _) => Some(Ordering::Greater),
+            ) => Some(cmp::Ordering::Equal),
+            (_, &Element::RationalPolynomialCoefficient(..)) => Some(cmp::Ordering::Less),
+            (&Element::RationalPolynomialCoefficient(..), _) => Some(cmp::Ordering::Greater),
             (&Element::Pow(_, ref be1), &Element::Pow(_, ref be2)) => {
                 let (ref b1, ref e1) = **be1;
                 let (ref b2, ref e2) = **be2;
                 let c = b1.partial_cmp(b2, var_info, false);
                 match c {
-                    Some(Ordering::Equal) => e1.partial_cmp(e2, var_info, false),
+                    Some(cmp::Ordering::Equal) => e1.partial_cmp(e2, var_info, false),
                     _ => c,
                 }
             }
@@ -782,7 +871,7 @@ impl Element {
                 let (ref b, _) = **be;
                 let c = b.partial_cmp(other, var_info, false);
                 match c {
-                    Some(Ordering::Equal) => Some(Ordering::Less),
+                    Some(cmp::Ordering::Equal) => Some(cmp::Ordering::Less),
                     _ => c,
                 }
             }
@@ -790,12 +879,12 @@ impl Element {
                 let (ref b, _) = **be;
                 let c = self.partial_cmp(b, var_info, false);
                 match c {
-                    Some(Ordering::Equal) => Some(Ordering::Greater),
+                    Some(cmp::Ordering::Equal) => Some(cmp::Ordering::Greater),
                     _ => c,
                 }
             }
-            (&Element::Fn(..), _) => Some(Ordering::Less),
-            (_, &Element::Fn(..)) => Some(Ordering::Greater),
+            (&Element::Fn(..), _) => Some(cmp::Ordering::Less),
+            (_, &Element::Fn(..)) => Some(cmp::Ordering::Greater),
             (&Element::SubExpr(_, ref ta), &Element::SubExpr(_, ref tb)) => {
                 if ta.len() != tb.len() {
                     return ta.len().partial_cmp(&tb.len());
@@ -806,14 +895,14 @@ impl Element {
                         .simple_partial_cmp(tbb, var_info, ground_level)
                         .or_else(|| taa.partial_cmp(tbb, var_info, ground_level));
                     match k {
-                        Some(Ordering::Equal) => {}
+                        Some(cmp::Ordering::Equal) => {}
                         _ => return k,
                     }
                 }
-                Some(Ordering::Equal)
+                Some(cmp::Ordering::Equal)
             }
-            (&Element::SubExpr(..), _) => Some(Ordering::Less),
-            _ => Some(Ordering::Less),
+            (&Element::SubExpr(..), _) => Some(cmp::Ordering::Less),
+            _ => Some(cmp::Ordering::Less),
         }
     }
 }
@@ -954,7 +1043,7 @@ impl fmt::Display for Statement {
                 writeln!(f, "endinside;")
             }
             Statement::IfElse(ref cond, ref m, ref nm) => if nm.len() == 0 && m.len() == 1 {
-                write!(f, "if (match({})) {};", cond, m[0])
+                write!(f, "if {} {};", cond, m[0])
             } else {
                 writeln!(f, "if (match({}));", cond)?;
 
@@ -987,13 +1076,13 @@ impl fmt::Display for Statement {
                 writeln!(f, "endfor;")
             }
             Statement::ForInRange(ref d, ref l, ref u, ref m) => {
-                write!(f, "for {} in {}..{}", d, l, u)?;
+                write!(f, "for {} in {}..{} {{", d, l, u)?;
 
                 for s in m {
                     writeln!(f, "\t{}", s)?;
                 }
 
-                writeln!(f, "endfor;")
+                writeln!(f, "}}")
             }
             Statement::Call(ref name, ref args) => {
                 write!(f, "call {}(", name)?;
@@ -1046,14 +1135,14 @@ pub fn fmt_varname(v: &VarName, f: &mut fmt::Formatter, var_info: &GlobalVarInfo
     }
 }
 
-impl fmt::Display for NumOrder {
+impl fmt::Display for Ordering {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            NumOrder::Greater => write!(f, ">"),
-            NumOrder::GreaterEqual => write!(f, ">="),
-            NumOrder::Smaller => write!(f, "<"),
-            NumOrder::SmallerEqual => write!(f, "<="),
-            NumOrder::Equal => write!(f, "=="),
+            Ordering::Greater => write!(f, ">"),
+            Ordering::GreaterEqual => write!(f, ">="),
+            Ordering::Smaller => write!(f, "<"),
+            Ordering::SmallerEqual => write!(f, "<="),
+            Ordering::Equal => write!(f, "=="),
         }
     }
 }
@@ -1133,6 +1222,7 @@ impl Element {
             }
             &Element::Num(_, ref n) => write!(f, "{}", n),
             &Element::NumberRange(ref num, ref rel) => write!(f, "{}{}", num, rel),
+            &Element::Comparison(ref b, ref rel) => write!(f, "{} {} {}", b.0, rel, b.1),
             &Element::Pow(_, ref be) => {
                 let (ref b, ref e) = **be;
                 match *b {
@@ -1284,6 +1374,10 @@ impl Element<String> {
     pub fn to_element(&mut self, var_info: &mut VarInfo) -> Element {
         match *self {
             Element::NumberRange(ref n, ref c) => Element::NumberRange(n.clone(), c.clone()),
+            Element::Comparison(ref mut b, ref c) => Element::Comparison(
+                Box::new((b.0.to_element(var_info), b.1.to_element(var_info))),
+                c.clone(),
+            ),
             Element::Num(_, ref n) => Element::Num(true, n.clone()),
             Element::Dollar(ref mut name, ref mut inds) => {
                 Element::Dollar(var_info.get_name(name), {
@@ -1547,7 +1641,7 @@ impl Statement<String> {
                 Statement::Attrib(f.to_element(var_info), mem::replace(l, vec![]))
             }
             Statement::Jump(x) => Statement::Jump(x),
-            Statement::Eval(ref mut e, i) => Statement::Eval(e.to_element(var_info), i),
+            Statement::Eval(ref c, ref i) => Statement::Eval(c.clone(), *i),
             Statement::JumpIfChanged(i) => Statement::JumpIfChanged(i),
             Statement::PushChange => Statement::PushChange,
         }
@@ -1755,9 +1849,19 @@ impl Statement {
                 lhs.normalize_inplace(var_info);
                 rhs.normalize_inplace(var_info);
             }
-            Statement::Multiply(ref mut e)
-            | Statement::Eval(ref mut e, _)
-            | Statement::Assign(_, ref mut e) => {
+            Statement::IfElse(ref mut cond, ref mut trueblock, ref mut falseblock) => {
+                cond.normalize_inplace(var_info);
+                for s in trueblock {
+                    s.normalize(var_info);
+                }
+                for s in falseblock {
+                    s.normalize(var_info);
+                }
+            }
+            Statement::Eval(ref mut e, _) => {
+                e.normalize_inplace(var_info);
+            }
+            Statement::Multiply(ref mut e) | Statement::Assign(_, ref mut e) => {
                 e.normalize_inplace(var_info);
             }
             Statement::Argument(_, ref mut ss) => for s in ss {

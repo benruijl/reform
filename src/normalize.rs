@@ -213,7 +213,7 @@ impl Element {
                         let (a, b) = ts.split_at_mut(i);
                         if !merge_factors(&mut a[lastindex], &mut b[0], var_info) {
                             if lastindex + 1 < i {
-                                a[lastindex + 1] = mem::replace(&mut b[0], DUMMY_ELEM!());
+                                a[lastindex + 1] = mem::replace(&mut b[0], Element::default());
                             }
                             lastindex += 1;
                         }
@@ -278,7 +278,7 @@ impl Element {
                             }
                             Element::Num(_, Number::SmallInt(1)) => {
                                 // x^1 = x
-                                break mem::replace(b, DUMMY_ELEM!());
+                                break mem::replace(b, Element::default());
                             }
                             Element::Num(_, Number::SmallInt(ref mut n)) if *n > 0 => {
                                 // exponent is a positive integer
@@ -296,7 +296,7 @@ impl Element {
                                     *mutexp *= Number::SmallInt(*n);
                                 }
                                 if downgrade {
-                                    break mem::replace(b, DUMMY_ELEM!());
+                                    break mem::replace(b, Element::default());
                                 }
 
                                 // simplify x^a^b = x^(a*b) where x is a variable
@@ -305,7 +305,7 @@ impl Element {
                                 //   for x = (-1+i), a = 2, b = 3/2,
                                 //   (x^a)^b = - x^(a*b).
                                 // We need to add more detailed conditions for such a reduction.
-                                let mut newbase = DUMMY_ELEM!();
+                                let mut newbase = Element::default();
                                 if let Element::Pow(_, ref mut be1) = *b {
                                     if let Element::Var(_, Number::SmallInt(ee1)) = be1.0 {
                                         if let Element::Num(_, Number::SmallInt(n1)) = be1.1 {
@@ -316,7 +316,7 @@ impl Element {
                                     }
                                 }
 
-                                if newbase != DUMMY_ELEM!() {
+                                if newbase != Element::default() {
                                     *b = newbase;
                                 }
                             }
@@ -336,7 +336,7 @@ impl Element {
                                     *mutexp *= Number::SmallInt(*n);
                                 }
                                 if downgrade {
-                                    break mem::replace(b, DUMMY_ELEM!());
+                                    break mem::replace(b, Element::default());
                                 }
                             }
                             Element::Num(_, ref mut n) => {
@@ -347,7 +347,7 @@ impl Element {
                                     *mutexp *= mem::replace(n, Number::zero());
                                 }
                                 if downgrade {
-                                    break mem::replace(b, DUMMY_ELEM!());
+                                    break mem::replace(b, Element::default());
                                 }
                             }
                             _ => {}
@@ -400,7 +400,7 @@ impl Element {
                                                 if ii != replace_index {
                                                     rest.push(xx.clone());
                                                 } else {
-                                                    rest.push(mem::replace(a, DUMMY_ELEM!()));
+                                                    rest.push(mem::replace(a, Element::default()));
                                                 }
                                             }
 
@@ -485,7 +485,7 @@ impl Element {
                                 changed = true;
                             }
 
-                            res.push(mem::replace(&mut ts[map[i]], DUMMY_ELEM!()));
+                            res.push(mem::replace(&mut ts[map[i]], Element::default()));
                         }
                         mem::swap(&mut res, ts);
                     } else {
@@ -498,7 +498,7 @@ impl Element {
                             let (a, b) = ts.split_at_mut(i);
                             if !merge_terms(&mut a[lastindex], &mut b[0], var_info) {
                                 if lastindex + 1 < i {
-                                    a[lastindex + 1] = mem::replace(&mut b[0], DUMMY_ELEM!());
+                                    a[lastindex + 1] = mem::replace(&mut b[0], Element::default());
                                 }
                                 lastindex += 1;
                             }
@@ -613,7 +613,7 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
         *first = Element::Pow(
             true,
             Box::new((
-                mem::replace(first, DUMMY_ELEM!()),
+                mem::replace(first, Element::default()),
                 Element::Num(false, Number::SmallInt(2)),
             )),
         );
@@ -638,14 +638,14 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
                     }
                     (ref mut a1, &mut Element::SubExpr(ref mut d2, ref mut a2)) => {
                         *d2 = true;
-                        a2.push(mem::replace(a1, DUMMY_ELEM!()))
+                        a2.push(mem::replace(a1, Element::default()))
                     }
                     (a, b) => {
                         *b = Element::SubExpr(
                             true,
                             vec![
-                                mem::replace(a, DUMMY_ELEM!()),
-                                mem::replace(b, DUMMY_ELEM!()),
+                                mem::replace(a, Element::default()),
+                                mem::replace(b, Element::default()),
                             ],
                         )
                     }
@@ -665,7 +665,7 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
                 *e2 = Element::SubExpr(
                     true,
                     vec![
-                        mem::replace(e2, DUMMY_ELEM!()),
+                        mem::replace(e2, Element::default()),
                         Element::Num(false, Number::one()),
                     ],
                 );
@@ -817,7 +817,7 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
             ***a2 = Element::Term(
                 false,
                 vec![
-                    mem::replace(a2, DUMMY_ELEM!()),
+                    mem::replace(a2, Element::default()),
                     Element::Num(false, Number::SmallInt(2)),
                 ],
             )

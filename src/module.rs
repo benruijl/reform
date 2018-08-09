@@ -95,7 +95,7 @@ impl Element {
                             r = rnew;
                         }
                         _ => for rr in &mut r {
-                            *rr = mem::replace(rr, DUMMY_ELEM!()).append_factors(&fe);
+                            *rr = mem::replace(rr, Element::default()).append_factors(&fe);
                         },
                     }
                 }
@@ -152,8 +152,7 @@ impl Element {
                                                 Element::Num(false, Number::SmallInt(n)),
                                             )),
                                         )
-                                    })
-                                    .collect(),
+                                    }).collect(),
                             );
                             e.normalize_inplace(var_info);
                             return e.expand(var_info);
@@ -296,7 +295,7 @@ impl Statement {
                 Element::Fn(
                     false,
                     name.clone(),
-                    vec![mem::replace(input, DUMMY_ELEM!())],
+                    vec![mem::replace(input, Element::default())],
                 ),
                 true,
             ),
@@ -311,8 +310,7 @@ impl Statement {
                             .flat_map(|x| match *x {
                                 Element::SubExpr(_, ref y) => y.clone(),
                                 _ => vec![x.clone()],
-                            })
-                            .collect(),
+                            }).collect(),
                     )
                 };
 
@@ -328,8 +326,7 @@ impl Statement {
                                 .map(|f| match *f {
                                     Element::Fn(_, ref n, ref a) if *n == *name => subs(n, a),
                                     _ => f.clone(),
-                                })
-                                .collect(),
+                                }).collect(),
                         ),
                         false,
                     ),
@@ -339,7 +336,7 @@ impl Statement {
             Statement::Expand => {
                 // FIXME: treat ground level differently in the expand routine
                 // don't generate all terms in one go
-                let mut i = mem::replace(input, DUMMY_ELEM!());
+                let mut i = mem::replace(input, Element::default());
                 match i.expand(var_info.global_info) {
                     Element::SubExpr(_, mut f) => {
                         if f.len() == 1 {
@@ -365,14 +362,14 @@ impl Statement {
                     }
                     (ref mut a, &Element::Term(_, ref xx)) => {
                         let mut r = Vec::with_capacity(xx.len() + 1);
-                        r.push(mem::replace(*a, DUMMY_ELEM!()));
+                        r.push(mem::replace(*a, Element::default()));
                         for x in xx {
                             r.push(x.clone());
                         }
                         Element::Term(true, r)
                     }
                     (ref mut a, aa) => {
-                        Element::Term(true, vec![mem::replace(a, DUMMY_ELEM!()), aa.clone()])
+                        Element::Term(true, vec![mem::replace(a, Element::default()), aa.clone()])
                     }
                 };
 
@@ -403,8 +400,7 @@ impl Statement {
                                 .map(|f| match *f {
                                     Element::Fn(_, ref n, ref a) if *n == *name => subs(n, a),
                                     _ => f.clone(),
-                                })
-                                .collect(),
+                                }).collect(),
                         ),
                         false,
                     ),
@@ -475,36 +471,62 @@ fn do_module_rec(
         }
         Statement::Eval(ref cond, i) => {
             // if statement
-            // do the match
-            if MatchKind::from_element(
-                cond,
-                &input,
-                &BorrowedVarInfo {
-                    global_info: global_var_info,
-                    local_info: local_var_info,
-                },
-            ).next()
-                .is_some()
-            {
-                return do_module_rec(
-                    input,
-                    statements,
-                    local_var_info,
-                    global_var_info,
-                    current_index + 1,
-                    term_affected,
-                    output,
-                );
-            } else {
-                return do_module_rec(
-                    input,
-                    statements,
-                    local_var_info,
-                    global_var_info,
-                    i,
-                    term_affected,
-                    output,
-                );
+            match cond {
+                IfCondition::Match(e) => {
+                    if MatchKind::from_element(
+                        e,
+                        &input,
+                        &BorrowedVarInfo {
+                            global_info: global_var_info,
+                            local_info: local_var_info,
+                        },
+                    ).next()
+                    .is_some()
+                    {
+                        return do_module_rec(
+                            input,
+                            statements,
+                            local_var_info,
+                            global_var_info,
+                            current_index + 1,
+                            term_affected,
+                            output,
+                        );
+                    } else {
+                        return do_module_rec(
+                            input,
+                            statements,
+                            local_var_info,
+                            global_var_info,
+                            i,
+                            term_affected,
+                            output,
+                        );
+                    }
+                }
+                IfCondition::Comparison(e1, e2, c) => {
+                    if c.cmp_rel(e1.partial_cmp(e2, global_var_info, false).unwrap()) {
+                        return do_module_rec(
+                            input,
+                            statements,
+                            local_var_info,
+                            global_var_info,
+                            current_index + 1,
+                            term_affected,
+                            output,
+                        );
+                    } else {
+                        return do_module_rec(
+                            input,
+                            statements,
+                            local_var_info,
+                            global_var_info,
+                            i,
+                            term_affected,
+                            output,
+                        );
+                    }
+                }
             }
         }
         Statement::Jump(i) => {
@@ -583,7 +605,7 @@ fn do_module_rec(
         }
         Statement::Extract(ref d, ref xs) => {
             if let Element::Dollar(name, _) = *d {
-                let mut dollar = DUMMY_ELEM!();
+                let mut dollar = Element::default();
                 let mut dp = local_var_info
                     .variables
                     .get_mut(&name)
@@ -740,7 +762,7 @@ fn do_module_rec(
                             .variables
                             .get_mut(&name)
                             .expect("Dollar variable is uninitialized"),
-                        DUMMY_ELEM!(),
+                        Element::default(),
                     );
 
                     let mut tsr = TermStreamWrapper::Owned(vec![]);
@@ -1090,8 +1112,7 @@ impl Module {
                                         x.normalize(&var_info.global_info);
                                     }
                                     x
-                                })
-                                .collect::<Vec<_>>();
+                                }).collect::<Vec<_>>();
 
                             Module::statements_to_control_flow_stat(
                                 &mut newmod,
@@ -1272,7 +1293,7 @@ impl Program {
                 ),
                 Statement::NewExpression(ref name, ref mut e) => {
                     let mut expr = InputTermStreamer::new(None);
-                    let mut ee = mem::replace(e, DUMMY_ELEM!());
+                    let mut ee = mem::replace(e, Element::default());
                     ee.normalize_inplace(&self.var_info.global_info);
 
                     match ee {
@@ -1283,6 +1304,11 @@ impl Program {
                             expr.add_term_input(x);
                         }
                     }
+
+                    if self.expressions.iter().any(|(n, ..)| n == name) {
+                        panic!("Cannot define the same expression multiple times");
+                    }
+
                     self.expressions.push((name.clone(), expr));
                 }
                 Statement::Assign(ref dollar, ref e) => {
@@ -1295,7 +1321,7 @@ impl Program {
                 }
                 Statement::Extract(ref d, ref xs) => {
                     if let Element::Dollar(name, _) = *d {
-                        let mut dollar = DUMMY_ELEM!();
+                        let mut dollar = Element::default();
                         let mut dp = self
                             .var_info
                             .local_info
@@ -1330,7 +1356,7 @@ impl Program {
                                     .variables
                                     .get_mut(&name)
                                     .expect("Dollar variable is uninitialized"),
-                                DUMMY_ELEM!(),
+                                Element::default(),
                             );
 
                             let mut tsr = TermStreamWrapper::Owned(vec![]);
@@ -1393,6 +1419,9 @@ impl Program {
                         l.normalize_inplace(&self.var_info.global_info);
                         u.normalize_inplace(&self.var_info.global_info);
 
+                        // TODO: make sure that the loop counter dollar variable can be printed
+                        // this is tricky, since we cannot simply add it to the local variable list,
+                        // since the loops are unrolled
                         let mut replace_map = HashMap::new();
                         if let Element::Num(_, Number::SmallInt(li)) = *l {
                             if let Element::Num(_, Number::SmallInt(ui)) = *u {
@@ -1456,7 +1485,43 @@ impl Program {
                         sort_statements.push(Statement::Print(mode.clone(), vec![]));
                     }
                 }
+                Statement::IfElse(ref mut cond, ref trueblock, ref falseblock) => {
+                    cond.replace_vars(&self.var_info.local_info.variables, true); // apply the dollar variables
+                    cond.normalize_inplace(&self.var_info.global_info);
+
+                    match cond {
+                        IfCondition::Match(_) => {
+                            panic!("Matching in if statement is not supported in the global scope")
+                        }
+                        IfCondition::Comparison(e1, e2, c) => {
+                            if c.cmp_rel(
+                                e1.partial_cmp(e2, &self.var_info.global_info, false)
+                                    .unwrap(),
+                            ) {
+                                for ss in trueblock.iter().rev() {
+                                    statements.push_front(ss.clone());
+                                }
+                            } else {
+                                for ss in falseblock.iter().rev() {
+                                    statements.push_front(ss.clone());
+                                }
+                            }
+                        }
+                    }
+                }
                 Statement::Collect(ref id) => sort_statements.push(Statement::Collect(id.clone())),
+                Statement::MatchAssign(..) => {
+                    panic!("Match assignment cannot be performed in the global scope.")
+                }
+                Statement::Multiply(..) => {
+                    panic!("Multiply statement cannot be performed in the global scope.")
+                }
+                Statement::SplitArg(..) => {
+                    panic!("Splitarg statement cannot be performed in the global scope.")
+                }
+                Statement::Symmetrize(..) => {
+                    panic!("Symmetrize statement cannot be performed in the global scope.")
+                }
                 _ => unimplemented!(),
             }
         }
