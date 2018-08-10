@@ -6,8 +6,8 @@ use poly::polynomial::{
 use sort::split_merge;
 use std::mem;
 use structure::{
-    Element, FunctionAttributes, GlobalVarInfo, FUNCTION_DELTA, FUNCTION_GCD, FUNCTION_MUL,
-    FUNCTION_NARGS, FUNCTION_RAT, FUNCTION_SUM, FUNCTION_TAKEARG,
+    Element, FunctionAttributes, GlobalVarInfo, Ordering, FUNCTION_DELTA, FUNCTION_GCD,
+    FUNCTION_IFELSE, FUNCTION_MUL, FUNCTION_NARGS, FUNCTION_RAT, FUNCTION_SUM, FUNCTION_TAKEARG,
 };
 use tools::add_num_poly;
 
@@ -53,6 +53,45 @@ impl Element {
                             }
                         } else {
                             return false;
+                        }
+                    }
+                    FUNCTION_IFELSE => {
+                        if a.len() != 3 {
+                            return false;
+                        }
+
+                        let mut truebranch = false;
+                        if let Element::Comparison(_, ref es, ref c) = a[0] {
+                            // allow == on all elements and <,>, etc on numbers
+                            let mut fullcompare = false;
+                            if let Element::Num(..) = es.0 {
+                                if let Element::Num(..) = es.1 {
+                                    fullcompare = true;
+                                }
+                            }
+
+                            if fullcompare {
+                                if c.cmp_rel(es.0.partial_cmp(&es.1, var_info, false).unwrap()) {
+                                    truebranch = true;
+                                }
+                            } else {
+                                if c == &Ordering::Equal {
+                                    if c.cmp_rel(es.0.partial_cmp(&es.1, var_info, false).unwrap())
+                                    {
+                                        truebranch = true;
+                                    }
+                                } else {
+                                    return false;
+                                }
+                            }
+                        } else {
+                            return false;
+                        }
+
+                        if truebranch {
+                            a.swap_remove(1)
+                        } else {
+                            a.swap_remove(2)
                         }
                     }
                     FUNCTION_SUM | FUNCTION_MUL => {
@@ -156,6 +195,7 @@ impl Element {
         match *self {
             Element::Var(_, ref e) => e.is_zero(),
             Element::Num(dirty, ..)
+            | Element::Comparison(dirty, ..)
             | Element::Pow(dirty, ..)
             | Element::Fn(dirty, ..)
             | Element::SubExpr(dirty, ..)
@@ -247,6 +287,13 @@ impl Element {
                 if *dirty {
                     *dirty = false;
                     changed |= num.normalize_inplace()
+                }
+            }
+            Element::Comparison(ref mut dirty, ref mut e, _) => {
+                if *dirty {
+                    *dirty = false;
+                    changed |= e.0.normalize_inplace(var_info);
+                    changed |= e.1.normalize_inplace(var_info);
                 }
             }
             Element::Var(..) => {

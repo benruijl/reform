@@ -572,6 +572,30 @@ Functions
     
         576
 
+.. frm:function:: ifelse_(cond, truebranch, falsebranch)
+
+    :param cond: A comparison, i.e., ``$a < 2``
+    :param truebranch: An expression that will be the result of the function if the condition is true
+    :param falsebranch: An expression that will be the result of the function if the condition is false
+
+    Return ``truebranch`` if the condition ``cond`` is true and ``falsebranch`` if it is false.
+    At the moment ``cond`` should be a comparison between expressions.
+    If the expressions are both numbers, all both equality and inequality tests are evaluted.
+    In all other cases, only an equality test will be evaluated.
+
+    .. code-block:: reform
+
+        expr F = f(5);
+        apply {
+            id f(n?) = ifelse_(n? <= 6, n? + 10, n?);
+        }
+
+    yields
+    
+    .. code-block:: reform
+    
+        15
+
 .. frm:function:: nargs_(a1,...,an)
 
     :param a1,...,an: A list of expressions

@@ -9,7 +9,7 @@ use std::mem;
 use streaming::InputTermStreamer;
 
 pub const BUILTIN_FUNCTIONS: &'static [&'static str] = &[
-    "delta_", "nargs_", "sum_", "mul_", "rat_", "gcd_", "takearg_",
+    "delta_", "nargs_", "sum_", "mul_", "rat_", "gcd_", "takearg_", "ifelse_",
 ];
 pub const FUNCTION_DELTA: VarName = 0;
 pub const FUNCTION_NARGS: VarName = 1;
@@ -18,6 +18,7 @@ pub const FUNCTION_MUL: VarName = 3;
 pub const FUNCTION_RAT: VarName = 4;
 pub const FUNCTION_GCD: VarName = 5;
 pub const FUNCTION_TAKEARG: VarName = 6;
+pub const FUNCTION_IFELSE: VarName = 7;
 
 /// Trait for variable ID. Normally `VarName` or `String`.
 pub trait Id: Ord + fmt::Debug {}
@@ -386,14 +387,14 @@ impl Ordering {
 // if a normalization needs to happen
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Element<ID: Id = VarName> {
-    VariableArgument(ID),                                  // ?a
-    Wildcard(ID, Vec<Element<ID>>),                        // x?{...}
-    Dollar(ID, Option<Box<Element<ID>>>),                  // $x[y]
-    Var(ID, Number),                                       // x^n
-    Pow(bool, Box<(Element<ID>, Element<ID>)>),            // (1+x)^3; dirty, base, exponent
-    NumberRange(Number, Ordering),                         // >0, <=-5/2
-    Comparison(Box<(Element<ID>, Element<ID>)>, Ordering), // x < y, x >= y, $a == 2
-    Fn(bool, ID, Vec<Element<ID>>),                        // f(...)
+    VariableArgument(ID),                                        // ?a
+    Wildcard(ID, Vec<Element<ID>>),                              // x?{...}
+    Dollar(ID, Option<Box<Element<ID>>>),                        // $x[y]
+    Var(ID, Number),                                             // x^n
+    Pow(bool, Box<(Element<ID>, Element<ID>)>),                  // (1+x)^3; dirty, base, exponent
+    NumberRange(Number, Ordering),                               // >0, <=-5/2
+    Comparison(bool, Box<(Element<ID>, Element<ID>)>, Ordering), // x < y, x >= y, $a == 2
+    Fn(bool, ID, Vec<Element<ID>>),                              // f(...)
     Term(bool, Vec<Element<ID>>),
     SubExpr(bool, Vec<Element<ID>>),
     Num(bool, Number),
@@ -1222,7 +1223,7 @@ impl Element {
             }
             &Element::Num(_, ref n) => write!(f, "{}", n),
             &Element::NumberRange(ref num, ref rel) => write!(f, "{}{}", num, rel),
-            &Element::Comparison(ref b, ref rel) => write!(f, "{} {} {}", b.0, rel, b.1),
+            &Element::Comparison(_, ref b, ref rel) => write!(f, "{} {} {}", b.0, rel, b.1),
             &Element::Pow(_, ref be) => {
                 let (ref b, ref e) = **be;
                 match *b {
@@ -1374,7 +1375,8 @@ impl Element<String> {
     pub fn to_element(&mut self, var_info: &mut VarInfo) -> Element {
         match *self {
             Element::NumberRange(ref n, ref c) => Element::NumberRange(n.clone(), c.clone()),
-            Element::Comparison(ref mut b, ref c) => Element::Comparison(
+            Element::Comparison(_, ref mut b, ref c) => Element::Comparison(
+                true,
                 Box::new((b.0.to_element(var_info), b.1.to_element(var_info))),
                 c.clone(),
             ),
@@ -1438,10 +1440,8 @@ impl Element {
                 }
                 false
             }
-            Element::Pow(_, ref be) => {
-                let (ref b, ref e) = **be;
-                b.contains_dollar() || e.contains_dollar()
-            }
+            Element::Comparison(_, ref e, _) => e.0.contains_dollar() || e.1.contains_dollar(),
+            Element::Pow(_, ref be) => be.0.contains_dollar() || be.1.contains_dollar(),
             Element::Term(_, ref f) | Element::SubExpr(_, ref f) | Element::Fn(_, _, ref f) => {
                 for x in f {
                     if x.contains_dollar() {
@@ -1473,6 +1473,11 @@ impl Element {
                 } else {
                     return false;
                 }
+            }
+            Element::Comparison(_, ref mut e, _) => {
+                changed |= e.0.replace_vars(map, dollar_only);
+                changed |= e.1.replace_vars(map, dollar_only);
+                return changed;
             }
             Element::Wildcard(_, ref mut restrictions) => {
                 for x in restrictions {

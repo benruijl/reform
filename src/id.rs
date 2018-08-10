@@ -143,6 +143,18 @@ impl Element {
                 changed |= c;
                 MatchOptOwned::Single(Element::Pow(changed, Box::new((bb, pp))), changed)
             }
+            Element::Comparison(_, ref be, ref cond) => {
+                let (ref b, ref e) = **be;
+                let mut changed = false;
+                let (bb, c) = b.apply_map(m).into_single();
+                changed |= c;
+                let (pp, c) = e.apply_map(m).into_single();
+                changed |= c;
+                MatchOptOwned::Single(
+                    Element::Comparison(changed, Box::new((bb, pp)), cond.clone()),
+                    changed,
+                )
+            }
             Element::Fn(_, name, ref old_args) => {
                 let mut changed = false;
                 let mut args = vec![];
@@ -594,8 +606,7 @@ impl<'a> FuncIterator<'a> {
             .filter(|x| match **x {
                 Element::VariableArgument { .. } => true,
                 _ => false,
-            })
-            .count();
+            }).count();
         if args.len() - varargcount > target_args.len() {
             return FuncIterator {
                 args: args,

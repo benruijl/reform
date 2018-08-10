@@ -407,15 +407,9 @@ parser!{
             res
         });
 
-    /*let polyratfun = string("rat_").with(between(lex_char('('), lex_char(')'), many1(digit())
-            .map(|d: String| d.parse::<i64>().unwrap())))
-        .map(|n| Element::RationalPolynomialCoefficient(MultivariatePolynomial::from_monomial(n, vec![]), None));
-    */
-
     choice!(
         number(),
         dollarvar(),
-        //try(polyratfun),
         namedfactor,
         variableargument,
         parenexpr()
@@ -471,7 +465,7 @@ parser!{
 }
 
 parser!{
-   fn expr[I]()(I) -> Element<String>
+   fn expr_nocmp[I]()(I) -> Element<String>
     where [I: Stream<Item=char>]
 {
     (
@@ -484,5 +478,17 @@ parser!{
             })
         })
         .skip(spaces())
+}
+}
+
+parser!{
+   fn expr[I]()(I) -> Element<String>
+    where [I: Stream<Item=char>]
+{
+    (expr_nocmp(), try((ordering(), expr_nocmp())).map(|x| Some(x)).or(value(None)))
+        .map(|(e1, t) : (Element<String>, Option<(Ordering, Element<String>)>)| match t {
+            Some((c, e2)) =>  Element::Comparison(true, Box::new((e1, e2)), c),
+            None => e1
+        })
 }
 }
