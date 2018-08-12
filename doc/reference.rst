@@ -13,6 +13,13 @@ A procedure is a code block that will be inlined at the call-site.
     :param localargs: variables local to the procedure. They will shadow
                       existing variables.
 
+
+    Define a code block that will be placed inline in the code when called
+    with :frm:st:`call`. All variables in the arguments ``args`` are
+    replaced. ``localargs`` will shadow arguments from the outer scope.
+
+    The code block can contain :frm:st:`apply` statements.
+
     .. code-block:: reform
 
         procedure derivative(x, n) {
@@ -32,6 +39,42 @@ A procedure is a code block that will be inlined at the call-site.
     .. code-block:: reform
 
         u^3*20
+
+
+User-defined functions
+======================
+
+Users can define their own functions in the global scope with the following
+statement:
+
+.. frm:statement:: fn name(args) = expression;
+
+    :param name: Name of the function
+    :param args: Arguments to the function
+    :param expression: The resulting expression
+
+    Replace the function ``name`` with ``expression``
+    where all occurences of the ``args`` are replaced by
+    the given function arguments.
+
+    .. note::
+
+        Functions in already existing expressions will not be
+        automatically substitued when they are defined as custom
+        functions at a later stage. Use ``id myfunc(?a) = myfunc(?a);``
+        to trigger the substitution.
+
+    .. code-block:: reform
+
+        fn factorial(n) = ifelse_(n > 0, n * factorial(n-1), 1);
+        $a = factorial(10);
+        print $a;
+
+    yields
+
+    .. code-block:: reform
+
+        3628800
 
 
 Statements
@@ -133,7 +176,7 @@ Statements
     :param proc: A procedure
     :param args: Arguments to the procedure
 
-    Call a procedure with arguments.
+    Call a procedure (see `Procedures`_) with arguments.
 
     .. code-block:: reform
 
@@ -233,6 +276,12 @@ Statements
     .. code-block:: reform
 
         (y+1)*x^2+y*z+2+((z+1)*y+1)*x
+
+
+.. frm:statement:: fn name(args) = expression;
+
+    See `User-defined functions`_.
+
 
 .. frm:statement:: for i in lb..ub { [statements] };
                    for i in {s1,s2,...} { [statements] };
@@ -440,6 +489,10 @@ Statements
             print;
         }
 
+.. frm:statement:: procedure name(args; localargs) { [statements] }
+
+    See `Procedures`_.
+
 .. frm:statement:: repeat { [statements] }
 
     :param statements: Statement block to be repeated until no terms change anymore.
@@ -582,6 +635,12 @@ Functions
     At the moment ``cond`` should be a comparison between expressions.
     If the expressions are both numbers, all both equality and inequality tests are evaluted.
     In all other cases, only an equality test will be evaluated.
+
+    .. note::
+
+        The expressions in both branches are not normalized (simplified), since that will take
+        extra work (only one of the branches should be executed) and could cause infinite loops.
+        As a result, pattern matching on the arguments of ``ifelse_`` will likely not work.
 
     .. code-block:: reform
 

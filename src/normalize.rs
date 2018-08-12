@@ -4,6 +4,7 @@ use poly::polynomial::{
     rationalpolynomial_add, rationalpolynomial_mul, rationalpolynomial_normalize, Polynomial,
 };
 use sort::split_merge;
+use std::collections::HashMap;
 use std::mem;
 use structure::{
     Element, FunctionAttributes, GlobalVarInfo, Ordering, FUNCTION_DELTA, FUNCTION_GCD,
@@ -88,10 +89,17 @@ impl Element {
                             return false;
                         }
 
+                        // Select and normalize the correct branch.
+                        // The branches are not normalized by default in the normalization function,
+                        // since this may cause infinite loops for custom functions.
                         if truebranch {
-                            a.swap_remove(1)
+                            let mut ee = a.swap_remove(1);
+                            ee.normalize_inplace(var_info);
+                            ee
                         } else {
-                            a.swap_remove(2)
+                            let mut ee = a.swap_remove(2);
+                            ee.normalize_inplace(var_info);
+                            ee
                         }
                     }
                     FUNCTION_SUM | FUNCTION_MUL => {
@@ -180,8 +188,28 @@ impl Element {
                             return false;
                         }
                     }
-                    _ => {
-                        return false;
+                    nn => {
+                        // process custom functions
+                        if let Some((argvar, e)) = var_info.user_functions.get(&nn) {
+                            if argvar.len() != a.len() {
+                                return false;
+                            }
+
+                            let mut replace_map = HashMap::new();
+
+                            for (av, aa) in argvar.iter().zip(a) {
+                                replace_map.insert(*av, aa.clone());
+                            }
+
+                            let mut newe = e.clone();
+                            if newe.replace_vars(&replace_map, false) {
+                                newe.normalize_inplace(&var_info);
+                            }
+
+                            newe
+                        } else {
+                            return false;
+                        }
                     }
                 }
             }
@@ -415,9 +443,18 @@ impl Element {
                     let mut newvalue = None;
 
                     if let Element::Fn(ref mut dirty, ref name, ref mut args) = *self {
-                        for x in args.iter_mut() {
-                            if x.should_normalize() {
-                                changed |= x.normalize_inplace(var_info);
+                        // the ifelse_ function should not normalize its two branches,
+                        // since only one of them will be executed. This saves time and
+                        // prevents infinite loops
+                        if *name == FUNCTION_IFELSE && args.len() == 3 {
+                            if args[0].should_normalize() {
+                                changed |= args[0].normalize_inplace(var_info);
+                            }
+                        } else {
+                            for x in args.iter_mut() {
+                                if x.should_normalize() {
+                                    changed |= x.normalize_inplace(var_info);
+                                }
                             }
                         }
 

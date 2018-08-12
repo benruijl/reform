@@ -137,8 +137,8 @@ pub struct GlobalVarInfo {
     inv_name_map: Vec<String>,
     name_map: HashMap<String, VarName>,
     pub func_attribs: HashMap<VarName, Vec<FunctionAttributes>>,
+    pub user_functions: HashMap<VarName, (Vec<VarName>, Element)>,
     pub log_level: usize,
-    pub polyratfun: bool, // turn coefficients into rat_
 }
 
 impl GlobalVarInfo {
@@ -147,8 +147,8 @@ impl GlobalVarInfo {
             inv_name_map: vec![],
             name_map: HashMap::new(),
             func_attribs: HashMap::new(),
+            user_functions: HashMap::new(),
             log_level: 0,
-            polyratfun: false,
         }
     }
 
@@ -205,8 +205,8 @@ impl VarInfo {
                 inv_name_map,
                 name_map,
                 func_attribs: HashMap::new(),
+                user_functions: HashMap::new(),
                 log_level: 0,
-                polyratfun: true,
             },
             local_info: LocalVarInfo {
                 variables: HashMap::new(),
@@ -269,11 +269,8 @@ impl Program {
 
         let parsed_statements = statements
             .iter_mut()
-            .map(|s| {
-                let mut rs = s.to_statement(&mut prog.var_info);
-                rs.normalize(&prog.var_info.global_info);
-                rs
-            }).collect();
+            .map(|s| s.to_statement(&mut prog.var_info))
+            .collect();
 
         // NOTE: the names of the arguments are not substituted
         let mut parsed_procedures = vec![];
@@ -412,6 +409,7 @@ impl<ID: Id> Default for Element<ID> {
 pub enum Statement<ID: Id = VarName> {
     Module(Module<ID>),
     NewExpression(ID, Element<ID>),
+    NewFunction(ID, Vec<ID>, Element<ID>),
     IdentityStatement(IdentityStatement<ID>),
     SplitArg(ID),
     Repeat(Vec<Statement<ID>>),
@@ -980,6 +978,9 @@ impl fmt::Display for Statement {
         match *self {
             Statement::Module(ref m) => writeln!(f, "{}", m),
             Statement::NewExpression(ref id, ref e) => writeln!(f, "expr {} = {};", id, e),
+            Statement::NewFunction(ref id, ref args, ref e) => {
+                writeln!(f, "fn {}({:?}) = {};", id, args, e)
+            }
             Statement::IdentityStatement(ref id) => write!(f, "{}", id),
             Statement::SplitArg(ref name) => writeln!(f, "SplitArg {};", name),
             Statement::Expand => writeln!(f, "Expand;"),
@@ -1457,12 +1458,15 @@ impl Element {
     pub fn replace_vars(&mut self, map: &HashMap<VarName, Element>, dollar_only: bool) -> bool {
         let mut changed = false;
         *self = match *self {
-            Element::Var(ref mut name, _) => {
+            Element::Var(ref mut name, ref pow) => {
                 if dollar_only {
                     return false;
                 }
                 if let Some(x) = map.get(name) {
-                    x.clone()
+                    Element::Pow(
+                        true,
+                        Box::new((x.clone(), Element::Num(false, pow.clone()))),
+                    )
                 } else {
                     return false;
                 }
@@ -1474,9 +1478,10 @@ impl Element {
                     return false;
                 }
             }
-            Element::Comparison(_, ref mut e, _) => {
+            Element::Comparison(ref mut dirty, ref mut e, _) => {
                 changed |= e.0.replace_vars(map, dollar_only);
                 changed |= e.1.replace_vars(map, dollar_only);
+                *dirty |= changed;
                 return changed;
             }
             Element::Wildcard(_, ref mut restrictions) => {
@@ -1579,6 +1584,11 @@ impl Statement<String> {
             Statement::NewExpression(ref name, ref mut e) => {
                 Statement::NewExpression(var_info.get_name(name), e.to_element(var_info))
             }
+            Statement::NewFunction(ref name, ref mut args, ref mut e) => Statement::NewFunction(
+                var_info.get_name(name),
+                args.iter_mut().map(|x| var_info.get_name(x)).collect(),
+                e.to_element(var_info),
+            ),
             Statement::IdentityStatement(IdentityStatement {
                 ref mode,
                 ref mut lhs,

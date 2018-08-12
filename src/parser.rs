@@ -194,6 +194,11 @@ parser!{
         .skip(statementend())
         .map(|(n, e)| Statement::NewExpression(n, e));
 
+   let newfunction = (keyword("fn").with(varname()), between(lex_char('('), lex_char(')'), many(varname())),
+        lex_char('=').with(expr()))
+        .skip(statementend())
+        .map(|(n, va, e)| Statement::NewFunction(n, va, e));
+
     let collect = keyword("collect")
         .with(varname())
         .skip(statementend())
@@ -319,6 +324,7 @@ parser!{
     choice!(
         module,
         newexpr,
+        newfunction,
         collect,
         extract,
         attrib,

@@ -1281,6 +1281,8 @@ impl Program {
         let mut statements: VecDeque<Statement> = self.statements.iter().cloned().collect();
 
         while let Some(mut x) = statements.pop_front() {
+            x.normalize(&self.var_info.global_info);
+
             match &mut x {
                 Statement::Module(ref mut m) => m.execute_module(
                     &mut self.expressions,
@@ -1310,6 +1312,14 @@ impl Program {
                     }
 
                     self.expressions.push((name.clone(), expr));
+                }
+                Statement::NewFunction(ref name, ref args, ref e) => {
+                    let mut ee = e.clone();
+                    ee.normalize_inplace(&self.var_info.global_info);
+                    self.var_info
+                        .global_info
+                        .user_functions
+                        .insert(name.clone(), (args.clone(), ee));
                 }
                 Statement::Assign(ref dollar, ref e) => {
                     let mut ee = e.clone();
@@ -1521,6 +1531,9 @@ impl Program {
                 }
                 Statement::Symmetrize(..) => {
                     panic!("Symmetrize statement cannot be performed in the global scope.")
+                }
+                Statement::IdentityStatement(..) => {
+                    panic!("Identity statement cannot be performed in the global scope.")
                 }
                 _ => unimplemented!(),
             }
