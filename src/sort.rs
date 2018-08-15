@@ -9,11 +9,16 @@ use std::ptr;
 /// order. We allocate the necessary vectors once and use a separate
 /// recursive routine after that. Reading the output properly is done with
 /// ```
-/// for i in ..row.len() {
-///     ...
-///     terms[row[i]]
-///     ...
-/// }```
+/// # use reform::sort;
+/// # let mut terms = vec![0];
+/// # let cmp = |x1: &usize, x2: &usize| { x1.cmp(x2) };
+/// # let merger = |x1: &mut usize, x2: &mut usize| { false };
+/// let row = sort::split_merge(&mut terms, &cmp, &merger);
+/// let mut out = vec![];
+/// for i in 0..row.len() {
+///     out.push(terms[row[i]].clone());
+/// }
+/// ```
 pub fn split_merge<T: Default, F1, F2>(mut terms: &mut [T], cmp: &F1, merger: &F2) -> Vec<usize>
 where
     F1: Fn(&T, &T) -> Ordering,

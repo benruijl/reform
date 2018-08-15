@@ -240,6 +240,13 @@ parser!{
         .with(dollarvar())
         .skip(statementend())
         .map(|x| Statement::Maximum(x));
+    let discard = keyword("discard")
+        .skip(statementend())
+        .map(|_| Statement::Discard);
+    let replaceby = keyword("replaceby")
+        .with(expr())
+        .skip(statementend())
+        .map(|e| Statement::ReplaceBy(e));
     let call_procedure = (
         keyword("call").with(varname()),
         between(lex_char('('), lex_char(')'), sep_by(expr(), lex_char(','))),
@@ -332,6 +339,8 @@ parser!{
         matchassign,
         assign(),
         maximum,
+        discard,
+        replaceby,
         print,
         ifelse,
         forin,

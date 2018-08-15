@@ -10,16 +10,17 @@ use std::mem;
 use streaming::InputTermStreamer;
 
 pub const BUILTIN_FUNCTIONS: &'static [&'static str] = &[
-    "delta_", "nargs_", "sum_", "mul_", "rat_", "gcd_", "takearg_", "ifelse_",
+    "delta_", "nargs_", "sum_", "prod_", "rat_", "gcd_", "takearg_", "ifelse_", "term_",
 ];
 pub const FUNCTION_DELTA: VarName = 0;
 pub const FUNCTION_NARGS: VarName = 1;
 pub const FUNCTION_SUM: VarName = 2;
-pub const FUNCTION_MUL: VarName = 3;
+pub const FUNCTION_PROD: VarName = 3;
 pub const FUNCTION_RAT: VarName = 4;
 pub const FUNCTION_GCD: VarName = 5;
 pub const FUNCTION_TAKEARG: VarName = 6;
 pub const FUNCTION_IFELSE: VarName = 7;
+pub const FUNCTION_TERM: VarName = 8;
 
 /// Trait for variable ID. Normally `VarName` or `String`.
 pub trait Id: Ord + fmt::Debug {}
@@ -476,6 +477,7 @@ pub enum Statement<ID: Id = VarName> {
     Expand,
     Print(PrintMode, Vec<ID>),
     Multiply(Element<ID>),
+    ReplaceBy(Element<ID>),
     Symmetrize(ID),
     Collect(ID),
     Extract(Element<ID>, Vec<ID>),
@@ -484,6 +486,7 @@ pub enum Statement<ID: Id = VarName> {
     Maximum(Element<ID>),
     Call(String, Vec<Element<ID>>),
     Attrib(Element<ID>, Vec<FunctionAttributes>),
+    Discard,
     // internal commands
     Jump(usize),              // unconditional jump
     Eval(IfCondition, usize), // evaluate and jump if eval is false
@@ -1057,6 +1060,7 @@ impl fmt::Display for Statement {
                 writeln!(f, ";")
             }
             Statement::Multiply(ref x) => writeln!(f, "Multiply {};", x),
+            Statement::ReplaceBy(ref x) => writeln!(f, "ReplaceBy {};", x),
             Statement::Symmetrize(ref x) => writeln!(f, "Symmetrize {};", x),
             Statement::Collect(ref x) => writeln!(f, "Collect {};", x),
             Statement::Extract(ref d, ref xs) => {
@@ -1175,6 +1179,7 @@ impl fmt::Display for Statement {
                 }
                 writeln!(f, ";")
             }
+            Statement::Discard => writeln!(f, "Discard;"),
             Statement::Maximum(ref d) => writeln!(f, "Maximum {};", d),
             Statement::Jump(ref i) => writeln!(f, "JMP {}", i),
             Statement::Eval(ref n, ref i) => writeln!(f, "IF NOT {} JMP {}", n, i),
@@ -1758,6 +1763,7 @@ impl Statement<String> {
                 names.iter().map(|name| var_info.get_name(name)).collect(),
             ),
             Statement::Multiply(ref mut e) => Statement::Multiply(e.to_element(var_info)),
+            Statement::ReplaceBy(ref mut e) => Statement::ReplaceBy(e.to_element(var_info)),
             Statement::Expand => Statement::Expand,
             Statement::Print(ref mode, ref es) => Statement::Print(
                 mode.clone(),
@@ -1778,6 +1784,7 @@ impl Statement<String> {
             Statement::Eval(ref c, ref i) => Statement::Eval(c.clone(), *i),
             Statement::JumpIfChanged(i) => Statement::JumpIfChanged(i),
             Statement::PushChange => Statement::PushChange,
+            Statement::Discard => Statement::Discard,
         }
     }
 }
@@ -1822,7 +1829,7 @@ impl Statement {
                 }
                 false
             }
-            Statement::Multiply(ref e) => e.contains_dollar(),
+            Statement::Multiply(ref e) | Statement::ReplaceBy(ref e) => e.contains_dollar(),
             Statement::Call(_, ref es) => {
                 for s in es {
                     if s.contains_dollar() {
@@ -1904,7 +1911,7 @@ impl Statement {
                     changed |= s.replace_dollar(map);
                 }
             }
-            Statement::Multiply(ref mut e) => {
+            Statement::Multiply(ref mut e) | Statement::ReplaceBy(ref mut e) => {
                 changed |= e.replace_dollar(map);
             }
             Statement::Call(_, ref mut es) => for s in es {
@@ -2006,7 +2013,7 @@ impl Statement {
                     }
                 }
             }
-            Statement::Multiply(ref mut e) => {
+            Statement::Multiply(ref mut e) | Statement::ReplaceBy(ref mut e) => {
                 changed |= e.replace_elements(map);
             }
             Statement::Call(_, ref mut es) => for s in es {
@@ -2079,7 +2086,7 @@ impl Statement {
             Statement::Eval(ref mut e, _) => {
                 e.normalize_inplace(var_info);
             }
-            Statement::Multiply(ref mut e) => {
+            Statement::Multiply(ref mut e) | Statement::ReplaceBy(ref mut e) => {
                 e.normalize_inplace(var_info);
             }
             Statement::Assign(ref mut d, ref mut e) => {

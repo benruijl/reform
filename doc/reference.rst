@@ -223,6 +223,25 @@ Statements
 
         +f(x*4+x^2*6+x^3*4+x^4+1)
 
+.. frm:statement:: discard;
+
+    Discard the current term.
+
+    .. code-block:: reform
+
+        expr F = x + y;
+        apply {
+            if match(x) {
+                Discard;
+            }
+        }
+
+    yields
+
+    .. code-block:: reform
+
+        y
+
 .. frm:statement:: expand;
 
     Expand all structures. For example, ```(1+x)^5```,
@@ -236,7 +255,7 @@ Statements
         }
 
     yields
-    
+
     .. code-block:: reform
 
         +x*y*2
@@ -305,7 +324,7 @@ Statements
         }
 
     yields
-    
+
     .. code-block:: reform
 
         F = f(2);
@@ -369,7 +388,7 @@ Statements
         }
 
     yields
-    
+
     .. code-block:: reform
 
         f(3)
@@ -391,7 +410,7 @@ Statements
         print $x;
 
     yields
-    
+
     .. code-block:: reform
 
         6 + 5*y
@@ -446,7 +465,7 @@ Statements
         print $a;
 
     yields
-    
+
     .. code-block:: reform
 
         2
@@ -465,7 +484,7 @@ Statements
         }
 
     yields
-    
+
     .. code-block:: reform
 
         y*(1+x)
@@ -516,10 +535,31 @@ Statements
         }
 
     yields
-    
+
     .. code-block:: reform
 
         F = f(1,x,2*y)
+
+.. frm:statement:: replaceby expr;
+
+    :param expr: An expression
+
+    Replace the current term by ``expr``.
+
+    .. code-block:: reform
+
+        expr F = x*y + y;
+        apply {
+            if match(x) {
+                ReplaceBy z;
+            }
+        }
+
+    yields
+
+    .. code-block:: reform
+
+        y + z
 
 .. frm:statement:: splitarg fn;
 
@@ -537,7 +577,7 @@ Statements
         }
 
     yields
-    
+
     .. code-block:: reform
 
         F = f(1,x,2*y)
@@ -557,7 +597,7 @@ Statements
         }
 
     yields
-    
+
     .. code-block:: reform
 
         f(g(5),y+1,x,2,3)
@@ -579,7 +619,7 @@ Functions
         expr F = delta_(0)*x + delta_(1)*y + delta_(x);
 
     yields
-    
+
     .. code-block:: reform
     
         x + delta_(x)
@@ -599,31 +639,13 @@ Functions
                       100-100*x-90*x^3+90*x^4+12*y-12*x*y+3*x^3*y^2-3*x^4*y^2);
 
     yields
-    
+
     .. code-block:: reform
     
         +x^3*y^2*3
         +x^3*-90
         +y*12
         +100
-
-.. frm:function:: mul_(i, lb, ub, expr)
-
-    :param i: A variable used as a counter
-    :param lb: A numeric lower bound for ``i``
-    :param ub: A numeric upper bound for ``i``
-
-    Return the product of ``i`` going from ``lb`` to ``ub``.
-
-    .. code-block:: reform
-
-        expr F = mul_($i, 2, 5, $i^2);
-
-    yields
-    
-    .. code-block:: reform
-    
-        576
 
 .. frm:function:: ifelse_(cond, truebranch, falsebranch)
 
@@ -650,7 +672,7 @@ Functions
         }
 
     yields
-    
+
     .. code-block:: reform
     
         15
@@ -672,10 +694,28 @@ Functions
         }
 
     yields
-    
+
     .. code-block:: reform
     
         5
+
+.. frm:function:: prod_(i, lb, ub, expr)
+
+    :param i: A variable used as a counter
+    :param lb: A numeric lower bound for ``i``
+    :param ub: A numeric upper bound for ``i``
+
+    Return the product of ``i`` going from ``lb`` to ``ub``.
+
+    .. code-block:: reform
+
+        expr F = prod_($i, 2, 5, $i^2);
+
+    yields
+
+    .. code-block:: reform
+
+        576
 
 .. frm:function:: rat_(num, den)
 
@@ -692,7 +732,7 @@ Functions
         expr F = rat_(x^2+2*x+1,1)*rat_(1,1+x)+rat_(2,1);
 
     yields
-    
+
     .. code-block:: reform
     
         rat_(3+x,1)
@@ -710,7 +750,7 @@ Functions
         expr F = sum_($i, 2, 5, $i^2);
 
     yields
-    
+
     .. code-block:: reform
     
         29
@@ -728,7 +768,7 @@ Functions
         expr F = takearg_(2, x1, x2, x3);
 
     yields
-    
+
     .. code-block:: reform
     
         x2

@@ -377,6 +377,12 @@ impl Statement {
                 res.normalize_inplace(&var_info.global_info);
                 StatementIter::Simple(res, true)
             }
+            Statement::ReplaceBy(ref x) => {
+                let mut res = x.clone();
+                res.replace_dollar(&var_info.local_info.variables);
+                res.normalize_inplace(&var_info.global_info);
+                StatementIter::Simple(res, true)
+            }
             // TODO: use visitor pattern? this is almost a copy of splitarg
             Statement::Symmetrize(ref name) => {
                 // sort function arguments at the ground level
@@ -433,6 +439,10 @@ fn do_module_rec(
 
     // handle control flow instructions
     match statements[current_index] {
+        Statement::Discard => {
+            // discard the term
+            return;
+        }
         Statement::PushChange => {
             term_affected.push(false);
             return do_module_rec(
@@ -1532,6 +1542,9 @@ impl Program {
                 Statement::Multiply(..) => {
                     panic!("Multiply statement cannot be performed in the global scope.")
                 }
+                Statement::ReplaceBy(..) => {
+                    panic!("ReplaceBy statement cannot be performed in the global scope.")
+                }
                 Statement::SplitArg(..) => {
                     panic!("Splitarg statement cannot be performed in the global scope.")
                 }
@@ -1540,6 +1553,9 @@ impl Program {
                 }
                 Statement::IdentityStatement(..) => {
                     panic!("Identity statement cannot be performed in the global scope.")
+                }
+                Statement::Discard => {
+                    panic!("Discard statement cannot be performed in the global scope.")
                 }
                 _ => unimplemented!(),
             }

@@ -8,7 +8,8 @@ use std::collections::HashMap;
 use std::mem;
 use structure::{
     Element, FunctionAttributes, GlobalVarInfo, Ordering, FUNCTION_DELTA, FUNCTION_GCD,
-    FUNCTION_IFELSE, FUNCTION_MUL, FUNCTION_NARGS, FUNCTION_RAT, FUNCTION_SUM, FUNCTION_TAKEARG,
+    FUNCTION_IFELSE, FUNCTION_NARGS, FUNCTION_PROD, FUNCTION_RAT, FUNCTION_SUM, FUNCTION_TAKEARG,
+    FUNCTION_TERM,
 };
 use tools::add_num_poly;
 
@@ -24,6 +25,10 @@ impl Element {
         *self = match *self {
             Element::Fn(_, ref mut n, ref mut a) => {
                 match *n {
+                    FUNCTION_TERM => {
+                        // the term_() should be substituted at an earlier stage
+                        unreachable!("term_() should have been substituted at an earlier stage.")
+                    }
                     FUNCTION_DELTA => {
                         if a.len() == 1 {
                             match a[0] {
@@ -102,7 +107,7 @@ impl Element {
                             ee
                         }
                     }
-                    FUNCTION_SUM | FUNCTION_MUL => {
+                    FUNCTION_SUM | FUNCTION_PROD => {
                         if a.len() == 4 {
                             match (&a[1], &a[2]) {
                                 (
