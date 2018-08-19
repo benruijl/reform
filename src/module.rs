@@ -515,7 +515,32 @@ fn do_module_rec(
                     }
                 }
                 IfCondition::Comparison(e1, e2, c) => {
-                    if c.cmp_rel(e1.partial_cmp(e2, global_var_info, false).unwrap()) {
+                    let istrue = if e1.contains_dollar() || e2.contains_dollar() {
+                        let mut ee1 = e1.clone();
+
+                        if e1.contains_dollar() {
+                            if ee1.replace_dollar(&local_var_info.variables) {
+                                ee1.normalize_inplace(&global_var_info);
+                            } else {
+                                panic!("Unsubstituted dollar variable in comparison");
+                            }
+                        }
+
+                        let mut ee2 = e2.clone();
+                        if e2.contains_dollar() {
+                            if ee2.replace_dollar(&local_var_info.variables) {
+                                ee2.normalize_inplace(&global_var_info);
+                            } else {
+                                panic!("Unsubstituted dollar variable in comparison");
+                            }
+                        }
+
+                        c.cmp_rel(ee1.partial_cmp(&ee2, global_var_info, false).unwrap())
+                    } else {
+                        c.cmp_rel(e1.partial_cmp(e2, global_var_info, false).unwrap())
+                    };
+
+                    if istrue {
                         return do_module_rec(
                             input,
                             statements,
@@ -629,68 +654,23 @@ fn do_module_rec(
         }
         // for every function, execute the statements
         // this will create a subrecursion
-        Statement::Argument(ref func, ref sts) => {
-            if let Element::Var(name, _) = *func {
-                match input {
-                    Element::Fn(_, name1, ref mut args) => {
-                        if name == name1 {
-                            // execute the statements
-                            let mut newfuncarg = Vec::with_capacity(args.len());
-                            let old_args = mem::replace(args, vec![]);
+        Statement::Argument(ref funcs, ref sts) => {
+            // TODO: apply to functions at all levels instead of just the ground level
+            match input {
+                Element::Fn(_, name1, ref mut args) => {
+                    // the dollar variable should be substituted
+                    if funcs.contains(&Element::Var(name1, Number::one())) {
+                        // execute the statements
+                        let mut newfuncarg = Vec::with_capacity(args.len());
+                        let old_args = mem::replace(args, vec![]);
 
-                            for x in old_args {
-                                let mut tsr = TermStreamWrapper::Owned(vec![]);
-                                do_module_rec(
-                                    x,
-                                    sts,
-                                    local_var_info,
-                                    global_var_info,
-                                    0,
-                                    term_affected, // TODO: what to do here?
-                                    &mut tsr,
-                                );
-
-                                if let TermStreamWrapper::Owned(mut nfa) = tsr {
-                                    match nfa.len() {
-                                        0 => newfuncarg.push(Element::Num(false, Number::zero())),
-                                        1 => newfuncarg.push(nfa.swap_remove(0)),
-                                        _ => {
-                                            let mut sub = Element::SubExpr(true, nfa);
-                                            sub.normalize_inplace(global_var_info);
-                                            newfuncarg.push(sub)
-                                        }
-                                    }
-                                } else {
-                                    unreachable!()
-                                }
-                            }
-
-                            let mut newfunc = Element::Fn(true, name1.clone(), newfuncarg);
-                            newfunc.normalize_inplace(global_var_info);
-
-                            return do_module_rec(
-                                newfunc,
-                                statements,
-                                local_var_info,
-                                global_var_info,
-                                current_index + 1,
-                                term_affected,
-                                output,
-                            );
-                        }
-                    }
-                    Element::Term(_, factors) => {
-                        let mut newfactors = vec![];
-                        for f in factors {
-                            if let Element::Fn(d, name1, args) = f {
-                                if name == name1 {
-                                    // execute the statements
-                                    let mut newfuncarg = Vec::with_capacity(args.len());
-
-                                    for x in args {
-                                        let mut tsr = TermStreamWrapper::Owned(vec![]);
+                        for x in old_args {
+                            let mut tsr = TermStreamWrapper::Owned(vec![]);
+                            match x {
+                                Element::SubExpr(_, terms) => {
+                                    for t in terms {
                                         do_module_rec(
-                                            x,
+                                            t,
                                             sts,
                                             local_var_info,
                                             global_var_info,
@@ -698,51 +678,41 @@ fn do_module_rec(
                                             term_affected, // TODO: what to do here?
                                             &mut tsr,
                                         );
-
-                                        if let TermStreamWrapper::Owned(mut nfa) = tsr {
-                                            match nfa.len() {
-                                                0 => newfuncarg
-                                                    .push(Element::Num(false, Number::zero())),
-                                                1 => newfuncarg.push(nfa.swap_remove(0)),
-                                                _ => {
-                                                    let mut sub = Element::SubExpr(true, nfa);
-                                                    sub.normalize_inplace(global_var_info);
-                                                    newfuncarg.push(sub)
-                                                }
-                                            }
-                                        } else {
-                                            unreachable!()
-                                        }
                                     }
+                                }
+                                _ => {
+                                    do_module_rec(
+                                        x,
+                                        sts,
+                                        local_var_info,
+                                        global_var_info,
+                                        0,
+                                        term_affected, // TODO: what to do here?
+                                        &mut tsr,
+                                    );
+                                }
+                            }
 
-                                    let mut newfunc = Element::Fn(true, name1.clone(), newfuncarg);
-                                    newfunc.normalize_inplace(global_var_info);
-                                    newfactors.push(newfunc);
-                                } else {
-                                    newfactors.push(Element::Fn(d, name1, args));
+                            if let TermStreamWrapper::Owned(mut nfa) = tsr {
+                                match nfa.len() {
+                                    0 => newfuncarg.push(Element::Num(false, Number::zero())),
+                                    1 => newfuncarg.push(nfa.swap_remove(0)),
+                                    _ => {
+                                        let mut sub = Element::SubExpr(true, nfa);
+                                        sub.normalize_inplace(global_var_info);
+                                        newfuncarg.push(sub)
+                                    }
                                 }
                             } else {
-                                newfactors.push(f);
+                                unreachable!()
                             }
                         }
 
-                        let mut newterm = Element::Term(true, newfactors);
-                        newterm.normalize_inplace(global_var_info);
+                        let mut newfunc = Element::Fn(true, name1.clone(), newfuncarg);
+                        newfunc.normalize_inplace(global_var_info);
 
                         return do_module_rec(
-                            newterm,
-                            statements,
-                            local_var_info,
-                            global_var_info,
-                            current_index + 1,
-                            term_affected,
-                            output,
-                        );
-                    }
-                    _ => {
-                        // TODO: add case for term
-                        return do_module_rec(
-                            input,
+                            newfunc,
                             statements,
                             local_var_info,
                             global_var_info,
@@ -752,8 +722,95 @@ fn do_module_rec(
                         );
                     }
                 }
-            } else {
-                panic!("Specify the function name as argument to argument.")
+                Element::Term(_, mut factors) => {
+                    for f in &mut factors {
+                        let mut changed = false;
+                        if let Element::Fn(dirty, name1, args) = f {
+                            if funcs.contains(&Element::Var(*name1, Number::one())) {
+                                // execute the statements
+                                let mut newfuncarg = Vec::with_capacity(args.len());
+                                changed = true;
+                                *dirty = true;
+
+                                for x in mem::replace(args, vec![]) {
+                                    let mut tsr = TermStreamWrapper::Owned(vec![]);
+
+                                    match x {
+                                        Element::SubExpr(_, terms) => {
+                                            for t in terms {
+                                                do_module_rec(
+                                                    t,
+                                                    sts,
+                                                    local_var_info,
+                                                    global_var_info,
+                                                    0,
+                                                    term_affected, // TODO: what to do here?
+                                                    &mut tsr,
+                                                );
+                                            }
+                                        }
+                                        _ => {
+                                            do_module_rec(
+                                                x,
+                                                sts,
+                                                local_var_info,
+                                                global_var_info,
+                                                0,
+                                                term_affected, // TODO: what to do here?
+                                                &mut tsr,
+                                            );
+                                        }
+                                    }
+
+                                    if let TermStreamWrapper::Owned(mut nfa) = tsr {
+                                        match nfa.len() {
+                                            0 => {
+                                                newfuncarg.push(Element::Num(false, Number::zero()))
+                                            }
+                                            1 => newfuncarg.push(nfa.swap_remove(0)),
+                                            _ => {
+                                                let mut sub = Element::SubExpr(true, nfa);
+                                                sub.normalize_inplace(global_var_info);
+                                                newfuncarg.push(sub)
+                                            }
+                                        }
+                                    } else {
+                                        unreachable!()
+                                    }
+                                }
+
+                                *args = newfuncarg;
+                            }
+                        }
+                        if changed {
+                            f.normalize_inplace(global_var_info);
+                        }
+                    }
+
+                    let mut newterm = Element::Term(true, factors);
+                    newterm.normalize_inplace(global_var_info);
+
+                    return do_module_rec(
+                        newterm,
+                        statements,
+                        local_var_info,
+                        global_var_info,
+                        current_index + 1,
+                        term_affected,
+                        output,
+                    );
+                }
+                _ => {
+                    return do_module_rec(
+                        input,
+                        statements,
+                        local_var_info,
+                        global_var_info,
+                        current_index + 1,
+                        term_affected,
+                        output,
+                    );
+                }
             }
         }
         // this will create a subrecursion
@@ -1034,6 +1091,7 @@ impl Module {
                         if let Element::Num(_, Number::SmallInt(li)) = *l {
                             if let Element::Num(_, Number::SmallInt(ui)) = *u {
                                 // unroll the loop
+                                let mut newout = vec![];
                                 for ll in li..ui {
                                     let lle = Element::Num(false, Number::SmallInt(ll));
                                     let mut mm = HashMap::new();
@@ -1044,9 +1102,16 @@ impl Module {
                                         if news.replace_dollar(&replace_map) {
                                             news.normalize(&var_info.global_info);
                                         }
-                                        output.push(news);
+                                        newout.push(news);
                                     }
                                 }
+
+                                Module::statements_to_control_flow_stat(
+                                    &mut newout,
+                                    var_info,
+                                    procedures,
+                                    output,
+                                );
                             } else {
                                 panic!("Upper range index is not an integer");
                             }
@@ -1062,6 +1127,7 @@ impl Module {
                         let mut replace_map = HashMap::new();
 
                         // unroll the loop
+                        let mut newout = vec![];
                         for ll in l {
                             let mut mm = HashMap::new();
                             mm.insert(inds.clone(), ll.clone());
@@ -1071,9 +1137,16 @@ impl Module {
                                 if news.replace_dollar(&replace_map) {
                                     news.normalize(&var_info.global_info);
                                 }
-                                output.push(news);
+                                newout.push(news);
                             }
                         }
+
+                        Module::statements_to_control_flow_stat(
+                            &mut newout,
+                            var_info,
+                            procedures,
+                            output,
+                        );
                     } else {
                         panic!("Loop counter should be a dollar variable");
                     }
@@ -1556,6 +1629,12 @@ impl Program {
                 }
                 Statement::Discard => {
                     panic!("Discard statement cannot be performed in the global scope.")
+                }
+                Statement::Expand => {
+                    panic!("Expand statement cannot be performed in the global scope.")
+                }
+                Statement::Argument(..) => {
+                    panic!("Argument statement cannot be performed in the global scope.")
                 }
                 _ => unimplemented!(),
             }

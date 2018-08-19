@@ -291,7 +291,8 @@ parser!{
         statement().map(|x| Statement::Repeat(vec![x]))
     ));
 
-    let argument = (keyword("argument").with(factor()),
+    let argument = (keyword("argument").with(sep_by(factor(),
+        lex_char(','))),
         between(lex_char('{'), lex_char('}'), many(statement())))
             .map(|(f, ss)| Statement::Argument(f, ss));
 
@@ -317,7 +318,15 @@ parser!{
     //    Element::Comparison(Box::new((e1, e2)), c));
 
     let ifcondition = choice!( keyword("match").with(between(lex_char('('), lex_char(')'), expr())).map(|e| IfCondition::Match(e)),
-            (expr(), ordering(), expr()).map(|(e1, c, e2)| IfCondition::Comparison(e1, e2, c)));
+            expr().map(|e1|
+            match e1 {
+                Element::Comparison(_, e, c) => {
+                    let (ee1, ee2) = { *e };
+                    IfCondition::Comparison(ee1, ee2, c)
+                },
+                _ => panic!("If condition must contain a match or a comparison")
+            }
+            ));
 
     let ifelse = (keyword("if").with(ifcondition)
         ,choice!(between(lex_char('{'), lex_char('}'), many(statement())),

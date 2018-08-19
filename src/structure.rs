@@ -469,7 +469,7 @@ pub enum Statement<ID: Id = VarName> {
     IdentityStatement(IdentityStatement<ID>),
     SplitArg(ID),
     Repeat(Vec<Statement<ID>>),
-    Argument(Element<ID>, Vec<Statement<ID>>),
+    Argument(Vec<Element<ID>>, Vec<Statement<ID>>),
     Inside(Vec<Element<ID>>, Vec<Statement<ID>>),
     IfElse(IfCondition<ID>, Vec<Statement<ID>>, Vec<Statement<ID>>),
     ForIn(Element<ID>, Vec<Element<ID>>, Vec<Statement<ID>>),
@@ -1082,7 +1082,11 @@ impl fmt::Display for Statement {
                 writeln!(f, "endrepeat;")
             },
             Statement::Argument(ref ff, ref ss) => {
-                writeln!(f, "argument {};", ff)?;
+                writeln!(f, "argument ")?;
+
+                for fff in ff {
+                    writeln!(f, ",{}", fff)?;
+                }
 
                 for s in ss {
                     write!(f, "\t{}", s)?;
@@ -1725,8 +1729,8 @@ impl Statement<String> {
             Statement::Repeat(ref mut ss) => {
                 Statement::Repeat(ss.iter_mut().map(|s| s.to_statement(var_info)).collect())
             }
-            Statement::Argument(ref mut f, ref mut ss) => Statement::Argument(
-                f.to_element(var_info),
+            Statement::Argument(ref mut ff, ref mut ss) => Statement::Argument(
+                ff.iter_mut().map(|x| x.to_element(var_info)).collect(),
                 ss.iter_mut().map(|s| s.to_statement(var_info)).collect(),
             ),
             Statement::Inside(ref mut ff, ref mut ss) => Statement::Inside(
@@ -1839,7 +1843,21 @@ impl Statement {
                 false
             }
             Statement::Assign(ref _d, ref e) => e.contains_dollar(),
-            Statement::Argument(.., ref ss) | Statement::Inside(.., ref ss) => {
+            Statement::Argument(ref ds, ref ss) => {
+                for s in ds {
+                    if s.contains_dollar() {
+                        return true;
+                    }
+                }
+
+                for s in ss {
+                    if s.contains_dollar() {
+                        return true;
+                    }
+                }
+                false
+            }
+            Statement::Inside(.., ref ss) => {
                 for s in ss {
                     if s.contains_dollar() {
                         return true;
@@ -1871,6 +1889,7 @@ impl Statement {
                 }
                 false
             }
+            Statement::Eval(ref c, _) => c.contains_dollar(),
             _ => false,
         }
     }
@@ -1925,7 +1944,10 @@ impl Statement {
                 }
                 changed |= e.replace_dollar(map);
             }
-            Statement::Argument(ref _d, ref mut ss) => {
+            Statement::Argument(ref mut ds, ref mut ss) => {
+                for s in ds {
+                    changed |= s.replace_dollar(map);
+                }
                 for s in ss {
                     changed |= s.replace_dollar(map);
                 }
@@ -1949,6 +1971,9 @@ impl Statement {
                 for s in ss {
                     changed |= s.replace_dollar(map);
                 }
+            }
+            Statement::Eval(ref mut c, _) => {
+                changed |= c.replace_dollar(map);
             }
             _ => {}
         };
@@ -2027,7 +2052,10 @@ impl Statement {
                 }
                 changed |= e.replace_elements(map);
             }
-            Statement::Argument(ref _d, ref mut ss) => {
+            Statement::Argument(ref mut ds, ref mut ss) => {
+                for s in ds {
+                    changed |= s.replace_elements(map);
+                }
                 for s in ss {
                     changed |= s.replace_elements(map);
                 }
@@ -2093,9 +2121,14 @@ impl Statement {
                 d.normalize_inplace(var_info);
                 e.normalize_inplace(var_info);
             }
-            Statement::Argument(_, ref mut ss) => for s in ss {
-                s.normalize(var_info);
-            },
+            Statement::Argument(ref mut ds, ref mut ss) => {
+                for s in ds {
+                    s.normalize_inplace(var_info);
+                }
+                for s in ss {
+                    s.normalize(var_info);
+                }
+            }
             Statement::Inside(_, ref mut ss) => for s in ss {
                 s.normalize(var_info);
             },
