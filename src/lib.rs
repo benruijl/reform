@@ -13,6 +13,9 @@ extern crate num_traits;
 extern crate rand;
 extern crate rug; // for gmp and bigint support
 
+#[macro_use]
+extern crate smallvec;
+
 #[cfg(feature = "python_api")]
 #[macro_use]
 extern crate cpython;

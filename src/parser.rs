@@ -265,9 +265,10 @@ parser!{
         .map(|(m, es)| Statement::Print(m, es));
 
     let idmode =
-        optional(choice!(keyword("once"), keyword("all"), keyword("many"))).map(|x| match x {
+        optional(choice!(keyword("once"), keyword("all"), keyword("manyall"), keyword("many"))).map(|x| match x {
             Some("all") => IdentityStatementMode::All,
             Some("many") => IdentityStatementMode::Many,
+            Some("manyall") => IdentityStatementMode::ManyAll,
             _ => IdentityStatementMode::Once,
         });
     let idstatement = struct_parser!{

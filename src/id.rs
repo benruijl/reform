@@ -1,5 +1,6 @@
 use num_traits::One;
 use number::Number;
+use smallvec::SmallVec;
 use std::fmt;
 use std::mem;
 use structure::{
@@ -8,7 +9,7 @@ use structure::{
 };
 use tools::{is_number_in_range, Heap, SliceRef};
 
-pub const MAXMATCH: usize = 1_000_000; // maximum number of matches
+pub const MAXMATCH: usize = 1_000; // maximum number of matches
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum MatchOpt<'a> {
@@ -63,12 +64,12 @@ impl<'a> fmt::Display for MatchOpt<'a> {
 }
 
 // map of variables names to a function argument slice
-pub type MatchObject<'a> = Vec<(&'a VarName, MatchOpt<'a>)>;
+pub type MatchObject<'a> = SmallVec<[(VarName, MatchOpt<'a>); 2]>;
 
 // push something to the match object, keeping track of the old length
-fn push_match<'a>(m: &mut MatchObject<'a>, k: &'a VarName, v: &'a Element) -> Option<usize> {
+fn push_match<'a>(m: &mut MatchObject<'a>, k: VarName, v: &'a Element) -> Option<usize> {
     for &(rk, ref rv) in m.iter() {
-        if *rk == *k {
+        if rk == k {
             match *rv {
                 MatchOpt::Single(ref vv) if *v == **vv => return Some(m.len()),
                 MatchOpt::SingleOwned(ref vv) if v == vv => return Some(m.len()),
@@ -82,9 +83,9 @@ fn push_match<'a>(m: &mut MatchObject<'a>, k: &'a VarName, v: &'a Element) -> Op
 }
 
 // push something to the match object, keeping track of the old length
-fn push_match_owned<'a>(m: &mut MatchObject<'a>, k: &'a VarName, v: Element) -> Option<usize> {
+fn push_match_owned<'a>(m: &mut MatchObject<'a>, k: VarName, v: Element) -> Option<usize> {
     for &(rk, ref rv) in m.iter() {
-        if *rk == *k {
+        if rk == k {
             match *rv {
                 MatchOpt::Single(ref vv) if v == **vv => return Some(m.len()),
                 MatchOpt::SingleOwned(ref vv) if v == *vv => return Some(m.len()),
@@ -98,13 +99,9 @@ fn push_match_owned<'a>(m: &mut MatchObject<'a>, k: &'a VarName, v: Element) -> 
 }
 
 // push something to the match object, keeping track of the old length
-fn push_match_slice<'a>(
-    m: &mut MatchObject<'a>,
-    k: &'a VarName,
-    v: &'a [Element],
-) -> Option<usize> {
+fn push_match_slice<'a>(m: &mut MatchObject<'a>, k: VarName, v: &'a [Element]) -> Option<usize> {
     for &(rk, ref rv) in m.iter() {
-        if *rk == *k {
+        if rk == k {
             match *rv {
                 MatchOpt::Multiple(vv) if *v == *vv => return Some(m.len()),
                 _ => return None,
@@ -116,9 +113,9 @@ fn push_match_slice<'a>(
     Some(m.len() - 1)
 }
 
-fn find_match<'a>(m: &'a MatchObject<'a>, k: &'a VarName) -> Option<&'a MatchOpt<'a>> {
-    for &(ref rk, ref rv) in m {
-        if **rk == *k {
+fn find_match<'a, 'b>(m: &'b MatchObject<'a>, k: VarName) -> Option<&'b MatchOpt<'a>> {
+    for &(rk, ref rv) in m {
+        if rk == k {
             return Some(rv);
         }
     }
@@ -129,11 +126,9 @@ fn find_match<'a>(m: &'a MatchObject<'a>, k: &'a VarName) -> Option<&'a MatchOpt
 impl Element {
     pub fn apply_map<'a>(&self, m: &MatchObject<'a>) -> MatchOptOwned {
         match *self {
-            Element::VariableArgument(ref name) | Element::Wildcard(ref name, ..) => {
-                find_match(m, name)
-                    .expect("Unknown wildcard in rhs")
-                    .to_owned()
-            }
+            Element::VariableArgument(name) | Element::Wildcard(name, ..) => find_match(m, name)
+                .expect("Unknown wildcard in rhs")
+                .to_owned(),
             Element::Pow(_, ref be) => {
                 let (ref b, ref e) = **be;
                 let mut changed = false;
@@ -263,7 +258,7 @@ impl<'a> ElementIterSingle<'a> {
                 let mut to_swap = ElementIterSingle::None;
                 mem::swap(self, &mut to_swap);
                 match to_swap {
-                    ElementIterSingle::OnceMatch(name, target) => push_match(m, name, target),
+                    ElementIterSingle::OnceMatch(name, target) => push_match(m, *name, target),
                     _ => panic!(), // never reached
                 }
             }
@@ -284,7 +279,7 @@ impl<'a> ElementIterSingle<'a> {
                                 for restriction in rest {
                                     match restriction {
                                         _ if restriction == &r => {
-                                            match push_match_owned(m, vn, r.clone()) {
+                                            match push_match_owned(m, *vn, r.clone()) {
                                                 Some(x) => {
                                                     found = true;
                                                     newlen = x;
@@ -298,7 +293,7 @@ impl<'a> ElementIterSingle<'a> {
                                 }
 
                                 if rest.len() == 0 {
-                                    match push_match_owned(m, vn, r.clone()) {
+                                    match push_match_owned(m, *vn, r.clone()) {
                                         Some(x) => {
                                             newlen = x;
                                         }
@@ -332,7 +327,7 @@ impl<'a> ElementIterSingle<'a> {
                                         &Element::NumberRange(ref num1, ref rel) => {
                                             // see if the number is in the range
                                             if is_number_in_range(p1, num1, rel) {
-                                                match push_match_owned(m, vn, r1) {
+                                                match push_match_owned(m, *vn, r1) {
                                                     Some(x) => {
                                                         return Some(x);
                                                     }
@@ -344,7 +339,7 @@ impl<'a> ElementIterSingle<'a> {
                                             }
                                         }
                                         _ if restriction == &r1 => {
-                                            match push_match_owned(m, vn, r1) {
+                                            match push_match_owned(m, *vn, r1) {
                                                 Some(x) => {
                                                     return Some(x);
                                                 }
@@ -359,7 +354,7 @@ impl<'a> ElementIterSingle<'a> {
                                 }
 
                                 if rest.len() == 0 {
-                                    match push_match_owned(m, vn, r1) {
+                                    match push_match_owned(m, *vn, r1) {
                                         Some(y) => Some(y),
                                         None => {
                                             m.truncate(oldlen);
@@ -436,7 +431,7 @@ impl<'a> ElementIter<'a> {
                     return None;
                 }
 
-                if let Some(&MatchOpt::Multiple(v)) = find_match(m, name) {
+                if let Some(&MatchOpt::Multiple(v)) = find_match(m, *name) {
                     *curlength = upper_bound + 1; // make sure next call gives None
                     if v.len() > target.len() {
                         return None;
@@ -454,7 +449,7 @@ impl<'a> ElementIter<'a> {
                     *curlength += 1;
 
                     //let rr = f.iter().map(|x| x).collect();
-                    match push_match_slice(m, name, f) {
+                    match push_match_slice(m, *name, f) {
                         Some(x) => return Some((l, x)),
                         _ => continue 'findcandidate,
                     }
@@ -571,7 +566,9 @@ impl Element {
                                 }
                             }) {
                                 return ElementIterSingle::SymFuncIter(SubSequenceIter::new(
-                                    args2, args1, var_info,
+                                    args2,
+                                    SliceRef::BorrowedSlice(args1),
+                                    var_info,
                                 ));
                             } else {
                                 println!("Warning: used ?a in symmetric function pattern match. Ignoring symmetric property.");
@@ -870,7 +867,7 @@ impl<'a> SequenceIter<'a> {
 #[derive(Debug)]
 pub struct SubSequenceIter<'a> {
     pattern: &'a [Element], // input term
-    target: &'a [Element],
+    target: SliceRef<'a, Element>,
     iterators: Vec<ElementIterSingle<'a>>,
     indices: Vec<usize>,
     initialized: bool,
@@ -881,7 +878,7 @@ pub struct SubSequenceIter<'a> {
 impl<'a> SubSequenceIter<'a> {
     fn new(
         pattern: &'a [Element],
-        target: &'a [Element],
+        target: SliceRef<'a, Element>,
         var_info: &'a BorrowedVarInfo<'a>,
     ) -> SubSequenceIter<'a> {
         SubSequenceIter {
@@ -967,7 +964,7 @@ impl<'a> SubSequenceIter<'a> {
                     i -= 1;
                 } else {
                     self.iterators[i] = self.pattern[i]
-                        .to_iter_single(&self.target[self.indices[i]], self.var_info);
+                        .to_iter_single(&self.target.index(self.indices[i]), self.var_info);
                 }
             }
         }
@@ -981,7 +978,7 @@ pub enum MatchKind<'a> {
         &'a Element,
         MatchObject<'a>,
         ElementIterSingle<'a>,
-        &'a [Element],
+        SliceRef<'a, Element>,
         usize,
         &'a BorrowedVarInfo<'a>,
     ),
@@ -996,135 +993,236 @@ impl<'a> MatchKind<'a> {
         var_info: &'a BorrowedVarInfo<'a>,
     ) -> MatchKind<'a> {
         match (pattern, target) {
-            (&Element::Term(_, ref x), &Element::Term(_, ref y)) => {
-                MatchKind::Many(vec![], SubSequenceIter::new(x, y, var_info))
-            }
-            (a, &Element::Term(_, ref y)) => {
-                MatchKind::SinglePat(a, vec![], ElementIterSingle::None, y, 0, var_info)
-            }
-            (a, b) => MatchKind::Single(vec![], a.to_iter_single(b, var_info)),
+            (&Element::Term(_, ref x), &Element::Term(_, ref y)) => MatchKind::Many(
+                smallvec![],
+                SubSequenceIter::new(x, SliceRef::BorrowedSlice(y), var_info),
+            ),
+            (a, &Element::Term(_, ref y)) => MatchKind::SinglePat(
+                a,
+                smallvec![],
+                ElementIterSingle::None,
+                SliceRef::BorrowedSlice(y),
+                0,
+                var_info,
+            ),
+            (a, b) => MatchKind::Single(smallvec![], a.to_iter_single(b, var_info)),
+        }
+    }
+
+    pub fn from_slice(
+        pattern: &'a Element,
+        target: Vec<&'a Element>,
+        var_info: &'a BorrowedVarInfo<'a>,
+    ) -> MatchKind<'a> {
+        if target.len() == 1 {
+            return MatchKind::Single(smallvec![], pattern.to_iter_single(target[0], var_info));
+        }
+
+        match pattern {
+            &Element::Term(_, ref x) => MatchKind::Many(
+                smallvec![],
+                SubSequenceIter::new(x, SliceRef::OwnedSlice(target), var_info),
+            ),
+            a => MatchKind::SinglePat(
+                a,
+                smallvec![],
+                ElementIterSingle::None,
+                SliceRef::OwnedSlice(target),
+                0,
+                var_info,
+            ),
         }
     }
 
     pub fn next(&mut self) -> Option<(Vec<usize>, MatchObject<'a>)> {
         match *self {
-            MatchKind::Single(ref mut m, ref mut x) => x.next(m).map(|_| (vec![], m.clone())),
+            MatchKind::Single(ref mut m, ref mut x) => x.next(m).map(|_| (vec![0], m.clone())),
             MatchKind::Many(ref mut m, ref mut x) => {
                 x.next(m).map(|(indices, _)| (indices, m.clone()))
             }
-            MatchKind::SinglePat(pat, ref mut m, ref mut it, target, ref mut index, var_info) => {
-                loop {
-                    if it.next(m).is_some() {
-                        return Some((vec![*index - 1], m.clone()));
-                    }
-
-                    if *index == target.len() {
-                        return None;
-                    }
-                    *it = pat.to_iter_single(&target[*index], var_info);
-                    *index += 1;
+            MatchKind::SinglePat(
+                pat,
+                ref mut m,
+                ref mut it,
+                ref target,
+                ref mut index,
+                var_info,
+            ) => loop {
+                if it.next(m).is_some() {
+                    return Some((vec![*index - 1], m.clone()));
                 }
-            }
+
+                if *index == target.len() {
+                    return None;
+                }
+                *it = pat.to_iter_single(&target.index(*index), var_info);
+                *index += 1;
+            },
             MatchKind::None => None,
         }
     }
 }
 
+///
+/// For id many we need to keep on matching on the result of the previous match
 #[derive(Debug)]
 pub struct MatchIterator<'a> {
-    mode: IdentityStatementMode,
-    rhs: &'a Element,
+    pattern: &'a Element,
     target: &'a Element,
-    m: MatchObject<'a>,
-    remaining: Vec<usize>,
-    it: MatchKind<'a>,
-    rhsp: usize, // current rhs index,
-    hasmatch: bool,
+    rhs: &'a Element,
+    rhs_index: usize,
+    match_info: SmallVec<[(MatchObject<'a>, Vec<&'a Element>); 2]>,
     var_info: &'a BorrowedVarInfo<'a>,
+    iterators: SmallVec<[MatchKind<'a>; 2]>,
+    match_mode: IdentityStatementMode,
+    has_match: bool,
+    last_success: usize, // iterator length of last successful match
 }
 
-// iterate over the output terms of a match
 impl<'a> MatchIterator<'a> {
-    pub fn generate_rhs(&mut self, rhs: &Element) -> Element {
-        let mut res = if let Element::Term(_, ref factors) = *self.target {
-            // are there factors not used in the pattern?
-            if self.remaining.len() < factors.len() {
-                let mut output = vec![];
-                let mut hasapplied = false; // insert rhs only once
-                for (i, f) in factors.iter().enumerate() {
-                    if self.remaining.contains(&i) {
-                        if !hasapplied {
-                            hasapplied = true;
-                            let (mut res, _changed) = rhs.apply_map(&self.m).into_single();
-                            output.push(res);
-                        }
-                    } else {
-                        output.push(f.clone());
-                    }
-                }
-
-                Element::Term(true, output)
-            } else {
-                let (mut res, _changed) = rhs.apply_map(&self.m).into_single();
-                res
-            }
+    pub fn generate_rhs(&self, rhs: &Element) -> Element {
+        let mut e = if self.match_info.len() == 1 && self.match_info[0].1.len() == 0 {
+            rhs.apply_map(&self.match_info[0].0).into_single().0
         } else {
-            let (mut res, _changed) = rhs.apply_map(&self.m).into_single();
-            res
+            let mut total_res: Vec<Element> = self
+                .match_info
+                .iter()
+                .map(|x| rhs.apply_map(&x.0).into_single().0)
+                .collect();
+
+            // add the remaining factors
+            total_res.extend(self.match_info.last().unwrap().1.iter().cloned().cloned());
+
+            Element::Term(true, total_res)
         };
 
         // FIXME: in the current setup, the dollar variable list
         // handed to the id routines are empty. We have to
-        // replace dollar varialbes that are suddenly replacable
+        // replace dollar variables that are suddenly replacable
         // due to index changes elsewhere now
-        if res.contains_dollar() {
-            res.normalize_inplace(self.var_info.global_info);
-            if res.replace_dollar(&self.var_info.local_info.variables) {
-                res.normalize_inplace(self.var_info.global_info);
+        /*if e.contains_dollar() {
+            // 6% penalty for nothing...
+            e.normalize_inplace(self.var_info.global_info);
+            if e.replace_dollar(&self.var_info.local_info.variables) {
+                e.normalize_inplace(self.var_info.global_info);
             }
         } else {
-            res.normalize_inplace(self.var_info.global_info);
-        }
-        res
+            e.normalize_inplace(self.var_info.global_info);
+        }*/
+
+        e.normalize_inplace(self.var_info.global_info);
+
+        e
     }
 
     pub fn next(&mut self) -> StatementResult<Element> {
-        if self.rhsp == 0 {
-            match self.it.next() {
-                Some((rem, m)) => {
-                    if self.mode != IdentityStatementMode::All {
-                        self.it = MatchKind::None;
+        while !self.iterators.is_empty() {
+            // check if we need to generate a new match or use the existing match
+            // to generate another term on the rhs
+            if self.rhs_index == 0 {
+                if let Some((used, m)) = self.iterators.last_mut().unwrap().next() {
+                    self.last_success = self.iterators.len();
+                    printmatch(&m);
+
+                    // build the result
+                    // store the free factors wrt the input
+                    if self.match_info.len() == 0 {
+                        if let Element::Term(_, fs) = self.target {
+                            self.match_info.push((
+                                m.clone(),
+                                fs.iter()
+                                    .enumerate()
+                                    .filter_map(
+                                        |(i, x)| if used.contains(&i) { None } else { Some(x) },
+                                    ).collect(),
+                            ));
+                        } else {
+                            self.match_info.push((m.clone(), vec![]));
+                        }
+                    } else {
+                        // used are the used indices wrt the last input
+                        let remaining = self
+                            .match_info
+                            .last()
+                            .unwrap()
+                            .1
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(i, &x)| if used.contains(&i) { None } else { Some(x) })
+                            .collect();
+                        self.match_info.push((m.clone(), remaining));
                     }
 
-                    self.m = m;
-                    self.remaining = rem;
-                    printmatch(&self.m);
-                }
-                None => {
-                    if self.hasmatch {
-                        return StatementResult::Done;
+                    if self.match_mode != IdentityStatementMode::Many
+                        && self.match_mode != IdentityStatementMode::ManyAll
+                    {
+                        self.iterators.push(MatchKind::None);
                     } else {
-                        return StatementResult::NoChange;
+                        let remaining = self.match_info.last().unwrap().1.clone();
+
+                        if remaining.is_empty() {
+                            self.iterators.push(MatchKind::None);
+                        } else {
+                            // build an iterator over the remainder
+                            self.iterators.push(MatchKind::from_slice(
+                                self.pattern,
+                                remaining,
+                                self.var_info,
+                            ));
+                        }
                     }
+
+                    continue;
                 }
+
+                self.iterators.pop();
+            }
+
+            if self.iterators.len() == 0 {
+                break;
+            }
+
+            // make sure to only generate a result for the maximum possible number of matches
+            // at the same time
+            if self.last_success == self.iterators.len() {
+                self.has_match = true;
+
+                if self.match_mode != IdentityStatementMode::All
+                    && self.match_mode != IdentityStatementMode::ManyAll
+                {
+                    // disable the iterator after the first match
+                    self.iterators.clear();
+                    self.iterators.push(MatchKind::None);
+                }
+
+                return StatementResult::Executed(match self.rhs {
+                    &Element::SubExpr(_, ref x) => {
+                        let res = self.generate_rhs(&x[self.rhs_index]);
+
+                        self.rhs_index += 1;
+                        if self.rhs_index == x.len() {
+                            self.rhs_index = 0;
+                            self.match_info.pop();
+                        }
+                        res
+                    }
+                    x => {
+                        let res = self.generate_rhs(x);
+                        self.match_info.pop();
+                        res
+                    }
+                });
+            } else {
+                self.last_success -= 1;
+                self.match_info.pop();
             }
         }
 
-        self.hasmatch = true;
-
-        StatementResult::Executed(match self.rhs {
-            &Element::SubExpr(_, ref x) => {
-                let i = self.rhsp;
-                let res = self.generate_rhs(&x[i]);
-
-                self.rhsp += 1;
-                if self.rhsp == x.len() {
-                    self.rhsp = 0;
-                }
-                res
-            }
-            x => self.generate_rhs(x),
-        })
+        if self.has_match {
+            return StatementResult::Done;
+        } else {
+            return StatementResult::NoChange;
+        }
     }
 }
 
@@ -1135,15 +1233,16 @@ impl IdentityStatement {
         var_info: &'a BorrowedVarInfo<'a>,
     ) -> MatchIterator<'a> {
         MatchIterator {
-            hasmatch: false,
+            pattern: &self.lhs,
+            has_match: false,
             target: input,
-            m: vec![],
-            remaining: vec![],
-            mode: self.mode.clone(),
+            match_info: SmallVec::new(),
+            match_mode: self.mode,
             rhs: &self.rhs,
-            rhsp: 0,
-            it: MatchKind::from_element(&self.lhs, input, &var_info),
+            rhs_index: 0,
+            iterators: smallvec![MatchKind::from_element(&self.lhs, input, &var_info)],
             var_info,
+            last_success: 0,
         }
     }
 }

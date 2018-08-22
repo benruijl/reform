@@ -331,8 +331,9 @@ Statements
         F = f(3);
         F = f(4);
 
-.. frm:statement:: id lhs = rhs;
+.. frm:statement:: id mode lhs = rhs;
 
+    :param mode: Matching mode. Valid options are ``once``, ``all``, ``many``, ``manyall``.
     :param lhs: Any valid reFORM expression with `wildcards`.
     :param rhs: Any valid reFORM expression with `wildcards`.
 
@@ -340,6 +341,13 @@ Statements
     be in an :frm:st:`inside` or :frm:st:`apply` block (module).
 
     See :doc:`Pattern matching <pattern>` for the patterns that are allowed to match.
+
+    The match modes are:
+
+        - once: Match and replace only one instance. This is the default.
+        - many: Match all instances.
+        - all: Generate all possible matches as separate terms.
+        - manyall: A combination of ``many`` and ``all``.
 
     For example:
 

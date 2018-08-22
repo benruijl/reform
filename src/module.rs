@@ -483,16 +483,18 @@ fn do_module_rec(
             // if statement
             match cond {
                 IfCondition::Match(e) => {
-                    if MatchKind::from_element(
-                        e,
-                        &input,
-                        &BorrowedVarInfo {
+                    let istrue = {
+                        // work around borrow checker issue
+                        let bi = BorrowedVarInfo {
                             global_info: global_var_info,
                             local_info: local_var_info,
-                        },
-                    ).next()
-                    .is_some()
-                    {
+                        };
+
+                        let v = MatchKind::from_element(e, &input, &bi).next().is_some();
+                        v
+                    };
+
+                    if istrue {
                         return do_module_rec(
                             input,
                             statements,
@@ -595,16 +597,14 @@ fn do_module_rec(
             );
         }
         Statement::MatchAssign(ref pat, ref ss) => {
-            let mut newss = vec![];
-            if let Some((_, ref m)) = MatchKind::from_element(
-                pat,
-                &input,
-                &BorrowedVarInfo {
-                    global_info: global_var_info,
-                    local_info: local_var_info,
-                },
-            ).next()
-            {
+            /*let mut newss = vec![];
+
+            let mut bi = BorrowedVarInfo {
+                global_info: global_var_info,
+                local_info: local_var_info,
+            };
+
+            if let Some((_, ref m)) = MatchKind::from_element(pat, &input, &bi).next() {
                 for s in ss {
                     if let Statement::Assign(ref dollar, ref e) = s {
                         newss.push(Statement::Assign(
@@ -623,7 +623,7 @@ fn do_module_rec(
                     }
                     local_var_info.add_dollar(dollar.clone(), ee);
                 }
-            }
+            }*/
 
             return do_module_rec(
                 input,

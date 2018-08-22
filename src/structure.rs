@@ -979,11 +979,12 @@ pub struct IdentityStatement<ID: Id = VarName> {
     pub rhs: Element<ID>,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, PartialOrd, Ord)]
 pub enum IdentityStatementMode {
     Once,
     Many,
     All,
+    ManyAll,
 }
 
 impl fmt::Display for Module {
@@ -1224,6 +1225,7 @@ impl fmt::Display for IdentityStatementMode {
         match *self {
             IdentityStatementMode::Once => write!(f, "once"),
             IdentityStatementMode::Many => write!(f, "many"),
+            IdentityStatementMode::ManyAll => write!(f, "manyall"),
             IdentityStatementMode::All => write!(f, "all"),
         }
     }
@@ -1404,7 +1406,14 @@ impl Element {
                     None => {}
                 }
                 for t in terms.iter().skip(1) {
-                    write!(f, "+")?;
+                    if let Element::Num(_, n) = t {
+                        if n >= &Number::SmallInt(0) {
+                            write!(f, "+")?;
+                        }
+                    } else {
+                        write!(f, "+")?;
+                    }
+
                     t.fmt_output(f, print_mode, var_info)?
                 }
                 write!(f, "")

@@ -154,10 +154,30 @@ yields
 
 Note that ranged wildcards can be empty.
 
+Many matches
+---------------------
+
+With the option ``many``, reFORM will match and replace all matches.
+For example:
+
+.. code-block:: reform
+
+    expr F = f(x)*f(y);
+    apply {
+        id many f(x?) = f(x? + 1) + f(x? - 1);
+    }
+
+yields
+
+.. code-block:: reform
+
+    f(x+1)*f(y+1) + f(x-1)*f(y-1)
+
+
 Obtaining all matches
 ---------------------
 
-All matches can be obtained using the ``all`` option to ``id``.
+All matches can be obtained as a sum of terms using the ``all`` option to ``id``.
 For example:
 
 .. code-block:: reform
@@ -172,3 +192,34 @@ yields
 .. code-block:: reform
 
     f(x3,x4,x5)+f(x5,x6,x3)
+
+
+Obtaining all matches with many-mode
+------------------------------------
+
+The all-matches mode can also be combined with the many-matches
+mode.
+For example:
+
+.. code-block:: reform
+
+    expr F = f(1,2,3)*f(4,5,6);
+
+    apply {
+        id manyall f(?a,x?,?b) = f(x?);
+    }
+
+
+yields
+
+.. code-block:: reform
+
+	+2*f(1)*f(4)
+	+2*f(1)*f(5)
+	+2*f(1)*f(6)
+	+2*f(2)*f(4)
+	+2*f(2)*f(5)
+	+2*f(2)*f(6)
+	+2*f(3)*f(4)
+	+2*f(3)*f(5)
+	+2*f(3)*f(6)
