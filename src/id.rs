@@ -1187,20 +1187,20 @@ impl<'a> MatchIterator<'a> {
             if self.last_success == self.iterators.len() {
                 self.has_match = true;
 
-                if self.match_mode != IdentityStatementMode::All
-                    && self.match_mode != IdentityStatementMode::ManyAll
-                {
-                    // disable the iterator after the first match
-                    self.iterators.clear();
-                    self.iterators.push(MatchKind::None);
-                }
-
                 return StatementResult::Executed(match self.rhs {
                     &Element::SubExpr(_, ref x) => {
                         let res = self.generate_rhs(&x[self.rhs_index]);
 
                         self.rhs_index += 1;
                         if self.rhs_index == x.len() {
+                            if self.match_mode != IdentityStatementMode::All
+                                && self.match_mode != IdentityStatementMode::ManyAll
+                            {
+                                // disable the iterator after the first match
+                                self.iterators.clear();
+                                self.iterators.push(MatchKind::None);
+                            }
+
                             self.rhs_index = 0;
                             self.match_info.pop();
                         }
@@ -1209,6 +1209,14 @@ impl<'a> MatchIterator<'a> {
                     x => {
                         let res = self.generate_rhs(x);
                         self.match_info.pop();
+                        if self.match_mode != IdentityStatementMode::All
+                            && self.match_mode != IdentityStatementMode::ManyAll
+                        {
+                            // disable the iterator after the first match
+                            self.iterators.clear();
+                            self.iterators.push(MatchKind::None);
+                        }
+
                         res
                     }
                 });
