@@ -171,7 +171,10 @@ yields
 
 .. code-block:: reform
 
-    f(x+1)*f(y+1) + f(x-1)*f(y-1)
+	+f(x-1)*f(y-1)
+	+f(x-1)*f(y+1)
+	+f(x+1)*f(y-1)
+	+f(x+1)*f(y+1)
 
 
 Obtaining all matches

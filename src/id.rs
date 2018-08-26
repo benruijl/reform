@@ -1070,8 +1070,9 @@ pub struct MatchIterator<'a> {
     pattern: &'a Element,
     target: &'a Element,
     rhs: &'a Element,
-    rhs_index: usize,
-    match_info: SmallVec<[(MatchObject<'a>, Vec<&'a Element>); 2]>,
+    result: Vec<Element>, // cached result for the Many case
+    result_index: usize,  // index over len(rhs)*len(matches)
+    remainder: Vec<Vec<&'a Element>>,
     var_info: &'a BorrowedVarInfo<'a>,
     iterators: SmallVec<[MatchKind<'a>; 2]>,
     match_mode: IdentityStatementMode,
@@ -1080,18 +1081,23 @@ pub struct MatchIterator<'a> {
 }
 
 impl<'a> MatchIterator<'a> {
-    pub fn generate_rhs(&self, rhs: &Element) -> Element {
-        let mut e = if self.match_info.len() == 1 && self.match_info[0].1.len() == 0 {
-            rhs.apply_map(&self.match_info[0].0).into_single().0
+    pub fn generate_rhs(&mut self, rhs_len: usize) -> Element {
+        let mut e = if self.iterators.len() == 1 {
+            mem::replace(
+                &mut self.result[self.result_index % rhs_len],
+                Element::default(),
+            )
         } else {
-            let mut total_res: Vec<Element> = self
-                .match_info
-                .iter()
-                .map(|x| rhs.apply_map(&x.0).into_single().0)
-                .collect();
+            // take the correct element from the cartesian product
+            let mut total_res = Vec::with_capacity(self.result.len());
 
-            // add the remaining factors
-            total_res.extend(self.match_info.last().unwrap().1.iter().cloned().cloned());
+            total_res.push(self.result[self.result_index % rhs_len].clone());
+            let mut step = 1;
+            for x in 1..self.iterators.len() {
+                step *= rhs_len;
+                total_res
+                    .push(self.result[x * rhs_len + (self.result_index / step) % rhs_len].clone());
+            }
 
             Element::Term(true, total_res)
         };
@@ -1111,7 +1117,6 @@ impl<'a> MatchIterator<'a> {
         }*/
 
         e.normalize_inplace(self.var_info.global_info);
-
         e
     }
 
@@ -1119,38 +1124,47 @@ impl<'a> MatchIterator<'a> {
         while !self.iterators.is_empty() {
             // check if we need to generate a new match or use the existing match
             // to generate another term on the rhs
-            if self.rhs_index == 0 {
+            if self.result_index == 0 {
                 if let Some((used, m)) = self.iterators.last_mut().unwrap().next() {
                     self.last_success = self.iterators.len();
                     printmatch(&m);
 
                     // build the result
+                    match self.rhs {
+                        &Element::SubExpr(_, ref ts) => {
+                            for t in ts {
+                                self.result.push(t.apply_map(&m).into_single().0);
+                            }
+                        }
+                        x => {
+                            self.result.push(x.apply_map(&m).into_single().0);
+                        }
+                    }
+
                     // store the free factors wrt the input
-                    if self.match_info.len() == 0 {
+                    if self.remainder.len() == 0 {
                         if let Element::Term(_, fs) = self.target {
-                            self.match_info.push((
-                                m.clone(),
+                            self.remainder.push(
                                 fs.iter()
                                     .enumerate()
                                     .filter_map(
                                         |(i, x)| if used.contains(&i) { None } else { Some(x) },
                                     ).collect(),
-                            ));
+                            );
                         } else {
-                            self.match_info.push((m.clone(), vec![]));
+                            self.remainder.push(vec![]);
                         }
                     } else {
                         // used are the used indices wrt the last input
                         let remaining = self
-                            .match_info
+                            .remainder
                             .last()
                             .unwrap()
-                            .1
                             .iter()
                             .enumerate()
                             .filter_map(|(i, &x)| if used.contains(&i) { None } else { Some(x) })
                             .collect();
-                        self.match_info.push((m.clone(), remaining));
+                        self.remainder.push(remaining);
                     }
 
                     if self.match_mode != IdentityStatementMode::Many
@@ -1158,7 +1172,7 @@ impl<'a> MatchIterator<'a> {
                     {
                         self.iterators.push(MatchKind::None);
                     } else {
-                        let remaining = self.match_info.last().unwrap().1.clone();
+                        let remaining = self.remainder.last().unwrap().clone();
 
                         if remaining.is_empty() {
                             self.iterators.push(MatchKind::None);
@@ -1182,6 +1196,11 @@ impl<'a> MatchIterator<'a> {
                 break;
             }
 
+            let droplen = match self.rhs {
+                &Element::SubExpr(_, ref x) => self.result.len() - x.len(),
+                _ => self.result.len() - 1,
+            };
+
             // make sure to only generate a result for the maximum possible number of matches
             // at the same time
             if self.last_success == self.iterators.len() {
@@ -1189,10 +1208,10 @@ impl<'a> MatchIterator<'a> {
 
                 return StatementResult::Executed(match self.rhs {
                     &Element::SubExpr(_, ref x) => {
-                        let res = self.generate_rhs(&x[self.rhs_index]);
+                        let res = self.generate_rhs(x.len());
 
-                        self.rhs_index += 1;
-                        if self.rhs_index == x.len() {
+                        self.result_index += 1;
+                        if self.result_index == x.len().pow(self.iterators.len() as u32) {
                             if self.match_mode != IdentityStatementMode::All
                                 && self.match_mode != IdentityStatementMode::ManyAll
                             {
@@ -1201,14 +1220,16 @@ impl<'a> MatchIterator<'a> {
                                 self.iterators.push(MatchKind::None);
                             }
 
-                            self.rhs_index = 0;
-                            self.match_info.pop();
+                            self.result_index = 0;
+                            self.remainder.pop();
+                            self.result.truncate(droplen);
                         }
                         res
                     }
-                    x => {
-                        let res = self.generate_rhs(x);
-                        self.match_info.pop();
+                    _ => {
+                        let res = self.generate_rhs(1);
+                        self.remainder.pop();
+                        self.result.truncate(droplen);
                         if self.match_mode != IdentityStatementMode::All
                             && self.match_mode != IdentityStatementMode::ManyAll
                         {
@@ -1222,7 +1243,8 @@ impl<'a> MatchIterator<'a> {
                 });
             } else {
                 self.last_success -= 1;
-                self.match_info.pop();
+                self.remainder.pop();
+                self.result.truncate(droplen);
             }
         }
 
@@ -1244,10 +1266,11 @@ impl IdentityStatement {
             pattern: &self.lhs,
             has_match: false,
             target: input,
-            match_info: SmallVec::new(),
+            remainder: Vec::new(),
             match_mode: self.mode,
             rhs: &self.rhs,
-            rhs_index: 0,
+            result_index: 0,
+            result: vec![],
             iterators: smallvec![MatchKind::from_element(&self.lhs, input, &var_info)],
             var_info,
             last_success: 0,
