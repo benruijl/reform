@@ -9,6 +9,7 @@ use std::io::{BufReader, BufWriter, SeekFrom};
 use std::mem;
 
 use normalize::merge_terms;
+use number::Number;
 use structure::{Element, ElementPrinter, GlobalVarInfo, PrintMode, Statement, VarInfo};
 
 pub const MAXTERMMEM: usize = 10_000_000; // maximum number of terms allowed in memory
@@ -148,7 +149,7 @@ impl OutputTermStreamer {
             self.mem_buffer.push(element);
         } else {
             // write the buffer to a new file
-            if self.termcounter % MAXTERMMEM as u64 == 0 {
+            if self.termcounter % MAXTERMMEM as u64 == 0 || self.sortfiles.is_empty() {
                 println!("Creating new file {}", self.sortfiles.len());
                 self.new_file();
             }
@@ -216,10 +217,9 @@ impl OutputTermStreamer {
                         a = Element::Fn(false, v.clone(), vec![a]);
                     }
                     Statement::Print(mode, ref es) => {
-                        if es.len() == 0
-                            || es
-                                .iter()
-                                .any(|e| exprname == var_info.global_info.get_name(*e))
+                        if es.len() == 0 || es
+                            .iter()
+                            .any(|e| exprname == var_info.global_info.get_name(*e))
                         {
                             print_output = true;
                         }
@@ -232,6 +232,9 @@ impl OutputTermStreamer {
             // move to input buffer
             match a {
                 Element::SubExpr(_, x) => input_streamer.mem_buffer_input = VecDeque::from(x),
+                Element::Num(_, Number::SmallInt(0)) => {
+                    input_streamer.mem_buffer_input = VecDeque::new();
+                }
                 x => {
                     input_streamer.mem_buffer_input = {
                         let mut v = VecDeque::new();
@@ -339,13 +342,25 @@ impl OutputTermStreamer {
             }
 
             while let Some(ElementStreamTuple(mut mv, vi, i)) = heap.pop() {
-                // add or merge
-                let shouldadd = match self.mem_buffer.last_mut() {
-                    Some(ref mut x) => !merge_terms(x, &mut mv, &vi),
-                    _ => true,
-                };
-                if shouldadd {
+                // add or merge the new term into the buffer
+                if self.mem_buffer.is_empty() {
                     self.mem_buffer.push(mv);
+                } else {
+                    let mut tmp = Element::default();
+                    mem::swap(self.mem_buffer.last_mut().unwrap(), &mut tmp);
+                    match tmp.partial_cmp(&mv, &vi, true) {
+                        Some(Ordering::Equal) => {
+                            if merge_terms(&mut tmp, &mut mv, &vi) {
+                                self.mem_buffer.pop();
+                            } else {
+                                mem::swap(self.mem_buffer.last_mut().unwrap(), &mut tmp);
+                            }
+                        }
+                        _ => {
+                            mem::swap(self.mem_buffer.last_mut().unwrap(), &mut tmp);
+                            self.mem_buffer.push(mv);
+                        }
+                    }
                 }
 
                 if self.mem_buffer.len() == maxsortmem {
