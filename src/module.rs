@@ -657,14 +657,13 @@ fn do_module_rec(
         Statement::Argument(ref funcs, ref sts) => {
             // TODO: apply to functions at all levels instead of just the ground level
             match input {
-                Element::Fn(_, name1, ref mut args) => {
+                Element::Fn(_, name1, args) => {
                     // the dollar variable should be substituted
                     if funcs.contains(&Element::Var(name1, Number::one())) {
                         // execute the statements
                         let mut newfuncarg = Vec::with_capacity(args.len());
-                        let old_args = mem::replace(args, vec![]);
 
-                        for x in old_args {
+                        for x in args {
                             let mut tsr = TermStreamWrapper::Owned(vec![]);
                             match x {
                                 Element::SubExpr(_, terms) => {
@@ -713,6 +712,16 @@ fn do_module_rec(
 
                         return do_module_rec(
                             newfunc,
+                            statements,
+                            local_var_info,
+                            global_var_info,
+                            current_index + 1,
+                            term_affected,
+                            output,
+                        );
+                    } else {
+                        return do_module_rec(
+                            Element::Fn(false, name1, args),
                             statements,
                             local_var_info,
                             global_var_info,
@@ -1373,8 +1382,8 @@ impl Program {
         while let Some(mut x) = statements.pop_front() {
             x.normalize(&self.var_info.global_info);
 
-            match &mut x {
-                Statement::Module(ref mut m) => m.execute_module(
+            match x {
+                Statement::Module(mut m) => m.execute_module(
                     &mut self.expressions,
                     &mut self.var_info,
                     &self.procedures,
@@ -1383,14 +1392,13 @@ impl Program {
                     verbosity,
                     num_threads,
                 ),
-                Statement::NewExpression(ref name, ref mut e) => {
+                Statement::NewExpression(name, mut e) => {
                     let mut expr = InputTermStreamer::new(None);
-                    let mut ee = mem::replace(e, Element::default());
-                    if ee.replace_dollar(&self.var_info.local_info.variables) {
-                        ee.normalize_inplace(&self.var_info.global_info);
+                    if e.replace_dollar(&self.var_info.local_info.variables) {
+                        e.normalize_inplace(&self.var_info.global_info);
                     }
 
-                    match ee {
+                    match e {
                         Element::SubExpr(_, t) => for x in t {
                             expr.add_term_input(x);
                         },
@@ -1399,48 +1407,44 @@ impl Program {
                         }
                     }
 
-                    if self.expressions.iter().any(|(n, ..)| n == name) {
+                    if self.expressions.iter().any(|(n, ..)| *n == name) {
                         panic!("Cannot define the same expression multiple times");
                     }
 
-                    self.expressions.push((name.clone(), expr));
+                    self.expressions.push((name, expr));
                 }
-                Statement::NewFunction(ref name, ref args, ref e) => {
-                    let mut ee = e.clone();
-                    ee.normalize_inplace(&self.var_info.global_info);
+                Statement::NewFunction(name, args, mut e) => {
                     self.var_info
                         .global_info
                         .user_functions
-                        .insert(name.clone(), (args.clone(), ee));
+                        .insert(name, (args, e));
                 }
-                Statement::Assign(ref dollar, ref e) => {
-                    let mut ee = e.clone();
-                    ee.normalize_inplace(&self.var_info.global_info);
-                    if ee.replace_dollar(&self.var_info.local_info.variables) {
-                        ee.normalize_inplace(&self.var_info.global_info);
+                Statement::Assign(dollar, mut e) => {
+                    if e.replace_dollar(&self.var_info.local_info.variables) {
+                        e.normalize_inplace(&self.var_info.global_info);
                     }
-                    self.var_info.local_info.add_dollar(dollar.clone(), ee);
+                    self.var_info.local_info.add_dollar(dollar, e);
                 }
-                Statement::Extract(ref d, ref xs) => {
-                    if let Element::Dollar(..) = *d {
+                Statement::Extract(d, xs) => {
+                    if let Element::Dollar(..) = d {
                         let mut dp = self
                             .var_info
                             .local_info
-                            .get_dollar_mut(d)
+                            .get_dollar_mut(&d)
                             .expect("Dollar variable is uninitialized");
                         *dp = mem::replace(dp, Element::default())
-                            .extract(xs, &self.var_info.global_info);
+                            .extract(&xs, &self.var_info.global_info);
                     }
                 }
                 // this will create a subrecursion
-                Statement::Inside(ref ds, ref mut sts) => {
+                Statement::Inside(ds, mut old_statements) => {
                     // normalize the statements
-                    let mut old_statements = mem::replace(sts, vec![]);
+                    let mut sts = Vec::with_capacity(old_statements.len());
                     Module::statements_to_control_flow_stat(
                         &mut old_statements,
                         &mut self.var_info,
                         &self.procedures,
-                        sts,
+                        &mut sts,
                     );
 
                     for x in sts.iter_mut() {
@@ -1448,11 +1452,11 @@ impl Program {
                     }
 
                     for d in ds {
-                        if let Element::Dollar(..) = *d {
+                        if let Element::Dollar(..) = d {
                             let mut dollar = mem::replace(
                                 self.var_info
                                     .local_info
-                                    .get_dollar_mut(d)
+                                    .get_dollar_mut(&d)
                                     .expect("Dollar variable is uninitialized"),
                                 Element::default(),
                             );
@@ -1464,7 +1468,7 @@ impl Program {
                                     for x in se {
                                         do_module_rec(
                                             x,
-                                            sts,
+                                            &sts,
                                             &mut self.var_info.local_info,
                                             &self.var_info.global_info,
                                             0,
@@ -1475,7 +1479,7 @@ impl Program {
                                 }
                                 _ => do_module_rec(
                                     dollar,
-                                    sts,
+                                    &sts,
                                     &mut self.var_info.local_info,
                                     &self.var_info.global_info,
                                     0,
@@ -1501,12 +1505,9 @@ impl Program {
                         }
                     }
                 }
-                Statement::Attrib(ref f, ref attribs) => match *f {
-                    Element::Var(ref name, _) | Element::Dollar(ref name, _) => {
-                        self.var_info
-                            .global_info
-                            .func_attribs
-                            .insert(name.clone(), attribs.clone());
+                Statement::Attrib(f, attribs) => match f {
+                    Element::Var(name, _) | Element::Dollar(name, _) => {
+                        self.var_info.global_info.func_attribs.insert(name, attribs);
                     }
                     _ => {
                         panic!("Can only assign attributes to functions or dollar variables");

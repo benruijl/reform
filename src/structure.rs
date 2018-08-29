@@ -2235,6 +2235,10 @@ impl Statement {
                     s.normalize(var_info);
                 }
             }
+            Statement::NewExpression(_, ref mut rhs)
+            | Statement::NewFunction(_, _, ref mut rhs) => {
+                rhs.normalize_inplace(var_info);
+            }
             _ => {}
         }
     }
