@@ -134,6 +134,40 @@ impl Element {
                     .expect("Unknown wildcard in rhs")
                     .to_owned()
             }
+            Element::FnWildcard(ref name, ref b) => {
+                let (ref restrictions, ref old_args) = **b;
+
+                if restrictions.len() > 0 {
+                    panic!("No restrictions allowed in the rhs");
+                }
+
+                let newname = match find_match(m, name)
+                    .expect("Unknown wildcard function in rhs")
+                    .to_owned()
+                    .into_single()
+                    .0
+                {
+                    Element::Var(n, _) => n,
+                    _ => unreachable!(),
+                };
+
+                let mut changed = false;
+                let mut args = Vec::with_capacity(old_args.len());
+                for a in old_args {
+                    match a.apply_map(m) {
+                        MatchOptOwned::Single(x, c) => {
+                            changed |= c;
+                            args.push(x)
+                        }
+                        MatchOptOwned::Multiple(x) => {
+                            changed = true;
+                            args.extend(x)
+                        }
+                    }
+                }
+
+                MatchOptOwned::Single(Element::Fn(changed, newname, args), changed)
+            }
             Element::Pow(_, ref be) => {
                 let (ref b, ref e) = **be;
                 let mut changed = false;
@@ -218,7 +252,9 @@ impl Element {
 
 #[derive(Debug)]
 pub enum ElementIterSingle<'a> {
-    FnIter(FuncIterator<'a>),            // match function
+    FnIter(FuncIterator<'a>), // match function
+    FnWildcardIter(&'a VarName, Element, usize, FuncIterator<'a>),
+    SymFnWildcardIter(&'a VarName, Element, usize, SubSequenceIter<'a>),
     SymFuncIter(SubSequenceIter<'a>), // match a symmetric function without variable argument wildcards
     Once,                             // matching without wildcard, ie number vs number
     OnceMatch(&'a VarName, &'a Element), // simple match of variable
@@ -394,6 +430,53 @@ impl<'a> ElementIterSingle<'a> {
                 }
             }
             ElementIterSingle::FnIter(ref mut f) => f.next(m),
+            ElementIterSingle::FnWildcardIter(ref name, ref target, ref mut old_len, ref mut f) => {
+                if *old_len == MAXMATCH {
+                    match push_match_owned(m, name, target.clone()) {
+                        Some(x) => {
+                            *old_len = x;
+                        }
+                        None => {
+                            return None;
+                        }
+                    }
+                }
+
+                match f.next(m) {
+                    None => {
+                        // pop the function name match
+                        m.truncate(*old_len);
+                        None
+                    }
+                    x => x,
+                }
+            }
+            ElementIterSingle::SymFnWildcardIter(
+                ref name,
+                ref target,
+                ref mut old_len,
+                ref mut f,
+            ) => {
+                if *old_len == MAXMATCH {
+                    match push_match_owned(m, name, target.clone()) {
+                        Some(x) => {
+                            *old_len = x;
+                        }
+                        None => {
+                            return None;
+                        }
+                    }
+                }
+
+                match f.next(m).map(|(_, s)| s) {
+                    None => {
+                        // pop the function name match
+                        m.truncate(*old_len);
+                        None
+                    }
+                    x => x,
+                }
+            }
             ElementIterSingle::SymFuncIter(ref mut f) => f.next(m).map(|(_, s)| s),
             ElementIterSingle::PermIter(pat, ref mut heap, ref mut termit, var_info) => {
                 if pat.len() != heap.data.len() {
@@ -583,6 +666,46 @@ impl Element {
                 ElementIterSingle::FnIter(FuncIterator::from_element(
                     name2, args2, name1, args1, var_info,
                 ))
+            }
+            (&Element::Fn(_, ref name1, ref args1), &Element::FnWildcard(ref name2, ref b)) => {
+                let (restrictions, args2) = &**b;
+
+                if restrictions.len() > 0
+                    && !restrictions.contains(&Element::Var(*name1, Number::one()))
+                {
+                    ElementIterSingle::None
+                } else {
+                    if args1.len() == args2.len() {
+                        if let Some(attribs) = var_info.global_info.func_attribs.get(name1) {
+                            // check if the pattern contains no wildcard
+                            if attribs.contains(&FunctionAttributes::Symmetric) {
+                                if !args2.iter().any(|x| {
+                                    if let Element::VariableArgument(_) = *x {
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                }) {
+                                    return ElementIterSingle::SymFnWildcardIter(
+                                        name2,
+                                        Element::Var(*name1, Number::one()),
+                                        MAXMATCH,
+                                        SubSequenceIter::new(args2, args1, var_info),
+                                    );
+                                } else {
+                                    println!("Warning: used ?a in symmetric function pattern match. Ignoring symmetric property.");
+                                }
+                            }
+                        }
+                    }
+
+                    ElementIterSingle::FnWildcardIter(
+                        name2,
+                        Element::Var(*name1, Number::one()),
+                        MAXMATCH,
+                        FuncIterator::from_element(name1, args2, name1, args1, var_info),
+                    )
+                }
             }
             (&Element::Term(_, ref f1), &Element::Term(_, ref f2))
             | (&Element::SubExpr(_, ref f1), &Element::SubExpr(_, ref f2)) => {

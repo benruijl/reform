@@ -398,7 +398,7 @@ parser!{
    fn factor[I]()(I) -> Element<String>
     where [I: Stream<Item=char>]
 {
-    let funcarg = between(lex_char('('), lex_char(')'), sep_by(expr(), lex_char(',')));
+    let funcarg = || between(lex_char('('), lex_char(')'), sep_by(expr(), lex_char(',')));
 
     let numrange = (ordering(), number()).map(|(r, b)| match b {
         Element::Num(_, num) => Element::NumberRange(num, r),
@@ -417,15 +417,19 @@ parser!{
     let namedfactor = varname()
         .and(choice!(
             lex_char('?')
-                .and(optional(set).map(|x| x.unwrap_or(vec![])))
-                .map(|(_, s)| Element::Wildcard(String::new(), s)),
-            funcarg.map(|fa| Element::Fn(true, String::new(), fa)),
+                .with(optional(set).map(|x| x.unwrap_or(vec![])))
+                .and(optional(funcarg()))
+                .map(|(s, fa)| match fa {
+                    Some(ffa) => Element::FnWildcard(String::new(), Box::new((s, ffa))),
+                    None => Element::Wildcard(String::new(), s)
+                }),
+            funcarg().map(|fa| Element::Fn(true, String::new(), fa)),
             value(1).map(|_| Element::Var(String::new(), Number::SmallInt(1)))
         ))
         .map(|(name, mut res)| {
             match res {
-                Element::Wildcard(ref mut n, ..) | Element::Var(ref mut n, _) => *n = name,
-                Element::Fn(_, ref mut n, ..) => *n = name,
+                Element::Wildcard(ref mut n, ..) | Element::Var(ref mut n, _) |
+                    Element::FnWildcard(ref mut n, ..) | Element::Fn(_, ref mut n, ..) => *n = name,
                 _ => unreachable!(),
             }
             res

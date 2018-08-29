@@ -115,7 +115,7 @@ impl Element {
                                     &Element::Num(_, Number::SmallInt(n2)),
                                 ) => {
                                     let mut terms = vec![];
-                                    for i in n1..n2 {
+                                    for i in n1..n2 + 1 {
                                         let mut ne = a[3].clone();
                                         ne.replace(
                                             &a[0],
@@ -124,9 +124,13 @@ impl Element {
                                         terms.push(ne);
                                     }
                                     if *n == FUNCTION_SUM {
-                                        Element::SubExpr(true, terms)
+                                        let mut newe = Element::SubExpr(true, terms);
+                                        newe.normalize_inplace(&var_info);
+                                        newe
                                     } else {
-                                        Element::Term(true, terms)
+                                        let mut newe = Element::Term(true, terms);
+                                        newe.normalize_inplace(&var_info);
+                                        newe
                                     }
                                 }
                                 _ => return false,
@@ -614,6 +618,15 @@ impl Element {
             Element::Wildcard(_, ref mut restriction) => for x in restriction {
                 changed |= x.normalize_inplace(var_info);
             },
+            Element::FnWildcard(_, ref mut b) => {
+                let (restriction, args) = &mut **b;
+                for x in restriction {
+                    changed |= x.normalize_inplace(var_info);
+                }
+                for x in args {
+                    changed |= x.normalize_inplace(var_info);
+                }
+            }
             Element::NumberRange(ref mut n1, ..) => {
                 changed |= n1.normalize_inplace();
             }

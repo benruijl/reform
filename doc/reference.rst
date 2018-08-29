@@ -705,7 +705,7 @@ Functions
     :param lb: A numeric lower bound for ``i``
     :param ub: A numeric upper bound for ``i``
 
-    Return the product of ``i`` going from ``lb`` to ``ub``.
+    Return the product of ``i`` going from ``lb`` to (and including) ``ub``.
 
     .. code-block:: reform
 
@@ -715,7 +715,7 @@ Functions
 
     .. code-block:: reform
 
-        576
+        14400
 
 .. frm:function:: rat_(num, den)
 
@@ -743,7 +743,7 @@ Functions
     :param lb: A numeric lower bound for ``i``
     :param ub: A numeric upper bound for ``i``
 
-    Return the sum of ``i`` going from ``lb`` to ``ub``.
+    Return the sum of ``i`` going from ``lb`` to (and including) ``ub``.
 
     .. code-block:: reform
 
@@ -753,7 +753,7 @@ Functions
 
     .. code-block:: reform
     
-        29
+        54
 
 .. frm:function:: takearg_(k,a1,...,an)
 

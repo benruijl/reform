@@ -114,6 +114,16 @@ will only change ``f(4)``.
 
 Fractional numbers are allowed, i.e., ``f(x?{>1/2})`` will work as intended.
 
+A function name can also be a wildcard:
+
+.. code-block:: reform
+
+    expr F = g(4);
+    apply {
+        id f?(x?) = f?(x? + 1);
+    }
+
+yields ``g(5)``.
 
 Ranged wildcards
 ----------------

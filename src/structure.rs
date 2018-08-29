@@ -442,6 +442,7 @@ impl Ordering {
 pub enum Element<ID: Id = VarName> {
     VariableArgument(ID),                                        // ?a
     Wildcard(ID, Vec<Element<ID>>),                              // x?{...}
+    FnWildcard(ID, Box<(Vec<Element<ID>>, Vec<Element<ID>>)>),   // f?{...}(...)
     Dollar(ID, Vec<Element<ID>>),                                // $x[y]
     Var(ID, Number),                                             // x^n
     Pow(bool, Box<(Element<ID>, Element<ID>)>),                  // (1+x)^3; dirty, base, exponent
@@ -1344,6 +1345,44 @@ impl Element {
                     PrintMode::Mathematica => write!(f, "]"),
                 }
             }
+            &Element::FnWildcard(ref name, ref b) => {
+                let (restriction, args) = &**b;
+                if restriction.len() == 0 {
+                    fmt_varname(name, f, var_info)?;
+                    write!(f, "?")?;
+                } else {
+                    fmt_varname(name, f, var_info)?;
+                    write!(f, "?{{")?;
+                    match restriction.first() {
+                        Some(x) => x.fmt_output(f, print_mode, var_info)?,
+                        None => {}
+                    }
+                    for t in restriction.iter().skip(1) {
+                        t.fmt_output(f, print_mode, var_info)?
+                    }
+                    write!(f, "}}")?;
+                }
+
+                match print_mode {
+                    PrintMode::Form => write!(f, "(")?,
+                    PrintMode::Mathematica => write!(f, "[")?,
+                }
+
+                match args.first() {
+                    Some(x) => x.fmt_output(f, print_mode, var_info)?,
+                    None => {}
+                }
+
+                for x in args.iter().skip(1) {
+                    write!(f, ",")?;
+                    x.fmt_output(f, print_mode, var_info)?;
+                }
+
+                match print_mode {
+                    PrintMode::Form => write!(f, ")"),
+                    PrintMode::Mathematica => write!(f, "]"),
+                }
+            }
             &Element::Term(_, ref factors) => {
                 match print_mode {
                     PrintMode::Form => {
@@ -1460,6 +1499,13 @@ impl Element<String> {
                 var_info.get_name(name),
                 inds.iter_mut().map(|x| x.to_element(var_info)).collect(),
             ),
+            Element::FnWildcard(ref mut name, ref mut b) => Element::FnWildcard(
+                var_info.get_name(name),
+                Box::new((
+                    b.0.iter_mut().map(|x| x.to_element(var_info)).collect(),
+                    b.1.iter_mut().map(|x| x.to_element(var_info)).collect(),
+                )),
+            ),
             Element::Var(ref mut name, ref mut e) => {
                 Element::Var(var_info.get_name(name), e.clone())
             }
@@ -1511,6 +1557,14 @@ impl Element {
                 }
                 false
             }
+            Element::FnWildcard(_, ref b) => {
+                for x in b.0.iter().chain(&b.1) {
+                    if x.contains_dollar() {
+                        return true;
+                    }
+                }
+                false
+            }
             Element::Comparison(_, ref e, _) => e.0.contains_dollar() || e.1.contains_dollar(),
             Element::Pow(_, ref be) => be.0.contains_dollar() || be.1.contains_dollar(),
             Element::Term(_, ref f) | Element::SubExpr(_, ref f) | Element::Fn(_, _, ref f) => {
@@ -1538,6 +1592,13 @@ impl Element {
                 } else {
                     return changed;
                 }
+            }
+            Element::FnWildcard(_, ref mut b) => {
+                let (restrictions, args) = &mut **b;
+                for x in restrictions.iter_mut().chain(args) {
+                    changed |= x.replace_dollar(map);
+                }
+                return changed;
             }
             Element::Comparison(ref mut dirty, ref mut e, _) => {
                 changed |= e.0.replace_dollar(map);
@@ -1649,6 +1710,22 @@ impl Element {
                     changed |= x.replace_elements(map);
                 }
                 *dirty |= changed;
+                return changed;
+            }
+            Element::FnWildcard(ref mut name, ref mut b) => {
+                if let Some(x) = map.get(name) {
+                    if let &Element::Var(ref y, _) = x {
+                        *name = y.clone();
+                        changed = true
+                    } else {
+                        panic!("Cannot replace function name by generic expression");
+                    }
+                }
+
+                let (restrictions, args) = &mut **b;
+                for x in restrictions.iter_mut().chain(args) {
+                    changed |= x.replace_elements(map);
+                }
                 return changed;
             }
             _ => return false,

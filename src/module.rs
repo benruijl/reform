@@ -1386,7 +1386,9 @@ impl Program {
                 Statement::NewExpression(ref name, ref mut e) => {
                     let mut expr = InputTermStreamer::new(None);
                     let mut ee = mem::replace(e, Element::default());
-                    ee.normalize_inplace(&self.var_info.global_info);
+                    if ee.replace_dollar(&self.var_info.local_info.variables) {
+                        ee.normalize_inplace(&self.var_info.global_info);
+                    }
 
                     match ee {
                         Element::SubExpr(_, t) => for x in t {
@@ -1414,8 +1416,9 @@ impl Program {
                 Statement::Assign(ref dollar, ref e) => {
                     let mut ee = e.clone();
                     ee.normalize_inplace(&self.var_info.global_info);
-                    ee.replace_dollar(&self.var_info.local_info.variables);
-                    ee.normalize_inplace(&self.var_info.global_info);
+                    if ee.replace_dollar(&self.var_info.local_info.variables) {
+                        ee.normalize_inplace(&self.var_info.global_info);
+                    }
                     self.var_info.local_info.add_dollar(dollar.clone(), ee);
                 }
                 Statement::Extract(ref d, ref xs) => {
