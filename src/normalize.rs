@@ -182,7 +182,7 @@ impl Element {
                             // check if the polynomials have integer coefficients
                             for x in a1.poly.coefficients.iter().chain(&a2.poly.coefficients) {
                                 match x {
-                                    Number::SmallRat(..) | Number::BigInt(..) => return false,
+                                    Number::SmallRat(..) | Number::BigRat(..) => return false,
                                     _ => {}
                                 }
                             }
