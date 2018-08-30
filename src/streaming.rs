@@ -7,10 +7,12 @@ use std::fs::OpenOptions;
 use std::io::prelude::*;
 use std::io::{BufReader, BufWriter, SeekFrom};
 use std::mem;
+use snap;
 
 use normalize::merge_terms;
 use number::Number;
 use structure::{Element, ElementPrinter, GlobalVarInfo, PrintMode, Statement, VarInfo};
+
 
 pub const MAXTERMMEM: usize = 10_000_000; // maximum number of terms allowed in memory
 pub const SMALL_BUFFER: u64 = 100_000; // number of terms before sorting
@@ -154,7 +156,7 @@ impl OutputTermStreamer {
                 self.new_file();
             }
 
-            let mut b = BufWriter::new(self.sortfiles.last().unwrap());
+            let mut b = snap::Writer::new(self.sortfiles.last().unwrap());
 
             for x in &self.mem_buffer {
                 x.serialize(&mut b);
@@ -275,8 +277,8 @@ impl OutputTermStreamer {
             if x == self.sortfiles.len() {
                 self.new_file();
             } else {
-                let mut reader = BufReader::new(&self.sortfiles[x]);
-                reader.seek(SeekFrom::Start(0)).unwrap();
+                self.sortfiles[x].seek(SeekFrom::Start(0)).unwrap();
+                let mut reader = snap::Reader::new(&self.sortfiles[x]);
                 while let Ok(e) = Element::deserialize(&mut reader) {
                     self.mem_buffer.push(e);
                 }
@@ -289,7 +291,7 @@ impl OutputTermStreamer {
             self.sortfiles[x].set_len(0).unwrap(); // delete the contents
             self.sortfiles[x].seek(SeekFrom::Start(0)).unwrap();
             {
-                let mut bw = BufWriter::new(&self.sortfiles[x]);
+                let mut bw = snap::Writer::new(&self.sortfiles[x]);
                 for v in &self.mem_buffer {
                     v.serialize(&mut bw);
                 }
@@ -316,7 +318,7 @@ impl OutputTermStreamer {
             let mut streamer = self
                 .sortfiles
                 .iter()
-                .map(BufReader::new)
+                .map(snap::Reader::new)
                 .collect::<Vec<_>>();
 
             // create the output file, which will be the new input

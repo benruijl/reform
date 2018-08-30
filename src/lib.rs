@@ -12,6 +12,7 @@ extern crate num_integer;
 extern crate num_traits;
 extern crate rand;
 extern crate rug; // for gmp and bigint support
+extern crate snap;
 
 #[cfg(feature = "python_api")]
 #[macro_use]
