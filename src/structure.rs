@@ -72,10 +72,10 @@ impl IfCondition {
         }
     }
 
-    pub fn replace_dollar(&mut self, map: &HashMap<VarName, DollarVariableTable>) -> bool {
+    pub fn replace_dollar(&mut self, map: &HashMap<VarName, DollarVariableTable>) -> ReplaceResult {
         match self {
             IfCondition::Match(e) => e.replace_dollar(map),
-            IfCondition::Comparison(e1, e2, _) => e1.replace_dollar(map) || e2.replace_dollar(map),
+            IfCondition::Comparison(e1, e2, _) => e1.replace_dollar(map) | e2.replace_dollar(map),
         }
     }
 
@@ -432,6 +432,14 @@ impl Ordering {
             | (Ordering::Equal, cmp::Ordering::Equal) => true,
             _ => false,
         }
+    }
+}
+
+bitflags! {
+    pub struct ReplaceResult: u8 {
+        const Replaced = 1; // variable substituted
+        const Partially_Updated = 2; // dollar variable index was updated
+        const NotReplaced = 4; // variable could not be substituted
     }
 }
 
@@ -976,6 +984,7 @@ pub enum StatementResult<T> {
 #[derive(Debug, Clone)]
 pub struct IdentityStatement<ID: Id = VarName> {
     pub mode: IdentityStatementMode,
+    pub contains_dollar: bool,
     pub lhs: Element<ID>,
     pub rhs: Element<ID>,
 }
@@ -1545,13 +1554,30 @@ impl Element<String> {
 }
 
 impl Element {
+    #[inline]
+    fn contains_dollar_simple(&self) -> Option<bool> {
+        match *self {
+            Element::Var(..) | Element::Num(..) => Some(false),
+            Element::Dollar(..) => Some(true),
+            Element::Wildcard(_, ref restrictions) => {
+                if restrictions.is_empty() {
+                    Some(false)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
     pub fn contains_dollar(&self) -> bool {
         match *self {
-            Element::Var(..) => false,
-            Element::Dollar(..) => true,
-            Element::Wildcard(_, ref restrictions) => {
-                for x in restrictions {
-                    if x.contains_dollar() {
+            Element::Term(_, ref f) | Element::SubExpr(_, ref f) | Element::Fn(_, _, ref f) => {
+                for x in f {
+                    // TODO: first test all items with the simple test?
+                    if x.contains_dollar_simple()
+                        .unwrap_or_else(|| x.contains_dollar())
+                    {
                         return true;
                     }
                 }
@@ -1559,38 +1585,50 @@ impl Element {
             }
             Element::FnWildcard(_, ref b) => {
                 for x in b.0.iter().chain(&b.1) {
-                    if x.contains_dollar() {
+                    if x.contains_dollar_simple()
+                        .unwrap_or_else(|| x.contains_dollar())
+                    {
                         return true;
                     }
                 }
                 false
             }
-            Element::Comparison(_, ref e, _) => e.0.contains_dollar() || e.1.contains_dollar(),
-            Element::Pow(_, ref be) => be.0.contains_dollar() || be.1.contains_dollar(),
-            Element::Term(_, ref f) | Element::SubExpr(_, ref f) | Element::Fn(_, _, ref f) => {
-                for x in f {
-                    if x.contains_dollar() {
+            Element::Comparison(_, ref e, _) | Element::Pow(_, ref e) => {
+                e.0.contains_dollar_simple()
+                    .unwrap_or_else(|| e.0.contains_dollar())
+                    || e.1
+                        .contains_dollar_simple()
+                        .unwrap_or_else(|| e.1.contains_dollar())
+            }
+            Element::Wildcard(_, ref restrictions) => {
+                for x in restrictions {
+                    if x.contains_dollar_simple()
+                        .unwrap_or_else(|| x.contains_dollar())
+                    {
                         return true;
                     }
                 }
                 false
             }
+            Element::Dollar(..) => true,
             _ => false,
         }
     }
 
-    pub fn replace_dollar(&mut self, map: &HashMap<VarName, DollarVariableTable>) -> bool {
-        let mut changed = false;
+    pub fn replace_dollar(&mut self, map: &HashMap<VarName, DollarVariableTable>) -> ReplaceResult {
+        let mut changed = ReplaceResult::empty();
         *self = match *self {
             Element::Dollar(ref mut name, ref mut inds) => {
+                // TODO: make this a partial replacement?
                 for i in inds.iter_mut() {
-                    changed |= i.replace_dollar(map);
+                    i.replace_dollar(map);
                 }
 
                 if let Some(x) = map.get(name).and_then(|x| x.get(inds)) {
+                    changed = ReplaceResult::Replaced;
                     x.clone()
                 } else {
-                    return changed;
+                    return ReplaceResult::NotReplaced;
                 }
             }
             Element::FnWildcard(_, ref mut b) => {
@@ -1603,7 +1641,7 @@ impl Element {
             Element::Comparison(ref mut dirty, ref mut e, _) => {
                 changed |= e.0.replace_dollar(map);
                 changed |= e.1.replace_dollar(map);
-                *dirty |= changed;
+                *dirty |= changed.contains(ReplaceResult::Replaced);
                 return changed;
             }
             Element::Wildcard(_, ref mut restrictions) => {
@@ -1616,7 +1654,7 @@ impl Element {
                 let (ref mut b, ref mut e) = *&mut **be;
                 changed |= b.replace_dollar(map);
                 changed |= e.replace_dollar(map);
-                *dirty |= changed;
+                *dirty |= changed.contains(ReplaceResult::Replaced);
                 return changed;
             }
             Element::Term(ref mut dirty, ref mut f)
@@ -1624,19 +1662,19 @@ impl Element {
                 for x in f {
                     changed |= x.replace_dollar(map);
                 }
-                *dirty |= changed;
+                *dirty |= changed.contains(ReplaceResult::Replaced);
                 return changed;
             }
             Element::Fn(ref mut dirty, _, ref mut args) => {
                 for x in args {
                     changed |= x.replace_dollar(map);
                 }
-                *dirty |= changed;
+                *dirty |= changed.contains(ReplaceResult::Replaced);
                 return changed;
             }
-            _ => return false,
+            _ => return changed,
         };
-        true
+        changed
     }
 
     pub fn replace_elements(&mut self, map: &HashMap<VarName, Element>) -> bool {
@@ -1796,10 +1834,12 @@ impl Statement<String> {
             ),
             Statement::IdentityStatement(IdentityStatement {
                 ref mode,
+                ref contains_dollar,
                 ref mut lhs,
                 ref mut rhs,
             }) => Statement::IdentityStatement(IdentityStatement {
                 mode: mode.clone(),
+                contains_dollar: *contains_dollar,
                 lhs: lhs.to_element(var_info),
                 rhs: rhs.to_element(var_info),
             }),
@@ -1871,13 +1911,15 @@ impl Statement<String> {
 }
 
 impl Statement {
+    /// Check if a statement contains a dollar variable.
     pub fn contains_dollar(&self) -> bool {
         match *self {
             Statement::IdentityStatement(IdentityStatement {
                 mode: _,
-                ref lhs,
-                ref rhs,
-            }) => lhs.contains_dollar() || rhs.contains_dollar(),
+                contains_dollar,
+                lhs: _,
+                rhs: _,
+            }) => contains_dollar,
             Statement::Module(Module { ref statements, .. }) => {
                 for s in statements {
                     if s.contains_dollar() {
@@ -1971,8 +2013,8 @@ impl Statement {
         }
     }
 
-    pub fn replace_dollar(&mut self, map: &HashMap<VarName, DollarVariableTable>) -> bool {
-        let mut changed = false;
+    pub fn replace_dollar(&mut self, map: &HashMap<VarName, DollarVariableTable>) -> ReplaceResult {
+        let mut changed = ReplaceResult::empty();
         match *self {
             Statement::Module(Module {
                 ref mut statements, ..
@@ -1983,11 +2025,17 @@ impl Statement {
             }
             Statement::IdentityStatement(IdentityStatement {
                 mode: _,
+                ref mut contains_dollar,
                 ref mut lhs,
                 ref mut rhs,
             }) => {
-                changed |= lhs.replace_dollar(map);
-                changed |= rhs.replace_dollar(map);
+                if *contains_dollar {
+                    changed |= lhs.replace_dollar(map);
+                    changed |= rhs.replace_dollar(map);
+
+                    // we have a dollar variable left if there are unreplaced dollars
+                    *contains_dollar = changed.contains(ReplaceResult::NotReplaced);
+                }
             }
             Statement::Repeat(ref mut ss) => for s in ss {
                 changed |= s.replace_dollar(map);
@@ -2069,6 +2117,7 @@ impl Statement {
             }
             Statement::IdentityStatement(IdentityStatement {
                 mode: _,
+                contains_dollar: _,
                 ref mut lhs,
                 ref mut rhs,
             }) => {

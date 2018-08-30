@@ -274,6 +274,7 @@ parser!{
         IdentityStatement {
             _: keyword("id"),
             mode: idmode,
+            contains_dollar: value(true),
             lhs: expr(),
             _: lex_char('='),
             rhs: expr(),

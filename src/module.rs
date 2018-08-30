@@ -519,7 +519,10 @@ fn do_module_rec(
                         let mut ee1 = e1.clone();
 
                         if e1.contains_dollar() {
-                            if ee1.replace_dollar(&local_var_info.variables) {
+                            if ee1
+                                .replace_dollar(&local_var_info.variables)
+                                .contains(ReplaceResult::Replaced)
+                            {
                                 ee1.normalize_inplace(&global_var_info);
                             } else {
                                 panic!("Unsubstituted dollar variable in comparison");
@@ -528,7 +531,10 @@ fn do_module_rec(
 
                         let mut ee2 = e2.clone();
                         if e2.contains_dollar() {
-                            if ee2.replace_dollar(&local_var_info.variables) {
+                            if ee2
+                                .replace_dollar(&local_var_info.variables)
+                                .contains(ReplaceResult::Replaced)
+                            {
                                 ee2.normalize_inplace(&global_var_info);
                             } else {
                                 panic!("Unsubstituted dollar variable in comparison");
@@ -580,7 +586,10 @@ fn do_module_rec(
         Statement::Assign(ref dollar, ref e) => {
             let mut ee = e.clone();
             ee.normalize_inplace(&global_var_info);
-            if ee.replace_dollar(&local_var_info.variables) {
+            if ee
+                .replace_dollar(&local_var_info.variables)
+                .contains(ReplaceResult::Replaced)
+            {
                 ee.normalize_inplace(&global_var_info);
             }
             local_var_info.add_dollar(dollar.clone(), ee);
@@ -618,7 +627,10 @@ fn do_module_rec(
             for s in newss {
                 if let Statement::Assign(ref dollar, ref e) = s {
                     let mut ee = e.clone();
-                    if ee.replace_dollar(&local_var_info.variables) {
+                    if ee
+                        .replace_dollar(&local_var_info.variables)
+                        .contains(ReplaceResult::Replaced)
+                    {
                         ee.normalize_inplace(&global_var_info);
                     }
                     local_var_info.add_dollar(dollar.clone(), ee);
@@ -957,7 +969,11 @@ fn do_module_rec(
         // consider this as a workaround for excessive copying of (large) dollar variables
         let mut ns = Cow::Borrowed(&statements[current_index]);
         if ns.contains_dollar() {
-            if ns.to_mut().replace_dollar(&local_var_info.variables) {
+            if ns
+                .to_mut()
+                .replace_dollar(&local_var_info.variables)
+                .contains(ReplaceResult::Replaced)
+            {
                 ns.to_mut().normalize(global_var_info);
             }
         }
@@ -996,7 +1012,9 @@ fn do_module_rec(
 
                     // It could be that the result contains a dollar variable
                     // that became substitutable after an index change
-                    if f.replace_dollar(&local_var_info.variables) {
+                    if f.replace_dollar(&local_var_info.variables)
+                        .contains(ReplaceResult::Replaced)
+                    {
                         f.normalize_inplace(global_var_info);
                     }
 
@@ -1055,6 +1073,16 @@ impl Module {
     ) {
         for x in statements.iter_mut() {
             match *x {
+                Statement::IdentityStatement(..) => {
+                    if x.contains_dollar() {
+                        // For the moment this command will set a flag if the statement
+                        // contains no dollar variables. We cannot replace all dollar variables
+                        // at compile time, since they may change at runtime.
+                        // TODO: track if dollar variables change
+                        x.replace_dollar(&HashMap::new());
+                    }
+                    output.push(x.clone())
+                }
                 Statement::Repeat(ref mut ss) => {
                     output.push(Statement::PushChange);
                     let pos = output.len();
@@ -1108,7 +1136,10 @@ impl Module {
                                     replace_map.insert(dd, mm);
                                     for ss in s.iter() {
                                         let mut news = ss.clone();
-                                        if news.replace_dollar(&replace_map) {
+                                        if news
+                                            .replace_dollar(&replace_map)
+                                            .contains(ReplaceResult::Replaced)
+                                        {
                                             news.normalize(&var_info.global_info);
                                         }
                                         newout.push(news);
@@ -1143,7 +1174,10 @@ impl Module {
                             replace_map.insert(dd, mm);
                             for ss in s.iter() {
                                 let mut news = ss.clone();
-                                if news.replace_dollar(&replace_map) {
+                                if news
+                                    .replace_dollar(&replace_map)
+                                    .contains(ReplaceResult::Replaced)
+                                {
                                     news.normalize(&var_info.global_info);
                                 }
                                 newout.push(news);
@@ -1394,7 +1428,9 @@ impl Program {
                 ),
                 Statement::NewExpression(name, mut e) => {
                     let mut expr = InputTermStreamer::new(None);
-                    if e.replace_dollar(&self.var_info.local_info.variables) {
+                    if e.replace_dollar(&self.var_info.local_info.variables)
+                        .contains(ReplaceResult::Replaced)
+                    {
                         e.normalize_inplace(&self.var_info.global_info);
                     }
 
@@ -1420,7 +1456,9 @@ impl Program {
                         .insert(name, (args, e));
                 }
                 Statement::Assign(dollar, mut e) => {
-                    if e.replace_dollar(&self.var_info.local_info.variables) {
+                    if e.replace_dollar(&self.var_info.local_info.variables)
+                        .contains(ReplaceResult::Replaced)
+                    {
                         e.normalize_inplace(&self.var_info.global_info);
                     }
                     self.var_info.local_info.add_dollar(dollar, e);
@@ -1532,7 +1570,10 @@ impl Program {
                                     replace_map.insert(dd, mm);
                                     for ss in s.iter().rev() {
                                         let mut news = ss.clone();
-                                        if news.replace_dollar(&replace_map) {
+                                        if news
+                                            .replace_dollar(&replace_map)
+                                            .contains(ReplaceResult::Replaced)
+                                        {
                                             news.normalize(&self.var_info.global_info);
                                         }
                                         statements.push_front(news);
@@ -1559,7 +1600,10 @@ impl Program {
                             replace_map.insert(dd, mm);
                             for ss in s.iter().rev() {
                                 let mut news = ss.clone();
-                                if news.replace_dollar(&replace_map) {
+                                if news
+                                    .replace_dollar(&replace_map)
+                                    .contains(ReplaceResult::Replaced)
+                                {
                                     news.normalize(&self.var_info.global_info);
                                 }
                                 statements.push_front(news);

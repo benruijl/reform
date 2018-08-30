@@ -4,7 +4,7 @@ use std::fmt;
 use std::mem;
 use structure::{
     BorrowedVarInfo, Element, FunctionAttributes, IdentityStatement, IdentityStatementMode,
-    StatementResult, VarName,
+    ReplaceResult, StatementResult, VarName,
 };
 use tools::{is_number_in_range, Heap, SliceRef};
 
@@ -1202,7 +1202,10 @@ impl<'a> MatchIterator<'a> {
         // due to index changes elsewhere now
         if res.contains_dollar() {
             res.normalize_inplace(self.var_info.global_info);
-            if res.replace_dollar(&self.var_info.local_info.variables) {
+            if res
+                .replace_dollar(&self.var_info.local_info.variables)
+                .contains(ReplaceResult::Replaced)
+            {
                 res.normalize_inplace(self.var_info.global_info);
             }
         } else {
