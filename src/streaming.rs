@@ -225,7 +225,7 @@ impl OutputTermStreamer {
                         }
                         print_mode = mode;
                     }
-                    _ => {}
+                    x => unreachable!("Unhandled sort statement: {}", x),
                 }
             }
 
@@ -402,7 +402,16 @@ impl OutputTermStreamer {
                             panic!("Cannot collect, since output does not fit in memory.");
                         }
                     }
-                    _ => unreachable!(),
+                    Statement::Print(mode, ref es) => {
+                        if es.len() == 0 || es
+                            .iter()
+                            .any(|e| exprname == var_info.global_info.get_name(*e))
+                        {
+                            print_output = true;
+                        }
+                        print_mode = mode;
+                    }
+                    x => unreachable!("Unhandled sort statement: {}", x),
                 }
             }
 
