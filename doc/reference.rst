@@ -677,6 +677,25 @@ Functions
     
         15
 
+.. frm:function:: list_(i, lb, ub, expr)
+
+    :param i: A variable used as a counter
+    :param lb: A numeric lower bound for ``i``
+    :param ub: A numeric upper bound for ``i``
+
+    Return a list of ``expr`` with ``i`` going from ``lb`` to (and including) ``ub``.
+    This function will only be replaced when it is a function argument.
+
+    .. code-block:: reform
+
+        expr F = f(1,2,list_($i,2,5,$i^2),3,4);
+
+    yields
+
+    .. code-block:: reform
+
+        f(1,2,4,9,16,25,3,4)
+
 .. frm:function:: nargs_(a1,...,an)
 
     :param a1,...,an: A list of expressions
@@ -705,7 +724,7 @@ Functions
     :param lb: A numeric lower bound for ``i``
     :param ub: A numeric upper bound for ``i``
 
-    Return the product of ``i`` going from ``lb`` to (and including) ``ub``.
+    Return the product of ``expr`` with ``i`` going from ``lb`` to (and including) ``ub``.
 
     .. code-block:: reform
 
@@ -743,7 +762,7 @@ Functions
     :param lb: A numeric lower bound for ``i``
     :param ub: A numeric upper bound for ``i``
 
-    Return the sum of ``i`` going from ``lb`` to (and including) ``ub``.
+    Return the sum of ``expr`` with ``i`` going from ``lb`` to (and including) ``ub``.
 
     .. code-block:: reform
 

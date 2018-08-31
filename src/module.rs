@@ -8,7 +8,7 @@ use std::collections::VecDeque;
 use std::mem;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time;
+use std::time::{Duration, Instant};
 
 use crossbeam;
 use crossbeam::queue::MsQueue;
@@ -1292,6 +1292,8 @@ impl Module {
                 continue;
             }
 
+            let module_start_time = Instant::now();
+
             let global_info = var_info.global_info.clone();
 
             let mut output = OutputTermStreamer::new();
@@ -1342,7 +1344,7 @@ impl Module {
                                 }
                             }
                         }
-                        thread::sleep(time::Duration::from_millis(50));
+                        thread::sleep(Duration::from_millis(50));
                     }
                 });
 
@@ -1381,6 +1383,7 @@ impl Module {
             };
 
             let exprname = var_info.get_str_name(name);
+            let pre_sort_time = Instant::now();
             output.sort(
                 &exprname,
                 input_stream,
@@ -1389,6 +1392,15 @@ impl Module {
                 sort_statements,
                 verbosity > 0,
                 write_log,
+            );
+
+            let post_sort_time = Instant::now();
+
+            println!(
+                "{} --\ttime: {:#?}\tsort time: {:#?}",
+                self.name,
+                post_sort_time.duration_since(module_start_time),
+                post_sort_time.duration_since(pre_sort_time)
             );
         }
 

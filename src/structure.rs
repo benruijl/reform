@@ -10,7 +10,7 @@ use std::mem;
 use streaming::InputTermStreamer;
 
 pub const BUILTIN_FUNCTIONS: &'static [&'static str] = &[
-    "delta_", "nargs_", "sum_", "prod_", "rat_", "gcd_", "takearg_", "ifelse_", "term_",
+    "delta_", "nargs_", "sum_", "prod_", "rat_", "gcd_", "takearg_", "ifelse_", "term_", "list_",
 ];
 pub const FUNCTION_DELTA: VarName = 0;
 pub const FUNCTION_NARGS: VarName = 1;
@@ -21,6 +21,7 @@ pub const FUNCTION_GCD: VarName = 5;
 pub const FUNCTION_TAKEARG: VarName = 6;
 pub const FUNCTION_IFELSE: VarName = 7;
 pub const FUNCTION_TERM: VarName = 8;
+pub const FUNCTION_LIST: VarName = 9;
 
 /// Trait for variable ID. Normally `VarName` or `String`.
 pub trait Id: Ord + fmt::Debug {}

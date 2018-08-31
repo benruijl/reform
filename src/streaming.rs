@@ -261,7 +261,7 @@ impl OutputTermStreamer {
             input_streamer.termcounter_input = input_streamer.mem_buffer_input.len() as u64;
 
             println!(
-                "{} -- \t terms in: {}\tgenerated: {}\tterms out: {}",
+                "{} --\tterms in: {}\t\tgenerated: {}\t\tterms out: {}",
                 module_name, inpterm, genterm, input_streamer.termcounter_input
             );
 
@@ -432,7 +432,7 @@ impl OutputTermStreamer {
             input_streamer.input = Some(BufReader::new(of)); // set it as the new input
 
             println!(
-                "{} -- \t terms in: {}\tgenerated: {}\tterms out: {}",
+                "{} --\tterms in: {}\t\t\tgenerated: {}\t\t\tterms out: {}",
                 module_name, inpterm, genterm, input_streamer.termcounter_input
             );
         }

@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use std::mem;
 use structure::{
     Element, FunctionAttributes, GlobalVarInfo, Ordering, FUNCTION_DELTA, FUNCTION_GCD,
-    FUNCTION_IFELSE, FUNCTION_NARGS, FUNCTION_PROD, FUNCTION_RAT, FUNCTION_SUM, FUNCTION_TAKEARG,
-    FUNCTION_TERM,
+    FUNCTION_IFELSE, FUNCTION_LIST, FUNCTION_NARGS, FUNCTION_PROD, FUNCTION_RAT, FUNCTION_SUM,
+    FUNCTION_TAKEARG, FUNCTION_TERM,
 };
 use tools::add_num_poly;
 
@@ -462,6 +462,8 @@ impl Element {
                         // the ifelse_ function should not normalize its two branches,
                         // since only one of them will be executed. This saves time and
                         // prevents infinite loops
+
+                        let mut has_list_arg = false;
                         if *name == FUNCTION_IFELSE && args.len() == 3 {
                             if args[0].should_normalize() {
                                 changed |= args[0].normalize_inplace(var_info);
@@ -471,7 +473,49 @@ impl Element {
                                 if x.should_normalize() {
                                     changed |= x.normalize_inplace(var_info);
                                 }
+
+                                if let Element::Fn(false, FUNCTION_LIST, args1) = x {
+                                    if args1.len() == 4 {
+                                        has_list_arg = true;
+                                    }
+                                }
                             }
+                        }
+
+                        if has_list_arg {
+                            let mut new_args = Vec::with_capacity(args.len());
+
+                            for x in mem::replace(args, vec![]) {
+                                let mut replaced = false;
+                                if let Element::Fn(false, FUNCTION_LIST, ref a) = x {
+                                    if a.len() == 4 {
+                                        if let (
+                                            &Element::Num(_, Number::SmallInt(n1)),
+                                            &Element::Num(_, Number::SmallInt(n2)),
+                                        ) = (&a[1], &a[2])
+                                        {
+                                            for i in n1..n2 + 1 {
+                                                let mut ne = a[3].clone();
+                                                ne.replace(
+                                                    &a[0],
+                                                    &Element::Num(false, Number::SmallInt(i)),
+                                                );
+                                                ne.normalize_inplace(&var_info);
+                                                new_args.push(ne);
+                                                replaced = true;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if !replaced {
+                                    new_args.push(x);
+                                }
+                            }
+
+                            *args = new_args;
+
+                            changed = true;
                         }
 
                         newvalue = loop {
