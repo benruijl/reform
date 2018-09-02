@@ -1,0 +1,156 @@
+newline       = _{ "\n" | "\r\n" }
+comment       = _{ line_comment | block_comment }
+line_comment  = _{ "//" ~ (!newline ~ any)* }
+block_comment = _{ "/*" ~ (!"*/" ~ any)* ~ "*/" }
+whitespace    = _{ " " | "\r" | "\n" | "\t" }
+
+alpha       = _{ 'a'..'z' | 'A'..'Z' }
+dec_digit   = _{ '0'..'9' }
+nonzero_dec = _{ '1'..'9' }
+
+identity  = @{ alpha ~ (alpha | dec_digit | "_")* | "[" ~ (!"]" ~ any)* ~ "]" }
+
+// TODO: add indices
+dollar    = @{ "$" ~ alpha ~ (alpha | dec_digit)* | "[" ~ (!"]" ~ any)* ~ "]" }
+integer   = @{ "0" | nonzero_dec ~ dec_digit* }
+string    = ${ quote_char ~ inner_str ~ quote_char }
+
+dollaridentity = {dollar | identity}
+
+inner_str      = @{ (!(quote_char | escape) ~ any)* ~ (escape ~ inner_str)? }
+escape         = @{ escape_char ~ (quote_char | "n") }
+quote_char     = _{ "\"" }
+escape_char    = _{ "\\" }
+
+op_unary_plus  = { "+" }
+op_unary_minus = { "-" }
+op_plus        = { "+" }
+op_minus       = { "-" }
+op_times       = { "*" }
+op_divide      = { "/" }
+op_power       = { "^" }
+op_ge          = { ">=" }
+op_gt          = { ">" }
+op_le          = { "<=" }
+op_lt          = { "<" }
+op_eq          = { "==" }
+op_ne          = { "!=" }
+op_logical_or  = { "||" }
+op_logical_and = { "&&" }
+op_logical_not = { "!" }
+
+start = { soi ~ global_statement* ~ eoi }
+
+global_statement     = {
+    expr_statement
+  | call_statement
+  | assign_statement
+  | inside_statement
+  | print_statement
+  | expand_statement
+  | proc_block
+  | mod_block
+  | global_if_block
+}
+
+global_block        = { global_statement | "{" ~ global_statement* ~ "}" }
+
+expr_statement      = { "expr" ~ identity ~ "=" ~ expression ~ ";" }
+
+call_statement      = { "call" ~ identity ~ ("(" ~ call_args ~ ")")? ~ ";" }
+
+call_args           = { (expression ~ ("," ~ expression)*)? }
+
+assign_statement    = { dollar ~ "=" ~ expression ~ ";" }
+
+inside_statement    = { "inside" ~ (dollaridentity ~ ("," ~ dollaridentity)*)? ~ "{" ~ global_statement* ~ "}" }
+
+print_statement     = { "print" ~ (dollaridentity ~ ("," ~ dollaridentity)*)? ~ ";" }
+
+expand_statement    = { "expand" ~ ";" }
+
+proc_block          = { "proc" ~ identity ~ ("(" ~ proc_args ~ ")")?
+                            ~ "{" ~ proc_content ~ "}" }
+
+proc_args           = { (identity ~ ("," ~ identity)*)? }
+
+proc_content        = { global_statement+ | exec_statement* }
+
+// TODO: add filters
+mod_block           = { "apply" ~ module_name? ~ "{" ~ exec_statement* ~ "}" }
+
+module_name         = { identity | string }
+
+global_if_block     = { "if" ~ bool_expression ~ global_block }
+
+exec_statement      = {
+    call_statement
+  | assign_statement
+  | multiply_statement
+  | inside_statement
+  | print_statement
+  | id_statement
+  | repeat_block
+  | if_block
+  | print_spec
+}
+
+exec_block          = { exec_statement | "{" ~ exec_statement* ~ "}" }
+
+id_statement        = { "id" ~ expression ~ "=" ~ expression ~ ";" }
+
+multiply_statement  = { "multiply" ~ expression ~ ";" }
+
+repeat_block        = { "repeat" ~ exec_block }
+
+if_block            = { "if" ~ bool_expression ~ exec_block }
+
+print_spec          = { "print" ~ ";" }
+
+expression          = { term ~ ((op_plus | op_minus) ~ term)* }
+term                = { factor ~ ((op_times | op_divide) ~ factor)* }
+factor              = { (op_unary_plus | op_unary_minus) ~ factor | power}
+power               = { primary ~ (op_power ~ factor)? }
+primary             = { wildcard | function
+                                 | identity
+                                 | number
+                                 | dollar
+                                 | "(" ~ expression ~ ")" }
+function            = { identity ~ "(" ~ func_args ~ ")" }
+func_args           = { (func_arg ~ ("," ~ func_arg)*)? }
+func_arg            = { wildarg | expression }
+
+number              = { (op_unary_plus | op_unary_minus)? ~ integer
+                        ~ ("/" ~ integer)? }
+
+wildarg             = { "?" ~ identity }
+wildcard            = { identity ~ "?" ~ constraint? }
+constraint          = { builtin_constraint | range_constraint }
+
+// TODO: support more constraint vector and dollar variable?
+range_constraint    = { "{" ~ (op_eq | op_ge | op_gt | op_le | op_lt) ~ number ~ "}" }
+
+builtin_constraint  = {
+    int_set
+  | even_set
+  | odd_set
+}
+
+int_set  = { "int_" }
+even_set = { "even_" }
+odd_set  = { "odd_" }
+
+bool_expression     = { and_expression ~ (op_logical_or ~ and_expression)* }
+and_expression      = { bool_factor ~ (op_logical_and ~ bool_factor)* }
+bool_factor         = { op_logical_not ~ bool_factor | bool_primary }
+bool_primary        = { bool_function | comparison }
+
+comparison          = { expression
+                       ~ ((op_ge | op_gt | op_le | op_lt | op_eq | op_ne)
+                          ~ expression)* }
+
+bool_function      = { defined_func | match_func }
+
+defined_func       = { "defined" ~ "(" ~ identity ~ ")" }
+
+match_func       = { "match" ~ "(" ~ expression ~ ")" }
