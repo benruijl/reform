@@ -102,6 +102,21 @@ fn parse_function(e: pest::iterators::Pair<Rule>) -> Element<String> {
     Element::Fn(true, name, args)
 }
 
+fn parse_comparison(e: pest::iterators::Pair<Rule>) -> Element<String> {
+    let mut ee = e.into_inner();
+    let lhs = parse_expr(ee.next().unwrap());
+    let ordering = match ee.next().unwrap().into_span().as_str() {
+        "==" => Ordering::Equal,
+        ">=" => Ordering::GreaterEqual,
+        ">" => Ordering::Greater,
+        "<=" => Ordering::SmallerEqual,
+        "<" => Ordering::Smaller,
+        _ => unreachable!(),
+    };
+    let rhs = parse_expr(ee.next().unwrap());
+    Element::Comparison(true, Box::new((lhs, rhs)), ordering)
+}
+
 fn parse_primary(e: pest::iterators::Pair<Rule>) -> Element<String> {
     let mut ee = e.into_inner();
     let p = ee.next().unwrap();
@@ -265,10 +280,11 @@ fn parse_statement(e: pest::iterators::Pair<Rule>) -> Statement<String> {
             }
 
             let mut sts = vec![];
-            for st in r.next().unwrap().into_inner() {
-                sts.push(parse_statement(st));
+            for exec_statement in r {
+                for st in exec_statement.into_inner() {
+                    sts.push(parse_statement(st));
+                }
             }
-
             Statement::Inside(funcs, sts)
         }
         Rule::argument_statement => {
@@ -287,11 +303,50 @@ fn parse_statement(e: pest::iterators::Pair<Rule>) -> Statement<String> {
             }
 
             let mut sts = vec![];
-            for st in r.next().unwrap().into_inner() {
-                sts.push(parse_statement(st));
+            for exec_statement in r {
+                for st in exec_statement.into_inner() {
+                    sts.push(parse_statement(st));
+                }
             }
 
             Statement::Argument(funcs, sts)
+        }
+        Rule::for_statement => {
+            let mut r = e.into_inner();
+
+            let mut d = parse_dollar(r.next().unwrap());
+
+            let mut range = vec![];
+            let mut statements = vec![];
+            for x in r {
+                match x.as_rule() {
+                    Rule::dollar => range.push(parse_dollar(x)),
+                    Rule::identity => range.push(Element::Var(
+                        x.into_span().as_str().to_string(),
+                        Number::SmallInt(1),
+                    )),
+                    Rule::exec_statement => {
+                        let child = x.into_inner().next().unwrap();
+                        statements.push(parse_statement(child));
+                    }
+                    _ => unreachable!(),
+                }
+            }
+
+            Statement::ForIn(d, range, statements)
+        }
+        Rule::matchassign_statement => {
+            let mut r = e.into_inner();
+            let mut m = parse_expr(r.next().unwrap());
+
+            let mut sts = vec![];
+            for exec_statement in r {
+                for st in exec_statement.into_inner() {
+                    sts.push(parse_statement(st));
+                }
+            }
+
+            Statement::MatchAssign(m, sts)
         }
         Rule::print_statement => {
             let mut ds = vec![];
@@ -325,6 +380,7 @@ fn parse_statement(e: pest::iterators::Pair<Rule>) -> Statement<String> {
             })
         }
         Rule::expand_statement => Statement::Expand,
+        Rule::discard_statement => Statement::Discard,
         Rule::repeat_block => {
             let exec_block = e.into_inner().next().unwrap().into_inner();
 
@@ -335,6 +391,52 @@ fn parse_statement(e: pest::iterators::Pair<Rule>) -> Statement<String> {
             }
 
             Statement::Repeat(repeat)
+        }
+        Rule::if_block | Rule::global_if_block => {
+            let mut r = e.into_inner();
+
+            let bool_statement = r.next().unwrap().into_inner().next().unwrap();
+            let bool_stat = match bool_statement.as_rule() {
+                Rule::comparison => {
+                    let comp = parse_comparison(bool_statement);
+                    if let Element::Comparison(_, es, c) = comp {
+                        let (lhs, rhs) = { *es };
+                        IfCondition::Comparison(lhs, rhs, c)
+                    } else {
+                        unreachable!()
+                    }
+                }
+                Rule::bool_function => {
+                    let bool_function = bool_statement.into_inner().next().unwrap();
+                    match bool_function.as_rule() {
+                        Rule::defined_func => unimplemented!(),
+                        Rule::match_func => {
+                            let expr = parse_expr(bool_function.into_inner().next().unwrap());
+                            IfCondition::Match(expr)
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+                _ => unreachable!("{:#?}", bool_statement),
+            };
+
+            let trueblock_it = r.next().unwrap();
+            let mut trueblock = vec![];
+            for exec_statement in trueblock_it.into_inner() {
+                let child = exec_statement.into_inner().next().unwrap();
+                trueblock.push(parse_statement(child));
+            }
+
+            let mut falseblock = vec![];
+
+            if let Some(x) = r.next() {
+                for exec_statement in x.into_inner() {
+                    let child = exec_statement.into_inner().next().unwrap();
+                    falseblock.push(parse_statement(child));
+                }
+            }
+
+            Statement::IfElse(bool_stat, trueblock, falseblock)
         }
         Rule::id_statement => {
             // TODO: mode

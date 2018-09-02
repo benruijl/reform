@@ -44,6 +44,8 @@ global_statement     = {
   | call_statement
   | assign_statement
   | inside_statement
+  | for_statement
+  | for_in_range_statement
   | print_statement
   | proc_block
   | mod_block
@@ -52,23 +54,31 @@ global_statement     = {
 
 global_block        = { global_statement | "{" ~ global_statement* ~ "}" }
 
-expr_statement      = { "expr" ~ identity ~ "=" ~ expression ~ ";" }
+expr_statement      = { ^"expr" ~ identity ~ "=" ~ expression ~ ";" }
 
-call_statement      = { "call" ~ identity ~ ("(" ~ call_args ~ ")")? ~ ";" }
+call_statement      = { ^"call" ~ identity ~ ("(" ~ call_args ~ ")")? ~ ";" }
 
 call_args           = { (expression ~ ("," ~ expression)*)? }
 
 assign_statement    = { dollar ~ "=" ~ expression ~ ";" }
 
-inside_statement    = { "inside" ~ (dollar ~ ("," ~ dollar)*)? ~ "{" ~ exec_statement* ~ "}" }
+inside_statement    = { ^"inside" ~ (dollar ~ ("," ~ dollar)*)? ~ "{" ~ exec_statement* ~ "}" }
 
-argument_statement    = { "argument" ~ ((dollar | identity) ~ ("," ~ (dollar | identity))*)? ~ "{" ~ exec_statement* ~ "}" }
+argument_statement  = { ^"argument" ~ ((dollar | identity) ~ ("," ~ (dollar | identity))*)? ~ "{" ~ exec_statement* ~ "}" }
 
-print_statement     = { "print" ~ ((dollar | identity) ~ ("," ~ (dollar | identity))*)? ~ ";" }
+for_statement       = { ^"for" ~ (dollar | identity) ~ "in" ~ (dollar | identity) ~ ("," ~ (dollar | identity))* ~ "{" ~ exec_statement* ~ "}" }
 
-expand_statement    = { "expand" ~ ";" }
+for_in_range_statement = { ^"for" ~ (dollar | identity) ~ "in" ~ (dollar | identity) ~ ".." ~ (dollar | identity) ~ "{" ~ exec_statement* ~ "}" }
 
-proc_block          = { "proc" ~ identity ~ ("(" ~ proc_args ~ ")")?
+print_statement     = { ^"print" ~ ((dollar | identity) ~ ("," ~ (dollar | identity))*)? ~ ";" }
+
+matchassign_statement = { ^"matchassign" ~ expression ~ "{" ~ exec_statement* ~ "}" }
+
+expand_statement    = { ^"expand" ~ ";" }
+
+discard_statement    = { ^"discard" ~ ";" }
+
+proc_block          = { ^"proc" ~ identity ~ ("(" ~ proc_args ~ ")")?
                             ~ "{" ~ proc_content ~ "}" }
 
 proc_args           = { (identity ~ ("," ~ identity)*)? }
@@ -76,11 +86,11 @@ proc_args           = { (identity ~ ("," ~ identity)*)? }
 proc_content        = { global_statement+ | exec_statement* }
 
 // TODO: add filters
-mod_block           = { "apply" ~ module_name? ~ "{" ~ exec_statement* ~ "}" }
+mod_block           = { ^"apply" ~ module_name? ~ "{" ~ exec_statement* ~ "}" }
 
 module_name         = { identity | string }
 
-global_if_block     = { "if" ~ bool_expression ~ global_block }
+global_if_block     = { ^"if" ~ bool_primary ~ global_block ~ (^"else" ~ global_block)? }
 
 exec_statement      = {
     call_statement
@@ -88,9 +98,13 @@ exec_statement      = {
   | multiply_statement
   | inside_statement
   | argument_statement
+  | for_statement
+  | for_in_range_statement
+  | matchassign_statement
   | print_statement
   | id_statement
   | expand_statement
+  | discard_statement
   | repeat_block
   | if_block
   | print_spec
@@ -98,27 +112,31 @@ exec_statement      = {
 
 exec_block          = { exec_statement | "{" ~ exec_statement* ~ "}" }
 
-id_statement        = { "id" ~ expression ~ "=" ~ expression ~ ";" }
+id_statement        = { ^"id" ~ expression ~ "=" ~ expression ~ ";" }
 
-multiply_statement  = { "multiply" ~ expression ~ ";" }
+multiply_statement  = { ^"multiply" ~ expression ~ ";" }
 
-repeat_block        = { "repeat" ~ exec_block }
+repeat_block        = { ^"repeat" ~ exec_block }
 
-if_block            = { "if" ~ bool_expression ~ exec_block }
+if_block            = { ^"if" ~ bool_primary ~ exec_block ~ (^"else" ~ global_block)?}
 
-print_spec          = { "print" ~ ";" }
+print_spec          = { ^"print" ~ ";" }
 
 expression          = { term ~ ((op_plus | op_minus) ~ term)* }
 term                = { factor ~ ((op_times | op_divide) ~ factor)* }
 factor              = { (op_unary_plus | op_unary_minus) ~ factor | power}
 power               = { primary ~ (op_power ~ factor)? }
-primary             = { wildcard | function
+// TODO: adding comparison makes grammar left recursive
+primary             = { wildcard 
+                                 | function
                                  | identity
                                  | number
                                  | dollar
                                  | "(" ~ expression ~ ")" }
 function            = { identity ~ "(" ~ func_args ~ ")" }
 func_args           = { (func_arg ~ ("," ~ func_arg)*)? }
+
+// TODO: allow comparison: x < 5
 func_arg            = { wildarg | expression }
 
 number              = { (op_unary_plus | op_unary_minus)? ~ integer
@@ -152,6 +170,6 @@ comparison          = { expression
 
 bool_function      = { defined_func | match_func }
 
-defined_func       = { "defined" ~ "(" ~ identity ~ ")" }
+defined_func       = { ^"defined" ~ "(" ~ identity ~ ")" }
 
-match_func       = { "match" ~ "(" ~ expression ~ ")" }
+match_func       = { ^"match" ~ "(" ~ expression ~ ")" }
