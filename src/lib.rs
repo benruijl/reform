@@ -1,12 +1,12 @@
+extern crate pest;
 #[macro_use]
-extern crate combine;
-extern crate itertools; // command line argument options
-                        //extern crate rand;
+extern crate pest_derive;
 extern crate byteorder; // for serialization
 extern crate crossbeam;
 extern crate fastdivide;
 extern crate fnv;
 extern crate gmp_mpfr_sys;
+extern crate itertools; // command line argument options
 extern crate ndarray;
 extern crate num_integer;
 extern crate num_traits;
