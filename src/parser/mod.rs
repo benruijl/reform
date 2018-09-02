@@ -64,6 +64,11 @@ fn parse_dollar(dollar: pest::iterators::Pair<Rule>) -> Element<String> {
     Element::Dollar(name, vec![])
 }
 
+fn parse_identity(n: pest::iterators::Pair<Rule>) -> Element<String> {
+    let name = n.into_span().as_str().to_string();
+    Element::Var(name, Number::SmallInt(1))
+}
+
 fn parse_function(e: pest::iterators::Pair<Rule>) -> Element<String> {
     if e.as_rule() != Rule::function {
         unreachable!("Cannot parse {:#?} as function", e);
@@ -116,20 +121,31 @@ fn parse_primary(e: pest::iterators::Pair<Rule>) -> Element<String> {
             if let Some(constraint) = ee.next() {
                 let constraint_type = constraint.into_inner().next().unwrap();
                 match constraint_type.as_rule() {
-                    Rule::range_constraint => {
-                        let mut range_constraint = constraint_type.into_inner();
+                    Rule::set_constraint => {
+                        for set_constraint_type in constraint_type.into_inner() {
+                            match set_constraint_type.as_rule() {
+                                Rule::range_constraint => {
+                                    let mut range_constraint = set_constraint_type.into_inner();
+                                    let ordering =
+                                        match range_constraint.next().unwrap().into_span().as_str()
+                                        {
+                                            "==" => Ordering::Equal,
+                                            ">=" => Ordering::GreaterEqual,
+                                            ">" => Ordering::Greater,
+                                            "<=" => Ordering::SmallerEqual,
+                                            "<" => Ordering::Smaller,
+                                            _ => unreachable!(),
+                                        };
 
-                        let ordering = match range_constraint.next().unwrap().into_span().as_str() {
-                            "==" => Ordering::Equal,
-                            ">=" => Ordering::GreaterEqual,
-                            ">" => Ordering::Greater,
-                            "<=" => Ordering::SmallerEqual,
-                            "<" => Ordering::Smaller,
-                            _ => unreachable!(),
-                        };
-
-                        let num = parse_number(range_constraint.next().unwrap());
-                        constraints.push(Element::NumberRange(num, ordering));
+                                    let num = parse_number(range_constraint.next().unwrap());
+                                    constraints.push(Element::NumberRange(num, ordering));
+                                }
+                                Rule::primary => {
+                                    constraints.push(parse_primary(set_constraint_type));
+                                }
+                                _ => unreachable!(),
+                            }
+                        }
                     }
                     Rule::builtin_constraint => unimplemented!(),
                     _ => unreachable!("Unexpected {:#?}", constraint_type),
@@ -156,10 +172,17 @@ fn parse_factor(e: pest::iterators::Pair<Rule>) -> Element<String> {
     match factor.as_rule() {
         Rule::primary => parse_primary(factor),
         Rule::power => {
-            // for now, no exponent
             let mut pow = factor.into_inner();
-            let prim = pow.next().unwrap();
-            parse_primary(prim)
+            let base = parse_primary(pow.next().unwrap());
+
+            match pow.next() {
+                Some(x) => {
+                    assert!(x.as_rule() == Rule::op_power);
+                    let exp = parse_factor(pow.next().unwrap());
+                    Element::Pow(true, Box::new((base, exp)))
+                }
+                None => base,
+            }
         }
         x => unimplemented!("{:?}", x),
     }
@@ -212,7 +235,7 @@ fn parse_expr(e: pest::iterators::Pair<Rule>) -> Element<String> {
     Element::SubExpr(true, terms)
 }
 
-fn parse_statements(e: pest::iterators::Pair<Rule>) -> Statement<String> {
+fn parse_statement(e: pest::iterators::Pair<Rule>) -> Statement<String> {
     match e.as_rule() {
         Rule::expr_statement => {
             let mut r = e.into_inner();
@@ -228,12 +251,59 @@ fn parse_statements(e: pest::iterators::Pair<Rule>) -> Statement<String> {
             Statement::Assign(dollar, rhs)
         }
         Rule::inside_statement => {
-            unimplemented!();
-            /*let mut r = e.into_inner();
-            let dollar = parse_dollar(r.next().unwrap());
-            let rhs = parse_expr(r.next().unwrap());
+            let mut r = e.into_inner().peekable();
 
-            Statement::Inside(dollar, rhs)*/
+            let mut funcs = vec![];
+            loop {
+                match r.peek().unwrap().as_rule() {
+                    Rule::dollar => funcs.push(parse_dollar(r.next().unwrap())),
+                    Rule::exec_statement => {
+                        break;
+                    }
+                    _ => unreachable!(),
+                }
+            }
+
+            let mut sts = vec![];
+            for st in r.next().unwrap().into_inner() {
+                sts.push(parse_statement(st));
+            }
+
+            Statement::Inside(funcs, sts)
+        }
+        Rule::argument_statement => {
+            let mut r = e.into_inner().peekable();
+
+            let mut funcs = vec![];
+            loop {
+                match r.peek().unwrap().as_rule() {
+                    Rule::dollar => funcs.push(parse_dollar(r.next().unwrap())),
+                    Rule::identity => funcs.push(parse_identity(r.next().unwrap())),
+                    Rule::exec_statement => {
+                        break;
+                    }
+                    _ => unreachable!(),
+                }
+            }
+
+            let mut sts = vec![];
+            for st in r.next().unwrap().into_inner() {
+                sts.push(parse_statement(st));
+            }
+
+            Statement::Argument(funcs, sts)
+        }
+        Rule::print_statement => {
+            let mut ds = vec![];
+            for d in e.into_inner() {
+                match d.as_rule() {
+                    Rule::dollar | Rule::identity => ds.push(d.into_span().as_str().to_string()),
+                    _ => unreachable!(),
+                }
+            }
+
+            // TODO: print mode
+            Statement::Print(PrintMode::Form, ds)
         }
         Rule::mod_block => {
             let mut r = e.into_inner().peekable();
@@ -244,7 +314,7 @@ fn parse_statements(e: pest::iterators::Pair<Rule>) -> Statement<String> {
             let mut module = vec![];
             for exec_statement in r {
                 let child = exec_statement.into_inner().next().unwrap();
-                module.push(parse_statements(child));
+                module.push(parse_statement(child));
             }
 
             Statement::Module(Module {
@@ -254,13 +324,14 @@ fn parse_statements(e: pest::iterators::Pair<Rule>) -> Statement<String> {
                 statements: module,
             })
         }
+        Rule::expand_statement => Statement::Expand,
         Rule::repeat_block => {
             let exec_block = e.into_inner().next().unwrap().into_inner();
 
             let mut repeat = vec![];
             for exec_statement in exec_block {
                 let child = exec_statement.into_inner().next().unwrap();
-                repeat.push(parse_statements(child));
+                repeat.push(parse_statement(child));
             }
 
             Statement::Repeat(repeat)
@@ -296,7 +367,7 @@ pub fn parse_file(filename: &str) -> Program {
         for inner_pair in start.into_inner() {
             if inner_pair.as_rule() == Rule::global_statement {
                 for x in inner_pair.into_inner() {
-                    statements.push(parse_statements(x));
+                    statements.push(parse_statement(x));
                 }
             }
         }

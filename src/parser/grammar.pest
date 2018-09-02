@@ -15,8 +15,6 @@ dollar    = @{ "$" ~ alpha ~ (alpha | dec_digit)* | "[" ~ (!"]" ~ any)* ~ "]" }
 integer   = @{ "0" | nonzero_dec ~ dec_digit* }
 string    = ${ quote_char ~ inner_str ~ quote_char }
 
-dollaridentity = {dollar | identity}
-
 inner_str      = @{ (!(quote_char | escape) ~ any)* ~ (escape ~ inner_str)? }
 escape         = @{ escape_char ~ (quote_char | "n") }
 quote_char     = _{ "\"" }
@@ -47,7 +45,6 @@ global_statement     = {
   | assign_statement
   | inside_statement
   | print_statement
-  | expand_statement
   | proc_block
   | mod_block
   | global_if_block
@@ -63,9 +60,11 @@ call_args           = { (expression ~ ("," ~ expression)*)? }
 
 assign_statement    = { dollar ~ "=" ~ expression ~ ";" }
 
-inside_statement    = { "inside" ~ (dollaridentity ~ ("," ~ dollaridentity)*)? ~ "{" ~ global_statement* ~ "}" }
+inside_statement    = { "inside" ~ (dollar ~ ("," ~ dollar)*)? ~ "{" ~ exec_statement* ~ "}" }
 
-print_statement     = { "print" ~ (dollaridentity ~ ("," ~ dollaridentity)*)? ~ ";" }
+argument_statement    = { "argument" ~ ((dollar | identity) ~ ("," ~ (dollar | identity))*)? ~ "{" ~ exec_statement* ~ "}" }
+
+print_statement     = { "print" ~ ((dollar | identity) ~ ("," ~ (dollar | identity))*)? ~ ";" }
 
 expand_statement    = { "expand" ~ ";" }
 
@@ -88,8 +87,10 @@ exec_statement      = {
   | assign_statement
   | multiply_statement
   | inside_statement
+  | argument_statement
   | print_statement
   | id_statement
+  | expand_statement
   | repeat_block
   | if_block
   | print_spec
@@ -125,10 +126,10 @@ number              = { (op_unary_plus | op_unary_minus)? ~ integer
 
 wildarg             = { "?" ~ identity }
 wildcard            = { identity ~ "?" ~ constraint? }
-constraint          = { builtin_constraint | range_constraint }
+constraint          = { builtin_constraint | set_constraint }
 
-// TODO: support more constraint vector and dollar variable?
-range_constraint    = { "{" ~ (op_eq | op_ge | op_gt | op_le | op_lt) ~ number ~ "}" }
+set_constraint = { "{" ~ ((range_constraint | primary)  ~ ("," ~ (range_constraint | primary))*)? ~ "}" }
+range_constraint    = { (op_eq | op_ge | op_gt | op_le | op_lt) ~ primary }
 
 builtin_constraint  = {
     int_set
