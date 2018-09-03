@@ -94,8 +94,9 @@ proc_args           = { (identity ~ ("," ~ identity)*)? }
 
 proc_content        = { global_statement+ | exec_statement* }
 
-// TODO: add filters
-mod_block           = { ^"apply" ~ module_name? ~ "{" ~ exec_statement* ~ "}" }
+mod_block           = { ^"apply" ~ module_name? ~ (^"for" ~ inc_expr_list)? ~ (^"exclude" ~ exc_expr_list)? ~ "{" ~ exec_statement* ~ "}" }
+inc_expr_list       = { (identity ~ ("," ~ identity)*)? }
+exc_expr_list       = { (identity ~ ("," ~ identity)*)? }
 
 module_name         = { identity | string }
 
@@ -124,13 +125,15 @@ exec_statement      = {
 
 exec_block          = { exec_statement | "{" ~ exec_statement* ~ "}" }
 
-id_statement        = { ^"id" ~ term ~ "=" ~ expression ~ ";" }
+id_statement        = { ^"id" ~ id_mode? ~ term ~ "=" ~ expression ~ ";" }
+
+id_mode             = { ^"all" | ^"once" | ^"many" }
 
 multiply_statement  = { ^"multiply" ~ expression ~ ";" }
 
-replaceby_statement  = { ^"replaceby" ~ expression ~ ";" }
+replaceby_statement = { ^"replaceby" ~ expression ~ ";" }
 
-maximum_statement  = { ^"maximum" ~ dollar ~ ";" }
+maximum_statement   = { ^"maximum" ~ dollar ~ ";" }
 
 splitarg_statement  = { ^"splitarg" ~ identity ~ ";" }
 
@@ -144,7 +147,6 @@ expression          = { term ~ ((op_plus | op_minus) ~ term)* }
 term                = { factor ~ ((op_times | op_divide) ~ factor)* }
 factor              = { (op_unary_plus | op_unary_minus) ~ factor | power}
 power               = { primary ~ (op_power ~ factor)? }
-// TODO: adding comparison makes grammar left recursive
 primary             = { wildcard 
                                  | function
                                  | identity
@@ -153,7 +155,7 @@ primary             = { wildcard
                                  | "(" ~ expression ~ ")" }
 function            = { identity ~ "(" ~ func_args ~ ")" }
 func_args           = { (func_arg ~ ("," ~ func_arg)*)? }
-func_arg            = { wildarg | expression }
+func_arg            = { wildarg | comparison | expression }
 
 number              = { (op_unary_plus | op_unary_minus)? ~ integer
                         ~ ("/" ~ integer)? }
@@ -180,9 +182,7 @@ and_expression      = { bool_factor ~ (op_logical_and ~ bool_factor)* }
 bool_factor         = { op_logical_not ~ bool_factor | bool_primary }
 bool_primary        = { bool_function | comparison }
 
-comparison          = { expression
-                       ~ ((op_ge | op_gt | op_le | op_lt | op_eq | op_ne)
-                          ~ expression)* }
+comparison          = { expression ~ (op_ge | op_gt | op_le | op_lt | op_eq | op_ne) ~ expression }
 
 bool_function      = { defined_func | match_func }
 

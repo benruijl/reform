@@ -80,7 +80,7 @@ statement:
 Statements
 ==========
 
-.. frm:statement:: apply [name for F1,...,F2 excluding F3,...,] { [statements] };
+.. frm:statement:: apply [name for F1,...,F2 exclude F3,...,] { [statements] };
 
     :param name: Optional name of the module
     :param statements: A list of statements that will be applied
