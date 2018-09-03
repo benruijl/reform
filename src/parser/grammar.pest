@@ -10,8 +10,8 @@ nonzero_dec = _{ '1'..'9' }
 
 identity  = @{ alpha ~ (alpha | dec_digit | "_")* | "[" ~ (!"]" ~ any)* ~ "]" }
 
-// TODO: add indices
-dollar    = @{ "$" ~ alpha ~ (alpha | dec_digit)* | "[" ~ (!"]" ~ any)* ~ "]" }
+dollar_name = @{ "$" ~ identity}
+dollar    = { dollar_name ~ ("[" ~ func_args ~ "]")? }
 integer   = @{ "0" | nonzero_dec ~ dec_digit* }
 string    = ${ quote_char ~ inner_str ~ quote_char }
 
@@ -37,20 +37,25 @@ op_logical_or  = { "||" }
 op_logical_and = { "&&" }
 op_logical_not = { "!" }
 
-start = { soi ~ global_statement* ~ eoi }
+program = { soi ~ proc_block* ~ global_statement* ~ eoi }
 
 global_statement     = {
     expr_statement
   | call_statement
   | assign_statement
   | inside_statement
+  | attrib_statement
   | for_statement
+  | collect_statement
   | for_in_range_statement
   | print_statement
-  | proc_block
   | mod_block
   | global_if_block
 }
+
+attrib_statement    = { ^"attrib" ~ (dollar | identity) ~ "=" ~ (func_attrib  ~ ("+" ~ func_attrib )*)? ~ ";"}
+
+func_attrib         = { ^"linear" | ^"noncommutative" | ^"symmetric" | ^"nonlocal" }
 
 global_block        = { global_statement | "{" ~ global_statement* ~ "}" }
 
@@ -66,19 +71,23 @@ inside_statement    = { ^"inside" ~ (dollar ~ ("," ~ dollar)*)? ~ "{" ~ exec_sta
 
 argument_statement  = { ^"argument" ~ ((dollar | identity) ~ ("," ~ (dollar | identity))*)? ~ "{" ~ exec_statement* ~ "}" }
 
-for_statement       = { ^"for" ~ (dollar | identity) ~ "in" ~ (dollar | identity) ~ ("," ~ (dollar | identity))* ~ "{" ~ exec_statement* ~ "}" }
+for_statement       = { ^"for" ~ dollar ~ "in" ~ (dollar | identity) ~ ("," ~ (dollar | identity))* ~ "{" ~ exec_statement* ~ "}" }
 
-for_in_range_statement = { ^"for" ~ (dollar | identity) ~ "in" ~ (dollar | identity) ~ ".." ~ (dollar | identity) ~ "{" ~ exec_statement* ~ "}" }
+for_in_range_statement = { ^"for" ~ dollar ~ "in" ~ expression ~ ".." ~ expression ~ "{" ~ exec_statement* ~ "}" }
 
-print_statement     = { ^"print" ~ ((dollar | identity) ~ ("," ~ (dollar | identity))*)? ~ ";" }
+print_statement     = { ^"print" ~ print_opt? ~ ((dollar | identity) ~ ("," ~ (dollar | identity))*)? ~ ";" }
+
+print_opt           = { ^"form" | ^"mathematica" }
 
 matchassign_statement = { ^"matchassign" ~ expression ~ "{" ~ exec_statement* ~ "}" }
 
 expand_statement    = { ^"expand" ~ ";" }
 
-discard_statement    = { ^"discard" ~ ";" }
+discard_statement   = { ^"discard" ~ ";" }
 
-proc_block          = { ^"proc" ~ identity ~ ("(" ~ proc_args ~ ")")?
+collect_statement   = { ^"collect" ~ dollar ~ ";"}
+
+proc_block          = { ^"proc" ~ identity ~ ("(" ~ proc_args ~ (";" ~ proc_args)? ~ ")")?
                             ~ "{" ~ proc_content ~ "}" }
 
 proc_args           = { (identity ~ ("," ~ identity)*)? }
@@ -101,26 +110,35 @@ exec_statement      = {
   | for_statement
   | for_in_range_statement
   | matchassign_statement
+  | replaceby_statement
+  | maximum_statement
+  | splitarg_statement
+  | symmetrize_statement
   | print_statement
   | id_statement
   | expand_statement
   | discard_statement
   | repeat_block
   | if_block
-  | print_spec
 }
 
 exec_block          = { exec_statement | "{" ~ exec_statement* ~ "}" }
 
-id_statement        = { ^"id" ~ expression ~ "=" ~ expression ~ ";" }
+id_statement        = { ^"id" ~ term ~ "=" ~ expression ~ ";" }
 
 multiply_statement  = { ^"multiply" ~ expression ~ ";" }
+
+replaceby_statement  = { ^"replaceby" ~ expression ~ ";" }
+
+maximum_statement  = { ^"maximum" ~ dollar ~ ";" }
+
+splitarg_statement  = { ^"splitarg" ~ identity ~ ";" }
+
+symmetrize_statement = { ^"symmetrize" ~ identity ~ ";" }
 
 repeat_block        = { ^"repeat" ~ exec_block }
 
 if_block            = { ^"if" ~ bool_primary ~ exec_block ~ (^"else" ~ global_block)?}
-
-print_spec          = { ^"print" ~ ";" }
 
 expression          = { term ~ ((op_plus | op_minus) ~ term)* }
 term                = { factor ~ ((op_times | op_divide) ~ factor)* }
@@ -135,8 +153,6 @@ primary             = { wildcard
                                  | "(" ~ expression ~ ")" }
 function            = { identity ~ "(" ~ func_args ~ ")" }
 func_args           = { (func_arg ~ ("," ~ func_arg)*)? }
-
-// TODO: allow comparison: x < 5
 func_arg            = { wildarg | expression }
 
 number              = { (op_unary_plus | op_unary_minus)? ~ integer
@@ -147,7 +163,7 @@ wildcard            = { identity ~ "?" ~ constraint? }
 constraint          = { builtin_constraint | set_constraint }
 
 set_constraint = { "{" ~ ((range_constraint | primary)  ~ ("," ~ (range_constraint | primary))*)? ~ "}" }
-range_constraint    = { (op_eq | op_ge | op_gt | op_le | op_lt) ~ primary }
+range_constraint    = { (op_eq | op_ge | op_gt | op_le | op_lt) ~ number }
 
 builtin_constraint  = {
     int_set

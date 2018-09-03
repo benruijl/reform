@@ -7,7 +7,7 @@ Procedures
 
 A procedure is a code block that will be inlined at the call-site.
 
-.. frm:statement:: procedure name(args; localargs) { [statements] }
+.. frm:statement:: proc name(args; localargs) { [statements] }
 
     :param args: arguments to the function
     :param localargs: variables local to the procedure. They will shadow
@@ -22,7 +22,7 @@ A procedure is a code block that will be inlined at the call-site.
 
     .. code-block:: reform
 
-        procedure derivative(x, n) {
+        proc derivative(x, n) {
             for $i in 1..(n+1) {
                 id x^m? = m? * x^(m? - 1);
             }
@@ -38,7 +38,7 @@ A procedure is a code block that will be inlined at the call-site.
 
     .. code-block:: reform
 
-        u^3*20
+        20*u^3
 
 
 User-defined functions

@@ -59,9 +59,34 @@ fn parse_number(e: pest::iterators::Pair<Rule>) -> Number {
 }
 
 fn parse_dollar(dollar: pest::iterators::Pair<Rule>) -> Element<String> {
-    let name = dollar.into_span().as_str().to_string();
-    // FIXME: indices
-    Element::Dollar(name, vec![])
+    let mut ee = dollar.into_inner();
+    let name = ee.next().unwrap().into_span().as_str().to_string();
+
+    let mut args = vec![];
+    // func args
+    if let Some(args_it) = ee.next() {
+        for arg in args_it.into_inner() {
+            // funcargs
+            let a = arg.into_inner().next().unwrap();
+            match a.as_rule() {
+                // funcarg
+                Rule::expression => args.push(parse_expr(a)),
+                Rule::wildarg => {
+                    let name = a
+                        .into_inner()
+                        .next()
+                        .unwrap()
+                        .into_span()
+                        .as_str()
+                        .to_string();
+                    args.push(Element::VariableArgument(name));
+                }
+                x => unreachable!("{:#?}", x),
+            }
+        }
+    }
+
+    Element::Dollar(name, args)
 }
 
 fn parse_identity(n: pest::iterators::Pair<Rule>) -> Element<String> {
@@ -265,6 +290,41 @@ fn parse_statement(e: pest::iterators::Pair<Rule>) -> Statement<String> {
 
             Statement::Assign(dollar, rhs)
         }
+        Rule::attrib_statement => {
+            let mut r = e.into_inner();
+
+            let func_i = r.next().unwrap();
+            let func = match func_i.as_rule() {
+                Rule::dollar => parse_dollar(func_i),
+                Rule::identity => parse_identity(func_i),
+                _ => unreachable!(),
+            };
+
+            let mut attribs = vec![];
+            for a in r {
+                match a.into_span().as_str().to_lowercase().as_str() {
+                    "linear" => attribs.push(FunctionAttributes::Linear),
+                    "symmetric" => attribs.push(FunctionAttributes::Symmetric),
+                    "noncommutative" => attribs.push(FunctionAttributes::NonCommutative),
+                    "nonlocal" => attribs.push(FunctionAttributes::NonLocal),
+                    x => unreachable!("Unexpected option {:?}", x),
+                }
+            }
+
+            Statement::Attrib(func, attribs)
+        }
+        Rule::call_statement => {
+            let mut r = e.into_inner();
+
+            let id = r.next().unwrap().into_span().as_str().to_string();
+
+            let mut args = vec![];
+            for a in r.next().unwrap().into_inner() {
+                args.push(parse_expr(a));
+            }
+
+            Statement::Call(id, args)
+        }
         Rule::inside_statement => {
             let mut r = e.into_inner().peekable();
 
@@ -335,6 +395,21 @@ fn parse_statement(e: pest::iterators::Pair<Rule>) -> Statement<String> {
 
             Statement::ForIn(d, range, statements)
         }
+        Rule::for_in_range_statement => {
+            let mut r = e.into_inner();
+
+            let mut d = parse_dollar(r.next().unwrap());
+            let lb = parse_expr(r.next().unwrap());
+            let ub = parse_expr(r.next().unwrap());
+
+            let mut statements = vec![];
+            for exec_statement in r {
+                let es = exec_statement.into_inner().next().unwrap();
+                statements.push(parse_statement(es));
+            }
+
+            Statement::ForInRange(d, lb, ub, statements)
+        }
         Rule::matchassign_statement => {
             let mut r = e.into_inner();
             let mut m = parse_expr(r.next().unwrap());
@@ -348,17 +423,51 @@ fn parse_statement(e: pest::iterators::Pair<Rule>) -> Statement<String> {
 
             Statement::MatchAssign(m, sts)
         }
+        Rule::multiply_statement => Statement::Multiply(parse_expr(e.into_inner().next().unwrap())),
+        Rule::maximum_statement => Statement::Maximum(parse_dollar(e.into_inner().next().unwrap())),
+        Rule::replaceby_statement => {
+            Statement::ReplaceBy(parse_dollar(e.into_inner().next().unwrap()))
+        }
+        Rule::collect_statement => Statement::Collect(
+            e.into_inner()
+                .next()
+                .unwrap()
+                .into_span()
+                .as_str()
+                .to_string(),
+        ),
+        Rule::splitarg_statement => Statement::SplitArg(
+            e.into_inner()
+                .next()
+                .unwrap()
+                .into_span()
+                .as_str()
+                .to_string(),
+        ),
+        Rule::symmetrize_statement => Statement::Symmetrize(
+            e.into_inner()
+                .next()
+                .unwrap()
+                .into_span()
+                .as_str()
+                .to_string(),
+        ),
         Rule::print_statement => {
+            println!("{:?}", e);
             let mut ds = vec![];
+            let mut print_opt = PrintMode::Form;
             for d in e.into_inner() {
                 match d.as_rule() {
                     Rule::dollar | Rule::identity => ds.push(d.into_span().as_str().to_string()),
+                    Rule::print_opt => match d.into_span().as_str().to_lowercase().as_str() {
+                        "mathematica" => print_opt = PrintMode::Mathematica,
+                        _ => {}
+                    },
                     _ => unreachable!(),
                 }
             }
 
-            // TODO: print mode
-            Statement::Print(PrintMode::Form, ds)
+            Statement::Print(print_opt, ds)
         }
         Rule::mod_block => {
             let mut r = e.into_inner().peekable();
@@ -441,7 +550,7 @@ fn parse_statement(e: pest::iterators::Pair<Rule>) -> Statement<String> {
         Rule::id_statement => {
             // TODO: mode
             let mut ids = e.into_inner();
-            let lhs = parse_expr(ids.next().unwrap());
+            let lhs = parse_term(ids.next().unwrap());
             let rhs = parse_expr(ids.next().unwrap());
             Statement::IdentityStatement(IdentityStatement {
                 mode: IdentityStatementMode::Once,
@@ -454,29 +563,93 @@ fn parse_statement(e: pest::iterators::Pair<Rule>) -> Statement<String> {
     }
 }
 
+fn parse_proc(e: pest::iterators::Pair<Rule>) -> Procedure<String> {
+    let mut ee = e.into_inner();
+    println!("{:?}", ee);
+    let name = ee.next().unwrap().into_span().as_str().to_string();
+
+    let mut args = vec![];
+    for a in ee.next().unwrap().into_inner() {
+        args.push(parse_identity(a))
+    }
+
+    // check for local arguments
+    let mut local_args = vec![];
+
+    let mut n = ee.next().unwrap();
+    if n.as_rule() == Rule::proc_args {
+        for a in n.into_inner() {
+            local_args.push(parse_identity(a))
+        }
+
+        n = ee.next().unwrap();
+    }
+
+    let mut statements = vec![];
+
+    for sts in n.into_inner() {
+        statements.push(parse_statement(sts.into_inner().next().unwrap()));
+    }
+
+    Procedure {
+        name,
+        args,
+        local_args,
+        statements,
+    }
+}
+
+fn parse_program(program: pest::iterators::Pair<Rule>) -> Program {
+    let mut statements = Vec::with_capacity(10); // TODO: get length
+    let mut procedures = vec![];
+    if program.as_rule() == Rule::program {
+        for proc_stat in program.into_inner() {
+            match proc_stat.as_rule() {
+                Rule::global_statement => {
+                    statements.push(parse_statement(proc_stat.into_inner().next().unwrap()))
+                }
+                Rule::proc_block => procedures.push(parse_proc(proc_stat)),
+                _ => unreachable!(),
+            }
+        }
+
+        println!("statements: {:#?}", statements);
+        println!("procedures: {:#?}", procedures);
+    }
+
+    // TODO: Do the conversion to VarName straight away
+    Program::new(statements, procedures)
+}
+
 pub fn parse_file(filename: &str) -> Program {
     let mut file = File::open(filename).expect("Unable to open the file");
     let mut s = String::new();
     file.read_to_string(&mut s)
         .expect("Unable to read from the file");
 
-    let mut pairs = ReformParser::parse(Rule::start, &s).unwrap_or_else(|e| panic!("{}", e));
+    let mut p = ReformParser::parse(Rule::program, &s).unwrap_or_else(|e| panic!("{}", e));
+    parse_program(p.next().unwrap())
+}
 
-    let start = pairs.next().unwrap();
+/// Parses a reFORM program.
+#[cfg(test)]
+pub fn parse_string(s: &str) -> Program {
+    let mut p = ReformParser::parse(Rule::program, s).unwrap_or_else(|e| panic!("{}", e));
+    parse_program(p.next().unwrap())
+}
 
-    let mut statements = Vec::with_capacity(10); // FIXME: get len?
-    if start.as_rule() == Rule::start {
-        for inner_pair in start.into_inner() {
-            if inner_pair.as_rule() == Rule::global_statement {
-                for x in inner_pair.into_inner() {
-                    statements.push(parse_statement(x));
-                }
-            }
-        }
-
-        println!("statements: {:#?}", statements);
+impl FromStr for Program {
+    type Err = (); // TODO: better error
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut p = ReformParser::parse(Rule::program, s).unwrap_or_else(|e| panic!("{}", e));
+        Ok(parse_program(p.next().unwrap()))
     }
+}
 
-    // TODO: Do the conversion to VarName straight away
-    Program::new(statements, vec![])
+impl FromStr for Element<String> {
+    type Err = (); // TODO: better error
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut p = ReformParser::parse(Rule::expression, s).unwrap_or_else(|e| panic!("{}", e));
+        Ok(parse_expr(p.next().unwrap()))
+    }
 }
