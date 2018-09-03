@@ -14,7 +14,6 @@ use crossbeam;
 use crossbeam::queue::MsQueue;
 
 use id::{MatchIterator, MatchKind};
-use streaming::MAXTERMMEM;
 use streaming::{InputTermStreamer, OutputTermStreamer};
 use structure::*;
 use tools;
@@ -1330,8 +1329,8 @@ impl Module {
                     while !done {
                         if queue.is_empty() {
                             debug!("Loading new batch");
-                            for _ in 0..MAXTERMMEM {
-                                if let Some(x) = input_stream.read_term() {
+                            for _ in 0..var_info.global_info.buffer_size_info.max_term_mem {
+                                if let Some(x) = input_stream.read_term(&var_info.global_info) {
                                     queue.push(Some(x));
                                 } else {
                                     // post exist signal to all threads
@@ -1356,7 +1355,7 @@ impl Module {
                 let mut executed = vec![false];
                 let mut output_wrapped = TermStreamWrapper::Single(output);
 
-                while let Some(x) = input_stream.read_term() {
+                while let Some(x) = input_stream.read_term(&var_info.global_info) {
                     do_module_rec(
                         x,
                         &self.statements,
@@ -1439,7 +1438,7 @@ impl Program {
                     num_threads,
                 ),
                 Statement::NewExpression(name, mut e) => {
-                    let mut expr = InputTermStreamer::new(None);
+                    let mut expr = InputTermStreamer::new(None, &self.var_info.global_info);
                     if e.replace_dollar(&self.var_info.local_info.variables)
                         .contains(ReplaceResult::Replaced)
                     {

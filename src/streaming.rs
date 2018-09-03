@@ -12,9 +12,6 @@ use normalize::merge_terms;
 use number::Number;
 use structure::{Element, ElementPrinter, GlobalVarInfo, PrintMode, Statement, VarInfo};
 
-pub const MAXTERMMEM: usize = 10_000_000; // maximum number of terms allowed in memory
-pub const SMALL_BUFFER: u64 = 100_000; // number of terms before sorting
-
 #[derive(Clone)]
 struct ElementStreamTuple<'a>(Element, &'a GlobalVarInfo, usize);
 
@@ -49,16 +46,16 @@ pub struct InputTermStreamer {
 }
 
 impl InputTermStreamer {
-    pub fn new(source: Option<BufReader<File>>) -> InputTermStreamer {
+    pub fn new(source: Option<BufReader<File>>, var_info: &GlobalVarInfo) -> InputTermStreamer {
         InputTermStreamer {
             input: source,
-            mem_buffer_input: VecDeque::with_capacity(SMALL_BUFFER as usize),
+            mem_buffer_input: VecDeque::with_capacity(var_info.buffer_size_info.max_term_mem as usize),
             termcounter_input: 0,
         }
     }
 
     // get the next term from the input
-    pub fn read_term(&mut self) -> Option<Element> {
+    pub fn read_term(&mut self, var_info: &GlobalVarInfo) -> Option<Element> {
         if !self.mem_buffer_input.is_empty() {
             self.termcounter_input -= 1;
             return self.mem_buffer_input.pop_front();
@@ -66,7 +63,7 @@ impl InputTermStreamer {
             // read the next terms from the input file,
             // so that the membuffer is filled
             if let Some(ref mut x) = self.input {
-                for _ in 0..MAXTERMMEM {
+                for _ in 0..var_info.buffer_size_info.max_term_mem {
                     if let Ok(e) = Element::deserialize(x) {
                         self.mem_buffer_input.push_front(e);
                     } else {
@@ -130,7 +127,7 @@ impl OutputTermStreamer {
     // write it to file
     pub fn add_term(&mut self, element: Element, var_info: &GlobalVarInfo) {
         // print intermediate statistics
-        if self.termcounter >= SMALL_BUFFER && self.termcounter % SMALL_BUFFER == 0 {
+        if self.termcounter >= var_info.buffer_size_info.small_buffer && self.termcounter % var_info.buffer_size_info.small_buffer == 0 {
             println!("    -- generated: {}", self.termcounter);
 
             // sort to potentially reduce the memory footprint
@@ -145,11 +142,11 @@ impl OutputTermStreamer {
             }
         }
 
-        if self.mem_buffer.len() < MAXTERMMEM {
+        if self.mem_buffer.len() < var_info.buffer_size_info.max_term_mem {
             self.mem_buffer.push(element);
         } else {
             // write the buffer to a new file
-            if self.termcounter % MAXTERMMEM as u64 == 0 || self.sortfiles.is_empty() {
+            if self.termcounter % var_info.buffer_size_info.max_term_mem as u64 == 0 || self.sortfiles.is_empty() {
                 println!("Creating new file {}", self.sortfiles.len());
                 self.new_file();
             }
@@ -304,7 +301,7 @@ impl OutputTermStreamer {
         }
 
         self.mem_buffer = vec![]; // replace by empty vector, so memory is freed
-        let maxsortmem = MAXTERMMEM / self.sortfiles.len() + 1;
+        let maxsortmem = var_info.global_info.buffer_size_info.max_term_mem / self.sortfiles.len() + 1;
 
         if maxsortmem < 2 {
             panic!("NOT ENOUGH MEM");

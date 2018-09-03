@@ -141,6 +141,23 @@ impl fmt::Display for FunctionAttributes {
     }
 }
 
+/// Holds buffer sizes
+#[derive(Debug, Clone)]
+pub struct BufferSizeInfo {
+    pub max_term_mem: usize,
+    pub small_buffer: u64,
+}
+
+impl BufferSizeInfo {
+    pub fn defaults() -> BufferSizeInfo {
+        BufferSizeInfo {
+            max_term_mem: 10_000_000,
+            small_buffer: 100_000,
+        }
+    }
+}
+
+
 /// Keeps track of global state that is immutable during execution.
 #[derive(Debug, Clone)]
 pub struct GlobalVarInfo {
@@ -149,6 +166,7 @@ pub struct GlobalVarInfo {
     pub func_attribs: HashMap<VarName, Vec<FunctionAttributes>>,
     pub user_functions: HashMap<VarName, (Vec<VarName>, Element)>,
     pub log_level: usize,
+    pub buffer_size_info: BufferSizeInfo,
 }
 
 impl GlobalVarInfo {
@@ -159,6 +177,7 @@ impl GlobalVarInfo {
             func_attribs: HashMap::new(),
             user_functions: HashMap::new(),
             log_level: 0,
+            buffer_size_info: BufferSizeInfo::defaults(),
         }
     }
 
@@ -264,6 +283,7 @@ impl VarInfo {
                 func_attribs: HashMap::new(),
                 user_functions: HashMap::new(),
                 log_level: 0,
+                buffer_size_info: BufferSizeInfo::defaults(),
             },
             local_info: LocalVarInfo {
                 variables: HashMap::new(),
@@ -371,7 +391,7 @@ impl Program {
             if name1 == exprname {
                 // NOTE: This code consumes the contents in the input stream.
                 let mut terms = Vec::new();
-                while let Some(x) = input.read_term() {
+                while let Some(x) = input.read_term(&self.var_info.global_info) {
                     terms.push(x);
                 }
                 if terms.is_empty() {
