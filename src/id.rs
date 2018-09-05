@@ -6,7 +6,7 @@ use structure::{
     BorrowedVarInfo, Element, FunctionAttributes, IdentityStatement, IdentityStatementMode,
     ReplaceResult, StatementResult, VarName,
 };
-use tools::{is_number_in_range, Heap, SliceRef};
+use tools::{is_number_in_range, SliceRef};
 
 pub const MAXMATCH: usize = 1_000_000; // maximum number of matches
 
@@ -255,8 +255,8 @@ pub enum ElementIterSingle<'a> {
     FnIter(FuncIterator<'a>), // match function
     FnWildcardIter(&'a VarName, Element, usize, FuncIterator<'a>),
     SymFnWildcardIter(&'a VarName, Element, usize, SubSequenceIter<'a>),
-    SymFuncIter(SubSequenceIter<'a>), // match a symmetric function without variable argument wildcards
-    Once,                             // matching without wildcard, ie number vs number
+    PermIter(SubSequenceIter<'a>), // go through all permutations to find a match
+    Once,                          // matching without wildcard, ie number vs number
     OnceMatch(&'a VarName, &'a Element), // simple match of variable
     VarPowerMatch(
         VarName,
@@ -265,12 +265,6 @@ pub enum ElementIterSingle<'a> {
         &'a Element,
         &'a BorrowedVarInfo<'a>,
     ), // match a variable x^n to x?^y?
-    PermIter(
-        &'a [Element],
-        Heap<&'a Element>,
-        SequenceIter<'a>,
-        &'a BorrowedVarInfo<'a>,
-    ), // term and arg combinations,
     SeqIt(Vec<&'a Element>, SequenceIter<'a>), // target and iterator
     None,
 }
@@ -477,25 +471,7 @@ impl<'a> ElementIterSingle<'a> {
                     x => x,
                 }
             }
-            ElementIterSingle::SymFuncIter(ref mut f) => f.next(m).map(|(_, s)| s),
-            ElementIterSingle::PermIter(pat, ref mut heap, ref mut termit, var_info) => {
-                if pat.len() != heap.data.len() {
-                    return None;
-                }
-
-                loop {
-                    if let Some(x) = termit.next(&heap.data, m) {
-                        return Some(x);
-                    }
-                    if let Some(x) = heap.next_permutation() {
-                        *termit = SequenceIter::new(&SliceRef::BorrowedSlice(pat), x[0], var_info);
-                    } else {
-                        break;
-                    }
-                }
-
-                None
-            }
+            ElementIterSingle::PermIter(ref mut f) => f.next(m).map(|(_, s)| s),
             ElementIterSingle::SeqIt(ref target, ref mut seqit) => seqit.next(target, m),
         }
     }
@@ -653,7 +629,7 @@ impl Element {
                                     false
                                 }
                             }) {
-                                return ElementIterSingle::SymFuncIter(SubSequenceIter::new(
+                                return ElementIterSingle::PermIter(SubSequenceIter::new(
                                     args2, args1, var_info,
                                 ));
                             } else {
@@ -709,12 +685,11 @@ impl Element {
             }
             (&Element::Term(_, ref f1), &Element::Term(_, ref f2))
             | (&Element::SubExpr(_, ref f1), &Element::SubExpr(_, ref f2)) => {
-                ElementIterSingle::PermIter(
-                    f2,
-                    Heap::new(f1.iter().map(|x| x).collect::<Vec<_>>()),
-                    SequenceIter::dummy(f2, var_info),
-                    var_info,
-                )
+                if f1.len() == f2.len() {
+                    ElementIterSingle::PermIter(SubSequenceIter::new(f2, f1, var_info))
+                } else {
+                    ElementIterSingle::None
+                }
             }
             _ => ElementIterSingle::None,
         }
@@ -897,7 +872,7 @@ impl<'a> FuncIterator<'a> {
     }
 }
 
-// iterator over a pattern that could occur in any order
+/// Iterator over a sequence of pattern matches.
 #[derive(Debug)]
 pub struct SequenceIter<'a> {
     pattern: SliceRef<'a, Element>, // input term
@@ -907,15 +882,6 @@ pub struct SequenceIter<'a> {
 }
 
 impl<'a> SequenceIter<'a> {
-    fn dummy(pattern: &'a [Element], var_info: &'a BorrowedVarInfo<'a>) -> SequenceIter<'a> {
-        SequenceIter {
-            pattern: SliceRef::BorrowedSlice(pattern),
-            iterators: vec![],
-            matches: vec![],
-            var_info,
-        }
-    }
-
     fn new(
         pattern: &SliceRef<'a, Element>,
         first: &'a Element,
