@@ -1265,44 +1265,21 @@ pub struct MatchIterator<'a> {
 // iterate over the output terms of a match
 impl<'a> MatchIterator<'a> {
     pub fn generate_rhs(&mut self, rhs: &Element) -> Element {
-        /*let mut res = if let Element::Term(_, ref factors) = *self.target {
-            // are there factors not used in the pattern?
-            if self.remaining.len() < factors.len() {
-                let mut output = vec![];
-                let mut hasapplied = false; // insert rhs only once
-                for (i, f) in factors.iter().enumerate() {
-                    if self.remaining.contains(&i) {
-                        if !hasapplied {
-                            hasapplied = true;
-                            let (mut res, _changed) = rhs.apply_map(&self.m).into_single();
-                            output.push(res);
-                        }
-                    } else {
-                        output.push(f.clone());
-                    }
+        let mut res = match self.target.strip_from(&self.m) {
+            Some(mut x) => {
+                if let Element::Term(ref mut dirty, ref mut fs) = x {
+                    fs.push(rhs.apply_map(&self.m).into_single().0);
+                    *dirty = true;
                 }
 
-                Element::Term(true, output)
-            } else {
-                let (mut res, _changed) = rhs.apply_map(&self.m).into_single();
-                res
+                if let Element::Term(..) = x {
+                    x
+                } else {
+                    Element::Term(true, vec![x, rhs.apply_map(&self.m).into_single().0])
+                }
             }
-        } else {
-            let (mut res, _changed) = rhs.apply_map(&self.m).into_single();
-            res
-        };*/
-
-        let mut res = self
-            .target
-            .strip_from(&self.m)
-            .unwrap_or_else(|| Element::Term(false, vec![]));
-
-        if let Element::Term(ref mut dirty, ref mut x) = res {
-            x.push(rhs.apply_map(&self.m).into_single().0);
-            *dirty = true;
-        } else {
-            res = Element::Term(true, vec![res, rhs.apply_map(&self.m).into_single().0]);
-        }
+            None => rhs.apply_map(&self.m).into_single().0,
+        };
 
         // FIXME: in the current setup, the dollar variable list
         // handed to the id routines are empty. We have to
