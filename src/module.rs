@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use crossbeam;
 use crossbeam::queue::MsQueue;
 
-use id::{MatchIterator, MatchKind};
+use id::{MatchIterator, MatchKind, MatchObject};
 use streaming::MAXTERMMEM;
 use streaming::{InputTermStreamer, OutputTermStreamer};
 use structure::*;
@@ -483,16 +483,17 @@ fn do_module_rec(
             // if statement
             match cond {
                 IfCondition::Match(e) => {
-                    if MatchKind::from_element(
-                        e,
-                        &input,
-                        &BorrowedVarInfo {
+                    let true_branch = {
+                        let bi = &BorrowedVarInfo {
                             global_info: global_var_info,
                             local_info: local_var_info,
-                        },
-                    ).next()
-                    .is_some()
-                    {
+                        };
+                        let mut m = MatchObject::new();
+                        MatchKind::from_element(e, &input, &bi)
+                            .next(&mut m)
+                            .is_some()
+                    };
+                    if true_branch {
                         return do_module_rec(
                             input,
                             statements,
@@ -605,21 +606,21 @@ fn do_module_rec(
         }
         Statement::MatchAssign(ref pat, ref ss) => {
             let mut newss = vec![];
-            if let Some((_, ref m)) = MatchKind::from_element(
-                pat,
-                &input,
-                &BorrowedVarInfo {
+
+            {
+                let bi = BorrowedVarInfo {
                     global_info: global_var_info,
                     local_info: local_var_info,
-                },
-            ).next()
-            {
-                for s in ss {
-                    if let Statement::Assign(ref dollar, ref e) = s {
-                        newss.push(Statement::Assign(
-                            dollar.clone(),
-                            e.apply_map(m).into_single().0,
-                        ));
+                };
+                let mut m = MatchObject::new();
+                if let Some(_) = MatchKind::from_element(pat, &input, &bi).next(&mut m) {
+                    for s in ss {
+                        if let Statement::Assign(ref dollar, ref e) = s {
+                            newss.push(Statement::Assign(
+                                dollar.clone(),
+                                e.apply_map(&mut m).into_single().0,
+                            ));
+                        }
                     }
                 }
             }
