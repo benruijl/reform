@@ -41,6 +41,7 @@ program = { soi ~ proc_block* ~ global_statement* ~ eoi }
 
 global_statement     = {
     expr_statement
+  | fn_statement
   | call_statement
   | assign_statement
   | inside_statement
@@ -60,6 +61,10 @@ func_attrib         = { ^"linear" | ^"noncommutative" | ^"symmetric" | ^"nonloca
 global_block        = { global_statement | "{" ~ global_statement* ~ "}" }
 
 expr_statement      = { ^"expr" ~ identity ~ "=" ~ expression ~ ";" }
+
+fn_statement        = { ^"fn" ~ identity ~ ("(" ~ fn_def_args ~ ")")? ~ "=" ~ expression ~ ";" }
+
+fn_def_args         = { (identity ~ ("," ~ identity)*)? }
 
 call_statement      = { ^"call" ~ identity ~ ("(" ~ call_args ~ ")")? ~ ";" }
 

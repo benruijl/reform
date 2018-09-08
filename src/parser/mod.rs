@@ -284,6 +284,19 @@ fn parse_statement(e: pest::iterators::Pair<Rule>) -> Statement<String> {
 
             Statement::NewExpression(id, parse_expr(r.next().unwrap()))
         }
+        Rule::fn_statement => {
+            let mut r = e.into_inner();
+            let id = r.next().unwrap().into_span().as_str().to_string();
+
+            let mut args = vec![];
+            for a in r.next().unwrap().into_inner() {
+                args.push(a.into_span().as_str().to_string());
+            }
+
+            let exp = parse_expr(r.next().unwrap());
+
+            Statement::NewFunction(id, args, exp)
+        }
         Rule::assign_statement => {
             let mut r = e.into_inner();
             let dollar = parse_dollar(r.next().unwrap());
@@ -650,35 +663,70 @@ fn parse_program(program: pest::iterators::Pair<Rule>) -> Program {
     Program::new(statements, procedures)
 }
 
+fn custom_error(e: pest::Error<Rule>) -> pest::Error<Rule> {
+    e.renamed_rules(|rule| match *rule {
+        Rule::op_unary_plus => "+".to_owned(),
+        Rule::op_unary_minus => "-".to_owned(),
+        Rule::op_plus => "+".to_owned(),
+        Rule::op_minus => "-".to_owned(),
+        Rule::op_times => "*".to_owned(),
+        Rule::op_divide => "/".to_owned(),
+        Rule::op_power => "^".to_owned(),
+        Rule::op_ge => ">=".to_owned(),
+        Rule::op_gt => ">".to_owned(),
+        Rule::op_le => "<=".to_owned(),
+        Rule::op_lt => "<".to_owned(),
+        Rule::op_eq => "==".to_owned(),
+        Rule::op_ne => "!=".to_owned(),
+        Rule::op_logical_or => "||".to_owned(),
+        Rule::op_logical_and => "&&".to_owned(),
+        Rule::op_logical_not => "!".to_owned(),
+        Rule::global_statement => "global statement".to_owned(),
+        Rule::dollar => "dollar variable".to_owned(),
+        Rule::identity => "expression or algebraic variable name".to_owned(),
+        Rule::factor => "algebraic factor".to_owned(),
+        Rule::exec_statement => "module statement".to_owned(),
+        Rule::primary => "wildcard, variable name, or dollar variable".to_owned(),
+        Rule::range_constraint => "number constraint".to_owned(),
+        Rule::exec_block => "module statement(s)".to_owned(),
+        Rule::program => "procedure definition or global statement".to_owned(),
+        x => format!("{:#?}", x),
+    })
+}
+
 pub fn parse_file(filename: &str) -> Program {
     let mut file = File::open(filename).expect("Unable to open the file");
     let mut s = String::new();
     file.read_to_string(&mut s)
         .expect("Unable to read from the file");
 
-    let mut p = ReformParser::parse(Rule::program, &s).unwrap_or_else(|e| panic!("{}", e));
+    let mut p =
+        ReformParser::parse(Rule::program, &s).unwrap_or_else(|e| panic!("{}", custom_error(e)));
     parse_program(p.next().unwrap())
 }
 
 /// Parses a reFORM program.
 #[cfg(test)]
 pub fn parse_string(s: &str) -> Program {
-    let mut p = ReformParser::parse(Rule::program, s).unwrap_or_else(|e| panic!("{}", e));
+    let mut p =
+        ReformParser::parse(Rule::program, s).unwrap_or_else(|e| panic!("{}", custom_error(e)));
     parse_program(p.next().unwrap())
 }
 
 impl FromStr for Program {
-    type Err = (); // TODO: better error
+    type Err = (String);
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut p = ReformParser::parse(Rule::program, s).unwrap_or_else(|e| panic!("{}", e));
-        Ok(parse_program(p.next().unwrap()))
+        ReformParser::parse(Rule::program, s)
+            .map_err(|e| custom_error(e).to_string())
+            .and_then(|mut p| Ok(parse_program(p.next().unwrap())))
     }
 }
 
 impl FromStr for Element<String> {
-    type Err = (); // TODO: better error
+    type Err = (String);
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut p = ReformParser::parse(Rule::expression, s).unwrap_or_else(|e| panic!("{}", e));
-        Ok(parse_expr(p.next().unwrap()))
+        ReformParser::parse(Rule::expression, s)
+            .map_err(|e| custom_error(e).to_string())
+            .and_then(|mut p| Ok(parse_expr(p.next().unwrap())))
     }
 }
