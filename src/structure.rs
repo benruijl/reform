@@ -990,7 +990,7 @@ pub struct IdentityStatement<ID: Id = VarName> {
     pub rhs: Element<ID>,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, PartialOrd, Ord)]
 pub enum IdentityStatementMode {
     Once,
     Many,

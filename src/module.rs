@@ -63,7 +63,21 @@ impl Element {
                 k.push(x.clone());
                 Element::Term(true, k)
             }
+            (Element::Num(false, Number::SmallInt(1)), x2) => x2.clone(),
+            (x1, Element::Num(false, Number::SmallInt(1))) => x1,
             (x1, x2) => Element::Term(true, vec![x1, x2.clone()]),
+        }
+    }
+
+    pub fn pow(self, num: Element) -> Element {
+        if let Element::Num(dirty, n) = num {
+            if let Element::Var(x1, n1) = self {
+                return Element::Var(x1, n1 * n);
+            } else {
+                Element::Pow(true, Box::new((self, Element::Num(dirty, n))))
+            }
+        } else {
+            Element::Pow(true, Box::new((self, num)))
         }
     }
 

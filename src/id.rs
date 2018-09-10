@@ -1,4 +1,5 @@
 use num_traits::One;
+use num_traits::Zero;
 use number::Number;
 use std::fmt;
 use std::mem;
@@ -533,6 +534,7 @@ impl Element {
         slice_min_bound: usize,
         slice_max_bound: usize,
         var_info: &'a BorrowedVarInfo<'a>,
+        level: usize,
     ) -> ElementIter<'a> {
         // go through all possible options (slice sizes) for the variable argument
         if let Element::VariableArgument(ref name) = *self {
@@ -541,7 +543,9 @@ impl Element {
 
         // is the slice non-zero length?
         match target.first() {
-            Some(x) => ElementIter::SingleArg(&target[1..], self.to_iter_single(x, var_info)),
+            Some(x) => {
+                ElementIter::SingleArg(&target[1..], self.to_iter_single(x, var_info, level))
+            }
             None => ElementIter::None,
         }
     }
@@ -551,25 +555,44 @@ impl Element {
         &'a self,
         target: &'a Element,
         var_info: &'a BorrowedVarInfo<'a>,
+        level: usize,
     ) -> ElementIterSingle<'a> {
         match (target, self) {
             (&Element::Var(ref i1, ref e1), &Element::Pow(_, ref be2)) => {
-                // match x^x1? to x^2
+                // match x^x1? to x^expr
                 let (ref b2, ref e2) = **be2;
+
                 ElementIterSingle::VarPowerMatch(*i1, e1, b2, e2, var_info)
             }
             (&Element::Pow(_, ref be1), &Element::Pow(_, ref be2)) => {
                 let (ref b1, ref e1) = **be1;
                 let (ref b2, ref e2) = **be2;
+
+                // match an expression to its multiple on the ground level
+                if level == 0 {
+                    if let Element::Num(false, Number::SmallInt(n1)) = e1 {
+                        if let Element::Num(false, Number::SmallInt(n2)) = e2 {
+                            if n2 < n1 {
+                                return b1.to_iter_single(b2, var_info, level + 1);
+                            }
+                        }
+                    }
+                }
+
                 ElementIterSingle::SeqIt(
                     vec![b1, e1],
-                    SequenceIter::new(&SliceRef::OwnedSlice(vec![b2, e2]), b1, var_info),
+                    SequenceIter::new(&SliceRef::OwnedSlice(vec![b2, e2]), b1, var_info, level + 1),
                 )
             }
             (&Element::Dollar(ref name, ref inds), &Element::Dollar(ref name1, ref inds1)) => {
                 // match $a[x?] to $a[1]
                 ElementIterSingle::FnIter(FuncIterator::from_element(
-                    name1, inds1, name, inds, var_info,
+                    name1,
+                    inds1,
+                    name,
+                    inds,
+                    var_info,
+                    level + 1,
                 ))
             }
             (i1, d @ &Element::Dollar(..)) => {
@@ -579,8 +602,22 @@ impl Element {
                     ElementIterSingle::None(false)
                 }
             }
+            (Element::Pow(_, ref be1), x) => {
+                // match x to x^num on the ground level
+                let (ref b2, ref e2) = **be1;
+
+                if level == 0 && x == b2 {
+                    if let Element::Num(_, Number::SmallInt(n)) = e2 {
+                        if *n > 0 {
+                            return ElementIterSingle::Once;
+                        }
+                    }
+                }
+
+                ElementIterSingle::None(false)
+            }
             (&Element::Var(ref i1, ref e1), &Element::Var(ref i2, ref e2))
-                if i1 == i2 && e1 == e2 =>
+                if i1 == i2 && (e1 == e2 || (level == 0 && e1 >= e2 && e2 > &Number::zero())) =>
             {
                 ElementIterSingle::Once
             }
@@ -630,7 +667,10 @@ impl Element {
                                 }
                             }) {
                                 return ElementIterSingle::PermIter(SubSequenceIter::new(
-                                    args2, args1, var_info,
+                                    args2,
+                                    args1,
+                                    var_info,
+                                    level + 1,
                                 ));
                             } else {
                                 println!("Warning: used ?a in symmetric function pattern match. Ignoring symmetric property.");
@@ -640,7 +680,7 @@ impl Element {
                 }
 
                 ElementIterSingle::FnIter(FuncIterator::from_element(
-                    name2, args2, name1, args1, var_info,
+                    name2, args2, name1, args1, var_info, level,
                 ))
             }
             (&Element::Fn(_, ref name1, ref args1), &Element::FnWildcard(ref name2, ref b)) => {
@@ -666,7 +706,7 @@ impl Element {
                                         name2,
                                         Element::Var(*name1, Number::one()),
                                         MAXMATCH,
-                                        SubSequenceIter::new(args2, args1, var_info),
+                                        SubSequenceIter::new(args2, args1, var_info, level + 1),
                                     );
                                 } else {
                                     println!("Warning: used ?a in symmetric function pattern match. Ignoring symmetric property.");
@@ -679,14 +719,15 @@ impl Element {
                         name2,
                         Element::Var(*name1, Number::one()),
                         MAXMATCH,
-                        FuncIterator::from_element(name1, args2, name1, args1, var_info),
+                        FuncIterator::from_element(name1, args2, name1, args1, var_info, level),
                     )
                 }
             }
             (&Element::Term(_, ref f1), &Element::Term(_, ref f2))
             | (&Element::SubExpr(_, ref f1), &Element::SubExpr(_, ref f2)) => {
                 if f1.len() == f2.len() {
-                    ElementIterSingle::PermIter(SubSequenceIter::new(f2, f1, var_info))
+                    // TODO: increase the level by 1 in case of a subexpr?
+                    ElementIterSingle::PermIter(SubSequenceIter::new(f2, f1, var_info, level))
                 } else {
                     ElementIterSingle::None(false)
                 }
@@ -703,6 +744,7 @@ pub struct FuncIterator<'a> {
     iterators: Vec<ElementIter<'a>>,
     matches: Vec<(&'a [Element], usize)>, // keep track of stack depth
     var_info: &'a BorrowedVarInfo<'a>,
+    level: usize,
 }
 
 impl<'a> FuncIterator<'a> {
@@ -712,13 +754,15 @@ impl<'a> FuncIterator<'a> {
         target_name: &'a VarName,
         target_args: &'a Vec<Element>,
         var_info: &'a BorrowedVarInfo<'a>,
+        level: usize,
     ) -> FuncIterator<'a> {
         if name != target_name {
             return FuncIterator {
                 args: args,
                 iterators: vec![],
                 matches: vec![],
-                var_info: var_info,
+                var_info,
+                level,
             };
         }
 
@@ -734,7 +778,8 @@ impl<'a> FuncIterator<'a> {
                 args: args,
                 iterators: vec![],
                 matches: vec![],
-                var_info: var_info,
+                var_info,
+                level,
             };
         };
         if varargcount == 0 && args.len() != target_args.len() {
@@ -742,7 +787,8 @@ impl<'a> FuncIterator<'a> {
                 args: args,
                 iterators: vec![],
                 matches: vec![],
-                var_info: var_info,
+                var_info,
+                level,
             };
         };
 
@@ -753,7 +799,8 @@ impl<'a> FuncIterator<'a> {
                 args: args,
                 iterators: vec![ElementIter::Once],
                 matches: vec![(&[], MAXMATCH)],
-                var_info: var_info,
+                var_info,
+                level,
             };
         }
 
@@ -776,9 +823,9 @@ impl<'a> FuncIterator<'a> {
                 }
             }
 
-            iterator[0] = args[0].to_iter(&target_args, minbound, maxbound, var_info); // initialize the first iterator
+            iterator[0] = args[0].to_iter(&target_args, minbound, maxbound, var_info, level + 1); // initialize the first iterator
         } else {
-            iterator[0] = args[0].to_iter(&target_args, 0, 0, var_info); // initialize the first iterator
+            iterator[0] = args[0].to_iter(&target_args, 0, 0, var_info, level + 1); // initialize the first iterator
         }
 
         let matches = vec![(&target_args[..], MAXMATCH); args.len()]; // placeholder matches
@@ -787,7 +834,8 @@ impl<'a> FuncIterator<'a> {
             args: args,
             iterators: iterator,
             matches: matches,
-            var_info: var_info,
+            var_info,
+            level,
         }
     }
 
@@ -826,11 +874,21 @@ impl<'a> FuncIterator<'a> {
                             }
                         }
 
-                        self.iterators[j] =
-                            self.args[j].to_iter(slicem, minbound, maxbound, self.var_info);
+                        self.iterators[j] = self.args[j].to_iter(
+                            slicem,
+                            minbound,
+                            maxbound,
+                            self.var_info,
+                            self.level + 1,
+                        );
                     } else {
-                        self.iterators[j] =
-                            self.args[j].to_iter(self.matches[j - 1].0, 0, 0, self.var_info);
+                        self.iterators[j] = self.args[j].to_iter(
+                            self.matches[j - 1].0,
+                            0,
+                            0,
+                            self.var_info,
+                            self.level + 1,
+                        );
                     }
 
                     match self.iterators[j].next(m) {
@@ -879,6 +937,7 @@ pub struct SequenceIter<'a> {
     iterators: Vec<ElementIterSingle<'a>>,
     matches: Vec<usize>, // keep track of stack depth
     var_info: &'a BorrowedVarInfo<'a>,
+    level: usize,
 }
 
 impl<'a> SequenceIter<'a> {
@@ -886,16 +945,18 @@ impl<'a> SequenceIter<'a> {
         pattern: &SliceRef<'a, Element>,
         first: &'a Element,
         var_info: &'a BorrowedVarInfo<'a>,
+        level: usize,
     ) -> SequenceIter<'a> {
         let mut its = (0..pattern.len())
             .map(|_| ElementIterSingle::None(false))
             .collect::<Vec<_>>();
-        its[0] = pattern.index(0).to_iter_single(first, var_info);
+        its[0] = pattern.index(0).to_iter_single(first, var_info, level);
         SequenceIter {
             pattern: pattern.clone(),
             iterators: its,
             matches: vec![MAXMATCH; pattern.len()],
             var_info,
+            level,
         }
     }
 
@@ -916,10 +977,10 @@ impl<'a> SequenceIter<'a> {
                 let mut j = i + 1;
                 while j < self.iterators.len() {
                     // create a new iterator at j based on the previous match dictionary and slice
-                    self.iterators[j] = self
-                        .pattern
-                        .index(j)
-                        .to_iter_single(target[j], self.var_info);
+                    self.iterators[j] =
+                        self.pattern
+                            .index(j)
+                            .to_iter_single(target[j], self.var_info, self.level);
 
                     match self.iterators[j].next(m) {
                         Some(y) => {
@@ -965,6 +1026,7 @@ pub struct SubSequenceIter<'a> {
     initialized: bool,
     matches: Vec<usize>, // keep track of stack depth
     var_info: &'a BorrowedVarInfo<'a>,
+    level: usize,
 }
 
 impl<'a> SubSequenceIter<'a> {
@@ -972,6 +1034,7 @@ impl<'a> SubSequenceIter<'a> {
         pattern: &'a [Element],
         target: &'a [Element],
         var_info: &'a BorrowedVarInfo<'a>,
+        level: usize,
     ) -> SubSequenceIter<'a> {
         SubSequenceIter {
             pattern: pattern,
@@ -980,13 +1043,14 @@ impl<'a> SubSequenceIter<'a> {
                 .collect(),
             matches: vec![MAXMATCH; pattern.len()],
             indices: vec![0; pattern.len()],
-            target: target,
+            target,
             var_info,
+            level,
             initialized: false,
         }
     }
 
-    fn next(&mut self, m: &mut MatchObject<'a>) -> Option<(Vec<usize>, usize)> {
+    fn next(&mut self, m: &mut MatchObject<'a>) -> Option<(&Vec<usize>, usize)> {
         if self.pattern.len() > self.target.len() {
             return None;
         }
@@ -1011,7 +1075,7 @@ impl<'a> SubSequenceIter<'a> {
 
                 // we have found a match!
                 if i + 1 == self.pattern.len() {
-                    return Some((self.indices.clone(), self.matches[i]));
+                    return Some((&self.indices, self.matches[i]));
                 }
                 i += 1;
             } else {
@@ -1055,8 +1119,11 @@ impl<'a> SubSequenceIter<'a> {
                     self.indices[i] = self.target.len() + 1; // reset the index
                     i -= 1;
                 } else {
-                    self.iterators[i] = self.pattern[i]
-                        .to_iter_single(&self.target[self.indices[i]], self.var_info);
+                    self.iterators[i] = self.pattern[i].to_iter_single(
+                        &self.target[self.indices[i]],
+                        self.var_info,
+                        self.level,
+                    );
                 }
             }
         }
@@ -1085,12 +1152,12 @@ impl<'a> MatchKind<'a> {
     ) -> MatchKind<'a> {
         match (pattern, target) {
             (&Element::Term(_, ref x), &Element::Term(_, ref y)) => {
-                MatchKind::Many(SubSequenceIter::new(x, y, var_info))
+                MatchKind::Many(SubSequenceIter::new(x, y, var_info, 0))
             }
             (a, &Element::Term(_, ref y)) => {
                 MatchKind::SinglePat(a, ElementIterSingle::None(false), y, 0, var_info)
             }
-            (a, b) => MatchKind::Single(a.to_iter_single(b, var_info)),
+            (a, b) => MatchKind::Single(a.to_iter_single(b, var_info, 0)),
         }
     }
 
@@ -1102,7 +1169,7 @@ impl<'a> MatchKind<'a> {
             }
             MatchKind::Many(ref mut x) => match x.next(m) {
                 Some((ind, _)) => {
-                    *indices = ind;
+                    indices.clone_from(ind);
                     true
                 }
                 None => false,
@@ -1117,7 +1184,7 @@ impl<'a> MatchKind<'a> {
                 if *index == target.len() {
                     return false;
                 }
-                *it = pat.to_iter_single(&target[*index], var_info);
+                *it = pat.to_iter_single(&target[*index], var_info, 0);
                 *index += 1;
             },
             MatchKind::None => false,
@@ -1128,10 +1195,13 @@ impl<'a> MatchKind<'a> {
 #[derive(Debug)]
 pub struct MatchIterator<'a> {
     mode: IdentityStatementMode,
+    lhs: &'a Element,
     rhs: &'a Element,
     target: &'a Element,
     m: MatchObject<'a>,
-    remaining: Vec<usize>,
+    used_indices: Vec<usize>,
+    rest: Element,
+    multiplicity: usize,
     it: MatchKind<'a>,
     rhsp: usize, // current rhs index,
     hasmatch: bool,
@@ -1140,32 +1210,21 @@ pub struct MatchIterator<'a> {
 
 // iterate over the output terms of a match
 impl<'a> MatchIterator<'a> {
-    pub fn generate_rhs(&mut self, rhs: &Element) -> Element {
-        let mut res = if let Element::Term(_, ref factors) = *self.target {
-            // are there factors not used in the pattern?
-            if self.remaining.len() < factors.len() {
-                let mut output = vec![];
-                let mut hasapplied = false; // insert rhs only once
-                for (i, f) in factors.iter().enumerate() {
-                    if self.remaining.contains(&i) {
-                        if !hasapplied {
-                            hasapplied = true;
-                            let (mut res, _changed) = rhs.apply_map(&self.m).into_single();
-                            output.push(res);
-                        }
-                    } else {
-                        output.push(f.clone());
-                    }
-                }
-
-                Element::Term(true, output)
-            } else {
-                let (mut res, _changed) = rhs.apply_map(&self.m).into_single();
-                res
-            }
+    pub fn generate_rhs(&self, rhs: &Element) -> Element {
+        let mut res = if self.multiplicity == 1 {
+            rhs.apply_map(&self.m)
+                .into_single()
+                .0
+                .append_factors(&self.rest)
         } else {
-            let (mut res, _changed) = rhs.apply_map(&self.m).into_single();
-            res
+            // TODO: a potential vector in self.rest can be recycled
+            rhs.apply_map(&self.m)
+                .into_single()
+                .0
+                .pow(Element::Num(
+                    false,
+                    Number::SmallInt(self.multiplicity as isize),
+                )).append_factors(&self.rest)
         };
 
         // FIXME: in the current setup, the dollar variable list
@@ -1186,13 +1245,148 @@ impl<'a> MatchIterator<'a> {
         res
     }
 
+    /// Find out how often the pattern fits in the
+    /// target term.
+    fn find_multiplicity(&self, lhs: &Element, rhs: &Element) -> usize {
+        match (lhs, rhs) {
+            (Element::Term(_, ref pts), Element::Term(_, ref tts)) => {
+                let mut max_mul = 0;
+                for (i, k) in pts.iter().enumerate() {
+                    let mul = self.find_multiplicity(k, &tts[self.used_indices[i]]);
+                    if mul < max_mul || max_mul == 0 {
+                        max_mul = mul;
+                    }
+                }
+                max_mul
+            }
+            (_, Element::Term(_, ref tts)) => {
+                self.find_multiplicity(lhs, &tts[self.used_indices[0]])
+            }
+            (Element::Pow(_, be), Element::Pow(_, be1)) => {
+                if let Element::Num(_, Number::SmallInt(p)) = be.1 {
+                    if let Element::Num(_, Number::SmallInt(p1)) = be1.1 {
+                        if p > 0 && p1 > 0 {
+                            return (p1 / p) as usize;
+                        }
+                    }
+                }
+                1
+            }
+            (_, Element::Pow(_, be)) => {
+                if let Element::Num(_, Number::SmallInt(p)) = be.1 {
+                    if p > 0 {
+                        return p as usize;
+                    }
+                }
+                1
+            }
+            (Element::Var(_, pow), Element::Var(_, pow1)) => {
+                if let Number::SmallInt(p) = pow {
+                    if let Number::SmallInt(p1) = pow1 {
+                        if *p > 0 && *p1 > 0 {
+                            return (p1 / p) as usize;
+                        }
+                    }
+                }
+                1
+            }
+            _ => 1,
+        }
+    }
+
+    fn construct_rest_term(&self, lhs: &Element, rhs: &Element, accum: &mut Vec<Element>) {
+        match (lhs, rhs) {
+            (Element::Term(_, ref pts), Element::Term(_, ref tts)) => {
+                for (i, k) in tts.iter().enumerate() {
+                    // add factors that were not matched or whatever remains of a match
+                    if self.used_indices.len() < tts.len() && !self.used_indices.contains(&i) {
+                        accum.push(k.clone())
+                    } else {
+                        self.construct_rest_term(&pts[i], k, accum)
+                    }
+                }
+            }
+            (_, Element::Term(_, ref tts)) => {
+                for (i, k) in tts.iter().enumerate() {
+                    if i == self.used_indices[0] {
+                        self.construct_rest_term(lhs, k, accum);
+                    } else {
+                        accum.push(k.clone());
+                    }
+                }
+            }
+            (Element::Pow(_, be), Element::Pow(dirty, be1)) => {
+                if let Element::Num(_, ref p) = be.1 {
+                    if let Element::Num(_, ref p1) = be1.1 {
+                        let newpow =
+                            p1.clone() - Number::SmallInt(self.multiplicity as isize) * p.clone();
+                        if !newpow.is_zero() {
+                            accum.push(Element::Pow(
+                                *dirty,
+                                Box::new((be.0.clone(), Element::Num(false, newpow))),
+                            ));
+                        }
+                    } else {
+                        unreachable!()
+                    }
+                } else {
+                    unreachable!()
+                }
+            }
+            (_, Element::Pow(dirty, be)) => {
+                if let Element::Num(_, ref p) = be.1 {
+                    let newpow = p.clone() - Number::SmallInt(self.multiplicity as isize);
+                    if !newpow.is_zero() {
+                        accum.push(Element::Pow(
+                            *dirty,
+                            Box::new((be.0.clone(), Element::Num(false, newpow))),
+                        ));
+                    }
+                } else {
+                    unreachable!()
+                }
+            }
+            (Element::Var(_, pow), Element::Var(x1, pow1)) => {
+                let newpow =
+                    pow1.clone() - Number::SmallInt(self.multiplicity as isize) * pow.clone();
+                if !newpow.is_zero() {
+                    accum.push(Element::Var(*x1, newpow));
+                }
+            }
+            _ => {} // factor needs to be removed completely
+        }
+    }
+
+    /// Construct the part of the input that remains in the output.
+    /// This takes multiplicity of the pattern into account.
+    fn construct_remaining(&mut self) {
+        // determine the maximimum multiplicity
+        self.multiplicity = if self.mode != IdentityStatementMode::Once {
+            self.find_multiplicity(&self.lhs, &self.target)
+        } else {
+            1
+        };
+
+        // construct the rest terms
+        let mut e = vec![];
+        self.construct_rest_term(&self.lhs, &self.target, &mut e);
+
+        if e.is_empty() {
+            self.rest = Element::Num(false, Number::one());
+        } else {
+            self.rest = Element::Term(true, e);
+        }
+    }
+
     pub fn next(&mut self) -> StatementResult<Element> {
         if self.rhsp == 0 {
-            if self.it.next(&mut self.m, &mut self.remaining) {
+            if self.it.next(&mut self.m, &mut self.used_indices) {
                 if self.mode != IdentityStatementMode::All {
                     self.it = MatchKind::None;
                 }
 
+                // generate the part of the term that remains
+                self.construct_remaining();
                 printmatch(&self.m);
             } else {
                 if self.hasmatch {
@@ -1207,14 +1401,18 @@ impl<'a> MatchIterator<'a> {
 
         StatementResult::Executed(match self.rhs {
             &Element::SubExpr(_, ref x) => {
-                let i = self.rhsp;
-                let res = self.generate_rhs(&x[i]);
+                if self.multiplicity > 1 {
+                    self.generate_rhs(&self.rhs)
+                } else {
+                    let i = self.rhsp;
+                    let res = self.generate_rhs(&x[i]);
 
-                self.rhsp += 1;
-                if self.rhsp == x.len() {
-                    self.rhsp = 0;
+                    self.rhsp += 1;
+                    if self.rhsp == x.len() {
+                        self.rhsp = 0;
+                    }
+                    res
                 }
-                res
             }
             x => self.generate_rhs(x),
         })
@@ -1231,8 +1429,11 @@ impl IdentityStatement {
             hasmatch: false,
             target: input,
             m: vec![],
-            remaining: vec![],
-            mode: self.mode.clone(),
+            used_indices: vec![],
+            mode: self.mode,
+            rest: Element::default(),
+            multiplicity: 0,
+            lhs: &self.lhs,
             rhs: &self.rhs,
             rhsp: 0,
             it: MatchKind::from_element(&self.lhs, input, &var_info),
