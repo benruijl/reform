@@ -1255,6 +1255,10 @@ impl<'a> MatchIterator<'a> {
                     let mul = self.find_multiplicity(k, &tts[self.used_indices[i]]);
                     if mul < max_mul || max_mul == 0 {
                         max_mul = mul;
+
+                        if mul == 1 {
+                            return 1;
+                        }
                     }
                 }
                 max_mul

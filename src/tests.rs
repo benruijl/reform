@@ -338,7 +338,7 @@ mod tests {
         b.serialize(&mut b1);
 
         assert_eq!(
-            Element::compare_term_serialized(&mut Cursor::new(&a1), &mut Cursor::new(&b1), true),
+            Element::compare_serialized(&mut Cursor::new(&a1), &mut Cursor::new(&b1), true),
             Ordering::Equal
         )
     }

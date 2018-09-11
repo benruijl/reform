@@ -618,7 +618,7 @@ impl Element {
                             &|a: &Element, b: &Element| a.partial_cmp(b, var_info, true).unwrap(),
                             &|a: &mut Element, b: &mut Element| merge_terms(a, b, var_info),
                         );
-                        let mut res = Vec::with_capacity(map.len());
+                        let mut res = vec![Element::default(); map.len()];
 
                         if map.len() != ts.len() {
                             changed = true;
@@ -629,7 +629,7 @@ impl Element {
                                 changed = true;
                             }
 
-                            res.push(mem::replace(&mut ts[map[i]], Element::default()));
+                            mem::swap(&mut res[i], &mut ts[map[i]]);
                         }
                         mem::swap(&mut res, ts);
                     } else {

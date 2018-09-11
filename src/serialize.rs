@@ -26,7 +26,8 @@ const NUM_BIGINT_ID: u8 = 2;
 const NUM_SMALLRAT_ID: u8 = 3;
 const NUM_BIGRAT_ID: u8 = 4;
 
-struct SerializedTerm(Vec<u8>);
+#[derive(Debug, Clone)]
+pub struct SerializedTerm(pub Vec<u8>);
 
 impl Default for SerializedTerm {
     fn default() -> SerializedTerm {
@@ -52,6 +53,25 @@ impl SerializedTerm {
     #[allow(dead_code)]
     pub fn into_inner(self) -> Vec<u8> {
         self.0
+    }
+
+    pub fn deserialize(mut self) -> Result<Element, Error> {
+        // skip the header
+        Element::deserialize(&mut Cursor::new(&mut self.0[8..])).map(|e| {
+            if let Element::Term(_, mut ts) = e {
+                if let Some(Element::Num(_, Number::SmallInt(1))) = ts.last() {
+                    ts.pop();
+                }
+
+                if ts.len() == 1 {
+                    ts.swap_remove(0)
+                } else {
+                    Element::Term(false, ts)
+                }
+            } else {
+                unreachable!();
+            }
+        })
     }
 }
 
@@ -235,12 +255,12 @@ impl Element {
             Element::Fn(false, ref name, ref args) => {
                 buffer.write_u8(FN_ID).unwrap();
                 buffer.write_u32::<LittleEndian>(*name).unwrap();
-                9 + serialize_list(args, buffer)
+                5 + serialize_list(args, buffer)
             }
             Element::Var(ref name, ref e) => {
                 buffer.write_u8(VAR_ID).unwrap();
                 buffer.write_u32::<LittleEndian>(*name).unwrap();
-                9 + e.serialize(buffer)
+                5 + e.serialize(buffer)
             }
             Element::Term(false, ref args) => {
                 buffer.write_u8(TERM_ID).unwrap();
@@ -290,12 +310,12 @@ impl Element {
                 let den = Polynomial::deserialize(buffer)?;
                 Element::RationalPolynomialCoefficient(false, Box::new((num, den)))
             }
-            _ => unreachable!(),
+            x => unreachable!("Bad element id {}", x),
         })
     }
 
-    /// Compare normalized terms in serialized form.
-    pub fn compare_term_serialized(
+    /// Compare normalized elements in serialized form.
+    pub fn compare_serialized(
         b1: &mut Cursor<&Vec<u8>>,
         b2: &mut Cursor<&Vec<u8>>,
         ground_level: bool,
@@ -317,7 +337,7 @@ impl Element {
                 }
 
                 for _ in 0..len1 {
-                    match Element::compare_term_serialized(b1, b2, false) {
+                    match Element::compare_serialized(b1, b2, false) {
                         Ordering::Equal => {}
                         x => return x,
                     }
@@ -340,9 +360,9 @@ impl Element {
             (PRF_ID, _) => Ordering::Greater,
             (POW_ID, POW_ID) => {
                 // compare the base
-                match Element::compare_term_serialized(b1, b2, false) {
+                match Element::compare_serialized(b1, b2, false) {
                     // compare exponent
-                    Ordering::Equal => Element::compare_term_serialized(b1, b2, false),
+                    Ordering::Equal => Element::compare_serialized(b1, b2, false),
                     x => x,
                 }
             }
@@ -351,13 +371,20 @@ impl Element {
             (TERM_ID, TERM_ID) => {
                 // FIXME: the cursor won't always be at the end of the term!
                 // is this a problem for sub-terms? maybe when we return equal!
-                let len1 = b1.read_u32::<LittleEndian>().unwrap();
-                let len2 = b2.read_u32::<LittleEndian>().unwrap();
+                let mut len1 = b1.read_u32::<LittleEndian>().unwrap();
+                let mut len2 = b2.read_u32::<LittleEndian>().unwrap();
+
+                if ground_level {
+                    // the ground level is guaranteed to have a coefficient,
+                    // and we ignore it
+                    len1 -= 1;
+                    len2 -= 1;
+                }
 
                 let mut i = 0;
                 loop {
                     if i < len2 {
-                        match Element::compare_term_serialized(b1, b2, false) {
+                        match Element::compare_serialized(b1, b2, false) {
                             Ordering::Equal => {}
                             x => return x,
                         }
@@ -394,7 +421,7 @@ impl Element {
                     let e = b2.read_u8().unwrap();
                     if e == NUM_ID || e == PRF_ID {
                         b2.seek(SeekFrom::Current(-1)).unwrap();
-                        return Element::compare_term_serialized(b1, b2, ground_level);
+                        return Element::compare_serialized(b1, b2, ground_level);
                     }
                 }
 
@@ -406,7 +433,7 @@ impl Element {
                     let e = b1.read_u8().unwrap();
                     if e == NUM_ID || e == PRF_ID {
                         b1.seek(SeekFrom::Current(-1)).unwrap();
-                        return Element::compare_term_serialized(b1, b2, ground_level);
+                        return Element::compare_serialized(b1, b2, ground_level);
                     }
                 }
 
@@ -422,7 +449,7 @@ impl Element {
                 }
 
                 for _ in 0..len1 {
-                    match Element::compare_term_serialized(b1, b2, false) {
+                    match Element::compare_serialized(b1, b2, false) {
                         Ordering::Equal => {}
                         x => return x,
                     }
@@ -431,26 +458,41 @@ impl Element {
                 Ordering::Equal
             }
             (EXPR_ID, _) => Ordering::Less,
-            (VAR_ID, VAR_ID) => b1
+            (VAR_ID, VAR_ID) => match b1
                 .read_u32::<LittleEndian>()
                 .unwrap()
-                .cmp(&b2.read_u32::<LittleEndian>().unwrap()),
+                .cmp(&b2.read_u32::<LittleEndian>().unwrap())
+            {
+                Ordering::Equal => Number::compare_serialized(b1, b2),
+                x => return x,
+            },
             _ => Ordering::Less,
         }
     }
 
-    /// Serialize a term. Extra information is stored to quickly
-    /// jump to the coefficient in the case terms have to be merged.
+    pub fn compare_term_serialized(
+        b1: &mut Cursor<&Vec<u8>>,
+        b2: &mut Cursor<&Vec<u8>>,
+    ) -> Ordering {
+        // skip header
+        b1.seek(SeekFrom::Start(8)).unwrap();
+        b2.seek(SeekFrom::Start(8)).unwrap();
+
+        Element::compare_serialized(b1, b2, true)
+    }
+
+    /// Serialize any element to a term. Extra information is stored to quickly
+    /// jump to the coefficient in the case serialized terms have to be merged.
     pub fn serialize_term<W: Write + Seek>(&self, buffer: &mut W) {
         match self {
             Element::Term(_, fs) => {
                 buffer.write_u32::<LittleEndian>(0u32).unwrap(); // placeholder for total length
                 buffer.write_u32::<LittleEndian>(0u32).unwrap(); // placeholder for start of coeff
                 buffer.write_u8(TERM_ID).unwrap();
-                // FIXME: could be plus 0 if coeff is 0
-                buffer.write_u32::<LittleEndian>(fs.len() as u32).unwrap(); // write number of terms.
-                let mut len = 9; // TODO: why 9?
+                buffer.write_u32::<LittleEndian>(0u32).unwrap(); // placeholder for number of terms
+                let mut len = 13;
                 let mut coefflen = 0;
+                let mut termcount = fs.len() as u32; // number of terms without coefficient
                 for x in fs {
                     match x {
                         Element::Num(..) | Element::RationalPolynomialCoefficient(..) => {
@@ -467,6 +509,7 @@ impl Element {
                 if coefflen == 0 {
                     // if there is no coefficient, we add one
                     coefflen = Element::Num(false, Number::one()).serialize(buffer);
+                    termcount += 1;
                 }
 
                 buffer.seek(SeekFrom::Start(0)).unwrap();
@@ -474,19 +517,32 @@ impl Element {
                     .write_u32::<LittleEndian>((len + coefflen) as u32)
                     .unwrap();
                 buffer.write_u32::<LittleEndian>(len as u32).unwrap();
+                buffer.write_u8(TERM_ID).unwrap();
+                buffer.write_u32::<LittleEndian>(termcount).unwrap();
                 buffer.seek(SeekFrom::End(0)).unwrap();
             }
-            Element::Fn(..) => {
+            Element::Fn(..) | Element::Var(..) | Element::Pow(..) => {
                 buffer.write_u32::<LittleEndian>(0u32).unwrap();
                 buffer.write_u32::<LittleEndian>(0u32).unwrap();
                 buffer.write_u8(TERM_ID).unwrap();
                 buffer.write_u32::<LittleEndian>(2u32).unwrap();
-                let len = 9 + self.serialize(buffer);
+                let len = 13 + self.serialize(buffer);
                 let coefflen = Element::Num(false, Number::one()).serialize(buffer);
                 buffer.seek(SeekFrom::Start(0)).unwrap();
                 buffer
                     .write_u32::<LittleEndian>((len + coefflen) as u32)
                     .unwrap();
+                buffer.write_u32::<LittleEndian>(len as u32).unwrap();
+                buffer.seek(SeekFrom::End(0)).unwrap();
+            }
+            Element::Num(..) => {
+                buffer.write_u32::<LittleEndian>(0u32).unwrap();
+                buffer.write_u32::<LittleEndian>(0u32).unwrap();
+                buffer.write_u8(TERM_ID).unwrap();
+                buffer.write_u32::<LittleEndian>(1u32).unwrap();
+                let len = 13 + self.serialize(buffer);
+                buffer.seek(SeekFrom::Start(0)).unwrap();
+                buffer.write_u32::<LittleEndian>(9).unwrap();
                 buffer.write_u32::<LittleEndian>(len as u32).unwrap();
                 buffer.seek(SeekFrom::End(0)).unwrap();
             }
@@ -513,7 +569,8 @@ impl Element {
         let coeff1 = Element::deserialize(b1).unwrap();
         let coeff2 = Element::deserialize(b2).unwrap();
 
-        // TODO: add coeffs, for now: assume it's numbers
+        // add coefficients
+        // TODO: support polyratfun
         let mut num = Number::zero();
         if let Element::Num(_, x1) = coeff1 {
             if let Element::Num(_, x2) = coeff2 {
@@ -576,7 +633,7 @@ fn serializeterm() {
             "{:?}",
             split_merge(
                 &mut b,
-                &|x1, x2| Element::compare_term_serialized(
+                &|x1, x2| Element::compare_serialized(
                     &mut Cursor::new(x1),
                     &mut Cursor::new(x2),
                     true
@@ -604,7 +661,7 @@ fn serializeterm() {
 
     println!(
         "cmp {:?}",
-        Element::compare_term_serialized(
+        Element::compare_serialized(
             &mut Cursor::new(&storage1),
             &mut Cursor::new(&storage2),
             true
