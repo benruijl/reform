@@ -5,11 +5,13 @@ use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::prelude::*;
-use std::io::{BufReader, BufWriter, SeekFrom};
+use std::io::{BufReader, BufWriter, Cursor, SeekFrom};
 use std::mem;
 
 use normalize::merge_terms;
 use number::Number;
+use serialize::SerializedTerm;
+use sort::split_merge;
 use structure::{Element, ElementPrinter, GlobalVarInfo, PrintMode, Statement, VarInfo};
 
 pub const MAXTERMMEM: usize = 10_000_000; // maximum number of terms allowed in memory
@@ -96,9 +98,9 @@ impl InputTermStreamer {
 // stream from file or from memory
 #[derive(Debug)]
 pub struct OutputTermStreamer {
-    sortfiles: Vec<File>,     // the sort files, a buffer for each file
-    mem_buffer: Vec<Element>, // the memory buffer, storing unserialized terms
-    termcounter: u64,         // current term count
+    sortfiles: Vec<File>,            // the sort files, a buffer for each file
+    mem_buffer: Vec<SerializedTerm>, // the memory buffer, storing unserialized terms
+    termcounter: u64,                // current term count
 }
 
 impl OutputTermStreamer {
@@ -134,20 +136,30 @@ impl OutputTermStreamer {
             println!("    -- generated: {}", self.termcounter);
 
             // sort to potentially reduce the memory footprint
-            let mut tmp = vec![];
-            mem::swap(&mut self.mem_buffer, &mut tmp);
-            let mut a = Element::SubExpr(true, tmp);
-            a.normalize_inplace(var_info);
+            let map = split_merge(
+                &mut self.mem_buffer,
+                &|x1, x2| {
+                    Element::compare_term_serialized(&mut Cursor::new(x1), &mut Cursor::new(x2))
+                },
+                &|x1: &mut SerializedTerm, x2: &mut SerializedTerm| {
+                    Element::serialized_terms_add(&mut Cursor::new(x1), &mut Cursor::new(x2))
+                },
+            );
 
-            match a {
-                Element::SubExpr(_, ref mut x) => mem::swap(&mut self.mem_buffer, x),
-                x => self.mem_buffer = vec![x],
+            let mut tmp = vec![SerializedTerm::default(); map.len()];
+            for i in 0..map.len() {
+                tmp[i] = mem::replace(&mut self.mem_buffer[map[i]], SerializedTerm::default());
             }
+            self.mem_buffer = tmp;
         }
 
         if self.mem_buffer.len() < MAXTERMMEM {
-            self.mem_buffer.push(element);
+            let mut buf = Cursor::new(vec![]);
+            element.serialize_term(&mut buf);
+            self.mem_buffer.push(SerializedTerm(buf.into_inner()));
         } else {
+            unimplemented!();
+            /*
             // write the buffer to a new file
             if self.termcounter % MAXTERMMEM as u64 == 0 || self.sortfiles.is_empty() {
                 println!("Creating new file {}", self.sortfiles.len());
@@ -161,7 +173,7 @@ impl OutputTermStreamer {
             }
 
             self.mem_buffer.clear();
-            self.mem_buffer.push(element);
+            self.mem_buffer.push(element);*/
         }
         self.termcounter += 1;
     }
@@ -204,18 +216,34 @@ impl OutputTermStreamer {
         if self.sortfiles.is_empty() {
             debug!("In-memory sorting {} terms", self.mem_buffer.len());
 
-            let mut tmp = vec![];
-            mem::swap(&mut self.mem_buffer, &mut tmp);
-            let mut a = Element::SubExpr(true, tmp);
-            a.normalize_inplace(&var_info.global_info);
+            //println!("pre-sort {:#?}", self.mem_buffer);
+
+            let map = split_merge(
+                &mut self.mem_buffer,
+                &|x1, x2| {
+                    Element::compare_term_serialized(&mut Cursor::new(x1), &mut Cursor::new(x2))
+                },
+                &|x1: &mut SerializedTerm, x2: &mut SerializedTerm| {
+                    Element::serialized_terms_add(&mut Cursor::new(x1), &mut Cursor::new(x2))
+                },
+            );
+
+            //println!("post-sort {:#?}", self.mem_buffer);
+
+            let mut tmp = vec![SerializedTerm::default(); map.len()];
+            for i in 0..map.len() {
+                tmp[i] = mem::replace(&mut self.mem_buffer[map[i]], SerializedTerm::default());
+            }
+            self.mem_buffer.clear();
+
             input_streamer.input = None;
 
             // execute the global statements
             for s in sort_statements.drain(..) {
                 match s {
-                    Statement::Collect(ref v) => {
+                    /*Statement::Collect(ref v) => {
                         a = Element::Fn(false, v.clone(), vec![a]);
-                    }
+                    }*/
                     Statement::Print(mode, ref es) => {
                         if es.len() == 0 || es
                             .iter()
@@ -230,7 +258,18 @@ impl OutputTermStreamer {
             }
 
             // move to input buffer
-            match a {
+            // TODO: keep the input buffer serialized too!
+            input_streamer.mem_buffer_input = VecDeque::new();
+
+            //println!("{:#?}", tmp);
+
+            for x in mem::replace(&mut tmp, vec![]) {
+                input_streamer
+                    .mem_buffer_input
+                    .push_back(x.deserialize().unwrap());
+            }
+
+            /*match a {
                 Element::SubExpr(_, x) => input_streamer.mem_buffer_input = VecDeque::from(x),
                 Element::Num(_, Number::SmallInt(0)) => {
                     input_streamer.mem_buffer_input = VecDeque::new();
@@ -242,7 +281,7 @@ impl OutputTermStreamer {
                         v
                     }
                 }
-            }
+            }*/
 
             if print_output {
                 println!("{} =", exprname);
@@ -267,6 +306,10 @@ impl OutputTermStreamer {
 
             return;
         }
+
+        unimplemented!()
+
+        /*
 
         // sort every sort file
         let mut x = self.sortfiles.len();
@@ -453,5 +496,6 @@ impl OutputTermStreamer {
         for x in 0..sortc {
             fs::remove_file(format!("{}.srt", x)).unwrap();
         }
+        */
     }
 }
