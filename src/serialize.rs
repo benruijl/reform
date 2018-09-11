@@ -55,12 +55,14 @@ impl SerializedTerm {
         self.0
     }
 
-    pub fn deserialize(mut self) -> Result<Element, Error> {
+    pub fn deserialize(&self) -> Result<Element, Error> {
         // skip the header
-        Element::deserialize(&mut Cursor::new(&mut self.0[8..])).map(|e| {
+        Element::deserialize(&mut Cursor::new(&self.0[8..])).map(|e| {
             if let Element::Term(_, mut ts) = e {
-                if let Some(Element::Num(_, Number::SmallInt(1))) = ts.last() {
-                    ts.pop();
+                if ts.len() > 1 {
+                    if let Some(Element::Num(_, Number::SmallInt(1))) = ts.last() {
+                        ts.pop();
+                    }
                 }
 
                 if ts.len() == 1 {
@@ -72,6 +74,15 @@ impl SerializedTerm {
                 unreachable!();
             }
         })
+    }
+
+    pub fn read(buffer: &mut Read) -> Result<SerializedTerm, Error> {
+        let len = buffer.read_u32::<LittleEndian>()?;
+
+        let mut term_buf = vec![0; len as usize];
+        term_buf.write_u32::<LittleEndian>(len)?;
+        buffer.read_exact(&mut term_buf[4..])?;
+        Ok(SerializedTerm(term_buf))
     }
 }
 
@@ -542,8 +553,8 @@ impl Element {
                 buffer.write_u32::<LittleEndian>(1u32).unwrap();
                 let len = 13 + self.serialize(buffer);
                 buffer.seek(SeekFrom::Start(0)).unwrap();
-                buffer.write_u32::<LittleEndian>(9).unwrap();
                 buffer.write_u32::<LittleEndian>(len as u32).unwrap();
+                buffer.write_u32::<LittleEndian>(13).unwrap();
                 buffer.seek(SeekFrom::End(0)).unwrap();
             }
             _ => unimplemented!(),
@@ -553,7 +564,7 @@ impl Element {
     /// Add two serialized terms which are identical in all but the coefficient.
     /// The result will be written in `b1`.
     /// Returns true if the result is 0.
-    pub fn serialized_terms_add(
+    pub fn add_terms_serialized(
         b1: &mut Cursor<&mut Vec<u8>>,
         b2: &mut Cursor<&mut Vec<u8>>,
     ) -> bool {
@@ -638,7 +649,7 @@ fn serializeterm() {
                     &mut Cursor::new(x2),
                     true
                 ),
-                &|x1: &mut SerializedTerm, x2: &mut SerializedTerm| Element::serialized_terms_add(
+                &|x1: &mut SerializedTerm, x2: &mut SerializedTerm| Element::add_terms_serialized(
                     &mut Cursor::new(x1),
                     &mut Cursor::new(x2)
                 )
@@ -668,7 +679,7 @@ fn serializeterm() {
         )
     );
 
-    let r = Element::serialized_terms_add(
+    let r = Element::add_terms_serialized(
         &mut Cursor::new(&mut storage1),
         &mut Cursor::new(&mut storage2),
     );

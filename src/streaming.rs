@@ -8,8 +8,6 @@ use std::io::prelude::*;
 use std::io::{BufReader, BufWriter, Cursor, SeekFrom};
 use std::mem;
 
-use normalize::merge_terms;
-use number::Number;
 use serialize::SerializedTerm;
 use sort::split_merge;
 use structure::{Element, ElementPrinter, GlobalVarInfo, PrintMode, Statement, VarInfo};
@@ -18,25 +16,25 @@ pub const MAXTERMMEM: usize = 10_000_000; // maximum number of terms allowed in 
 pub const SMALL_BUFFER: u64 = 100_000; // number of terms before sorting
 
 #[derive(Clone)]
-struct ElementStreamTuple<'a>(Element, &'a GlobalVarInfo, usize);
+struct ElementStreamTuple<'a>(SerializedTerm, &'a GlobalVarInfo, usize);
 
 impl<'a> Ord for ElementStreamTuple<'a> {
     fn cmp(&self, other: &ElementStreamTuple) -> Ordering {
         // min order
-        other.0.partial_cmp(&self.0, self.1, true).unwrap()
+        Element::compare_term_serialized(&mut Cursor::new(&self.0), &mut Cursor::new(&other.0))
     }
 }
 
-// `PartialOrd` needs to be implemented as well.
 impl<'a> PartialOrd for ElementStreamTuple<'a> {
     fn partial_cmp(&self, other: &ElementStreamTuple) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-// `PartialOrd` needs to be implemented as well.
 impl<'a> PartialEq for ElementStreamTuple<'a> {
     fn eq(&self, other: &ElementStreamTuple) -> bool {
+        // TODO: use a quicker function that just does byte comparisons until
+        // the coefficient is reached
         self.cmp(other) == Ordering::Equal
     }
 }
@@ -130,7 +128,7 @@ impl OutputTermStreamer {
     // add a term. First try to add it to the
     // in-memory buffer. If that one is full
     // write it to file
-    pub fn add_term(&mut self, element: Element, var_info: &GlobalVarInfo) {
+    pub fn add_term(&mut self, element: Element, _var_info: &GlobalVarInfo) {
         // print intermediate statistics
         if self.termcounter >= SMALL_BUFFER && self.termcounter % SMALL_BUFFER == 0 {
             println!("    -- generated: {}", self.termcounter);
@@ -142,25 +140,19 @@ impl OutputTermStreamer {
                     Element::compare_term_serialized(&mut Cursor::new(x1), &mut Cursor::new(x2))
                 },
                 &|x1: &mut SerializedTerm, x2: &mut SerializedTerm| {
-                    Element::serialized_terms_add(&mut Cursor::new(x1), &mut Cursor::new(x2))
+                    Element::add_terms_serialized(&mut Cursor::new(x1), &mut Cursor::new(x2))
                 },
             );
 
             let mut tmp = vec![SerializedTerm::default(); map.len()];
             for i in 0..map.len() {
-                tmp[i] = mem::replace(&mut self.mem_buffer[map[i]], SerializedTerm::default());
+                mem::swap(&mut tmp[i], &mut self.mem_buffer[map[i]]);
             }
             self.mem_buffer = tmp;
         }
 
-        if self.mem_buffer.len() < MAXTERMMEM {
-            let mut buf = Cursor::new(vec![]);
-            element.serialize_term(&mut buf);
-            self.mem_buffer.push(SerializedTerm(buf.into_inner()));
-        } else {
-            unimplemented!();
-            /*
-            // write the buffer to a new file
+        if self.mem_buffer.len() >= MAXTERMMEM {
+            // write the full buffer to a new file
             if self.termcounter % MAXTERMMEM as u64 == 0 || self.sortfiles.is_empty() {
                 println!("Creating new file {}", self.sortfiles.len());
                 self.new_file();
@@ -169,12 +161,17 @@ impl OutputTermStreamer {
             let mut b = BufWriter::new(self.sortfiles.last().unwrap());
 
             for x in &self.mem_buffer {
-                x.serialize(&mut b);
+                b.write(x).unwrap();
             }
 
             self.mem_buffer.clear();
-            self.mem_buffer.push(element);*/
         }
+
+        // add a new term
+        let mut buf = Cursor::new(Vec::with_capacity(100));
+        element.serialize_term(&mut buf);
+        self.mem_buffer.push(SerializedTerm(buf.into_inner()));
+
         self.termcounter += 1;
     }
 
@@ -216,7 +213,7 @@ impl OutputTermStreamer {
         if self.sortfiles.is_empty() {
             debug!("In-memory sorting {} terms", self.mem_buffer.len());
 
-            //println!("pre-sort {:#?}", self.mem_buffer);
+            println!("pre-sort {:#?}", self.mem_buffer);
 
             let map = split_merge(
                 &mut self.mem_buffer,
@@ -224,11 +221,11 @@ impl OutputTermStreamer {
                     Element::compare_term_serialized(&mut Cursor::new(x1), &mut Cursor::new(x2))
                 },
                 &|x1: &mut SerializedTerm, x2: &mut SerializedTerm| {
-                    Element::serialized_terms_add(&mut Cursor::new(x1), &mut Cursor::new(x2))
+                    Element::add_terms_serialized(&mut Cursor::new(x1), &mut Cursor::new(x2))
                 },
             );
 
-            //println!("post-sort {:#?}", self.mem_buffer);
+            println!("post-sort {:#?}", self.mem_buffer);
 
             let mut tmp = vec![SerializedTerm::default(); map.len()];
             for i in 0..map.len() {
@@ -269,20 +266,6 @@ impl OutputTermStreamer {
                     .push_back(x.deserialize().unwrap());
             }
 
-            /*match a {
-                Element::SubExpr(_, x) => input_streamer.mem_buffer_input = VecDeque::from(x),
-                Element::Num(_, Number::SmallInt(0)) => {
-                    input_streamer.mem_buffer_input = VecDeque::new();
-                }
-                x => {
-                    input_streamer.mem_buffer_input = {
-                        let mut v = VecDeque::new();
-                        v.push_back(x);
-                        v
-                    }
-                }
-            }*/
-
             if print_output {
                 println!("{} =", exprname);
                 for x in &input_streamer.mem_buffer_input {
@@ -307,10 +290,6 @@ impl OutputTermStreamer {
             return;
         }
 
-        unimplemented!()
-
-        /*
-
         // sort every sort file
         let mut x = self.sortfiles.len();
         loop {
@@ -320,24 +299,37 @@ impl OutputTermStreamer {
             } else {
                 let mut reader = BufReader::new(&self.sortfiles[x]);
                 reader.seek(SeekFrom::Start(0)).unwrap();
-                while let Ok(e) = Element::deserialize(&mut reader) {
-                    self.mem_buffer.push(e);
-                }
+                self.mem_buffer
+                    .push(SerializedTerm::read(&mut reader).unwrap());
             }
 
-            self.mem_buffer
-                .sort_unstable_by(|l, r| l.partial_cmp(r, &var_info.global_info, true).unwrap());
+            let map = split_merge(
+                &mut self.mem_buffer,
+                &|x1, x2| {
+                    Element::compare_term_serialized(&mut Cursor::new(x1), &mut Cursor::new(x2))
+                },
+                &|x1: &mut SerializedTerm, x2: &mut SerializedTerm| {
+                    Element::add_terms_serialized(&mut Cursor::new(x1), &mut Cursor::new(x2))
+                },
+            );
+
+            {
+                let mut tmp = vec![SerializedTerm::default(); map.len()];
+                for i in 0..map.len() {
+                    tmp[i] = mem::replace(&mut self.mem_buffer[map[i]], SerializedTerm::default());
+                }
+                mem::swap(&mut tmp, &mut self.mem_buffer);
+            }
 
             // write back
             self.sortfiles[x].set_len(0).unwrap(); // delete the contents
             self.sortfiles[x].seek(SeekFrom::Start(0)).unwrap();
             {
                 let mut bw = BufWriter::new(&self.sortfiles[x]);
-                for v in &self.mem_buffer {
-                    v.serialize(&mut bw);
+                for v in self.mem_buffer.drain(..) {
+                    bw.write(&v).unwrap();
                 }
             }
-            self.mem_buffer.clear();
 
             self.sortfiles[x].seek(SeekFrom::Start(0)).unwrap(); // go back to start
             if x == 0 {
@@ -379,9 +371,11 @@ impl OutputTermStreamer {
 
             // populate the heap with an element from each bucket
             for (i, mut s) in streamer.iter_mut().enumerate() {
-                if let Ok(e) = Element::deserialize(&mut s) {
-                    heap.push(ElementStreamTuple(e, &var_info.global_info, i));
-                }
+                heap.push(ElementStreamTuple(
+                    SerializedTerm::read(&mut s).unwrap(),
+                    &var_info.global_info,
+                    i,
+                ));
             }
 
             while let Some(ElementStreamTuple(mut mv, vi, i)) = heap.pop() {
@@ -389,11 +383,17 @@ impl OutputTermStreamer {
                 if self.mem_buffer.is_empty() {
                     self.mem_buffer.push(mv);
                 } else {
-                    let mut tmp = Element::default();
+                    let mut tmp = SerializedTerm::default();
                     mem::swap(self.mem_buffer.last_mut().unwrap(), &mut tmp);
-                    match tmp.partial_cmp(&mv, &vi, true) {
-                        Some(Ordering::Equal) => {
-                            if merge_terms(&mut tmp, &mut mv, &vi) {
+                    match Element::compare_term_serialized(
+                        &mut Cursor::new(&mut tmp),
+                        &mut Cursor::new(&mut mv),
+                    ) {
+                        Ordering::Equal => {
+                            if Element::add_terms_serialized(
+                                &mut Cursor::new(&mut tmp),
+                                &mut Cursor::new(&mut mv),
+                            ) {
                                 self.mem_buffer.pop();
                             } else {
                                 mem::swap(self.mem_buffer.last_mut().unwrap(), &mut tmp);
@@ -409,31 +409,34 @@ impl OutputTermStreamer {
                 if self.mem_buffer.len() == maxsortmem {
                     input_streamer.termcounter_input += maxsortmem as u64 - 1;
                     for x in &self.mem_buffer[..maxsortmem - 1] {
+                        // FIXME: we should check if we should print! The expression name should come first too
                         println!(
                             "\t+{}",
                             ElementPrinter {
-                                element: x,
+                                element: &x.deserialize().unwrap(),
                                 var_info: &vi,
                                 print_mode: print_mode
                             }
                         );
-                        x.serialize(&mut ofb);
+
+                        ofb.write(x).unwrap();
                     }
 
                     self.mem_buffer[0] = self.mem_buffer.pop().unwrap();
                     self.mem_buffer.truncate(1);
                 }
 
-                // push new objects to the queue
-                if let Ok(e) = Element::deserialize(&mut streamer[i]) {
-                    heap.push(ElementStreamTuple(e, vi, i))
-                }
+                heap.push(ElementStreamTuple(
+                    SerializedTerm::read(&mut streamer[i]).unwrap(),
+                    vi,
+                    i,
+                ))
             }
 
             // execute the global statements
             for s in sort_statements.drain(..) {
                 match s {
-                    Statement::Collect(ref v) => {
+                    /*Statement::Collect(ref v) => {
                         // does the output fit in memory?
                         if input_streamer.termcounter_input == 0 {
                             self.mem_buffer = vec![Element::Fn(
@@ -444,7 +447,7 @@ impl OutputTermStreamer {
                         } else {
                             panic!("Cannot collect, since output does not fit in memory.");
                         }
-                    }
+                    }*/
                     Statement::Print(mode, ref es) => {
                         if es.len() == 0 || es
                             .iter()
@@ -462,22 +465,29 @@ impl OutputTermStreamer {
 
             if print_output {
                 println!("{} =", exprname);
-                for x in &self.mem_buffer {
+            }
+
+            // move the mem_buffer to the input buffer
+            // FIXME: what about the order?
+
+            input_streamer.mem_buffer_input.clear();
+            for x in mem::replace(&mut self.mem_buffer, vec![]) {
+                input_streamer
+                    .mem_buffer_input
+                    .push_back(x.deserialize().unwrap());
+
+                if print_output {
                     println!(
                         "\t+{}",
                         ElementPrinter {
-                            element: x,
+                            element: input_streamer.mem_buffer_input.back().unwrap(),
                             var_info: &var_info.global_info,
                             print_mode: print_mode
                         }
                     );
                 }
             }
-
-            // move the mem_buffer to the input buffer
-            //mem::swap(&mut self.mem_buffer, &mut input_streamer.mem_buffer_input);
-            input_streamer.mem_buffer_input =
-                VecDeque::from(mem::replace(&mut self.mem_buffer, vec![]));
+            self.mem_buffer.clear();
 
             let mut of = ofb.into_inner().unwrap();
             of.seek(SeekFrom::Start(0)).unwrap();
@@ -496,6 +506,5 @@ impl OutputTermStreamer {
         for x in 0..sortc {
             fs::remove_file(format!("{}.srt", x)).unwrap();
         }
-        */
     }
 }
