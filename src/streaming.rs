@@ -1,12 +1,15 @@
+use fnv::FnvHashSet;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::collections::VecDeque;
 use std::fs;
 use std::fs::File;
 use std::fs::OpenOptions;
+use std::hash::{Hash, Hasher};
 use std::io::prelude::*;
 use std::io::{BufReader, BufWriter, SeekFrom};
 use std::mem;
+use std::ops::{Deref, DerefMut};
 
 use normalize::merge_terms;
 use number::Number;
@@ -14,6 +17,58 @@ use structure::{Element, ElementPrinter, GlobalVarInfo, PrintMode, Statement, Va
 
 pub const MAXTERMMEM: usize = 10_000_000; // maximum number of terms allowed in memory
 pub const SMALL_BUFFER: u64 = 100_000; // number of terms before sorting
+
+#[derive(Debug)]
+struct HashedElement(Element);
+
+impl Eq for HashedElement {}
+
+impl PartialEq for HashedElement {
+    fn eq(&self, other: &HashedElement) -> bool {
+        // FIXME: optimize
+        // TODO: we can't use the Element Eq, since it takes the coeff into account
+        self.0.partial_cmp(&other.0, &GlobalVarInfo::empty(), true) == Some(Ordering::Equal)
+    }
+}
+
+impl Deref for HashedElement {
+    type Target = Element;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for HashedElement {
+    fn deref_mut(&mut self) -> &mut Element {
+        &mut self.0
+    }
+}
+
+impl Hash for HashedElement {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // hash everything except the coefficient,
+        // we can use the Hash on Element
+        match &self.0 {
+            Element::Term(_, ref fs) => {
+                for x in fs {
+                    if let Element::Num(..) = x {
+
+                    } else if let Element::RationalPolynomialCoefficient(..) = x {
+
+                    } else {
+                        x.hash(state);
+                    }
+                }
+            }
+            // TODO: what to hash? Just nothing?
+            Element::Num(..) | Element::RationalPolynomialCoefficient(..) => {}
+            x => {
+                x.hash(state);
+            }
+        }
+    }
+}
 
 #[derive(Clone)]
 struct ElementStreamTuple<'a>(Element, &'a GlobalVarInfo, usize);
@@ -96,16 +151,19 @@ impl InputTermStreamer {
 // stream from file or from memory
 #[derive(Debug)]
 pub struct OutputTermStreamer {
-    sortfiles: Vec<File>,     // the sort files, a buffer for each file
-    mem_buffer: Vec<Element>, // the memory buffer, storing unserialized terms
-    termcounter: u64,         // current term count
+    sortfiles: Vec<File>,                  // the sort files, a buffer for each file
+    mem_buffer: FnvHashSet<HashedElement>, // the memory buffer, storing unserialized terms
+    termcounter: u64,                      // current term count
 }
 
 impl OutputTermStreamer {
     pub fn new() -> OutputTermStreamer {
         OutputTermStreamer {
             sortfiles: vec![],
-            mem_buffer: vec![], // TODO: prevent internal allocation to go beyond MAXTERMMEM
+            mem_buffer: FnvHashSet::with_capacity_and_hasher(
+                SMALL_BUFFER as usize,
+                Default::default(),
+            ),
             termcounter: 0,
         }
     }
@@ -131,23 +189,14 @@ impl OutputTermStreamer {
     pub fn add_term(&mut self, element: Element, var_info: &GlobalVarInfo) {
         // print intermediate statistics
         if self.termcounter >= SMALL_BUFFER && self.termcounter % SMALL_BUFFER == 0 {
-            println!("    -- generated: {}", self.termcounter);
-
-            // sort to potentially reduce the memory footprint
-            let mut tmp = vec![];
-            mem::swap(&mut self.mem_buffer, &mut tmp);
-            let mut a = Element::SubExpr(true, tmp);
-            a.normalize_inplace(var_info);
-
-            match a {
-                Element::SubExpr(_, ref mut x) => mem::swap(&mut self.mem_buffer, x),
-                x => self.mem_buffer = vec![x],
-            }
+            println!(
+                "    -- generated: {}; unique in buffer: {}",
+                self.termcounter,
+                self.mem_buffer.len()
+            );
         }
 
-        if self.mem_buffer.len() < MAXTERMMEM {
-            self.mem_buffer.push(element);
-        } else {
+        if self.mem_buffer.len() >= MAXTERMMEM {
             // write the buffer to a new file
             if self.termcounter % MAXTERMMEM as u64 == 0 || self.sortfiles.is_empty() {
                 println!("Creating new file {}", self.sortfiles.len());
@@ -161,8 +210,18 @@ impl OutputTermStreamer {
             }
 
             self.mem_buffer.clear();
-            self.mem_buffer.push(element);
         }
+
+        // TODO: an entry API is missing so the contains check will be done twice
+        let mut v = HashedElement(element);
+        if let Some(mut x) = self.mem_buffer.take(&v) {
+            if !merge_terms(&mut v, &mut x, var_info) {
+                self.mem_buffer.insert(v);
+            }
+        } else {
+            self.mem_buffer.insert(v);
+        }
+
         self.termcounter += 1;
     }
 
@@ -204,10 +263,12 @@ impl OutputTermStreamer {
         if self.sortfiles.is_empty() {
             debug!("In-memory sorting {} terms", self.mem_buffer.len());
 
-            let mut tmp = vec![];
-            mem::swap(&mut self.mem_buffer, &mut tmp);
-            let mut a = Element::SubExpr(true, tmp);
-            a.normalize_inplace(&var_info.global_info);
+            let mut tmp: Vec<Element> = self.mem_buffer.drain().map(|x| x.0).collect();
+
+            tmp.sort_unstable_by(|a, b| a.partial_cmp(b, &var_info.global_info, true).unwrap());
+
+            let mut a = Element::SubExpr(false, tmp);
+            //a.normalize_inplace(&var_info.global_info);
             input_streamer.input = None;
 
             // execute the global statements
@@ -267,7 +328,7 @@ impl OutputTermStreamer {
 
             return;
         }
-
+        /*
         // sort every sort file
         let mut x = self.sortfiles.len();
         loop {
@@ -452,6 +513,6 @@ impl OutputTermStreamer {
         // clean up all the sortfiles
         for x in 0..sortc {
             fs::remove_file(format!("{}.srt", x)).unwrap();
-        }
+        }*/
     }
 }
