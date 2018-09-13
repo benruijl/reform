@@ -597,6 +597,12 @@ impl Element {
             b1.seek(SeekFrom::Start(b1coeffstart as u64)).unwrap();
             Element::Num(false, num).serialize(b1);
 
+            // update the length of the term
+            let new_len = b1.position();
+            b1.seek(SeekFrom::Start(0)).unwrap();
+            b1.write_u32::<LittleEndian>(new_len as u32).unwrap();
+            b1.seek(SeekFrom::End(0)).unwrap();
+
             false
         }
     }
