@@ -20,6 +20,7 @@ version = "0.2"
 optional = true
 
 [dependencies.cpython]
+git = "https://github.com/dgrunwald/rust-cpython"
 version = "0.2"
 features = ["extension-module"]
 optional = true
