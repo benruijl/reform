@@ -528,6 +528,29 @@ fn do_module_rec(
                         );
                     }
                 }
+                IfCondition::Defined(e) => {
+                    if local_var_info.get_dollar(e).is_some() {
+                        return do_module_rec(
+                            input,
+                            statements,
+                            local_var_info,
+                            global_var_info,
+                            current_index + 1,
+                            term_affected,
+                            output,
+                        );
+                    } else {
+                        return do_module_rec(
+                            input,
+                            statements,
+                            local_var_info,
+                            global_var_info,
+                            i,
+                            term_affected,
+                            output,
+                        );
+                    }
+                }
                 IfCondition::Comparison(e1, e2, c) => {
                     let istrue = if e1.contains_dollar() || e2.contains_dollar() {
                         let mut ee1 = e1.clone();
@@ -1665,6 +1688,17 @@ impl Program {
                     match cond {
                         IfCondition::Match(_) => {
                             panic!("Matching in if statement is not supported in the global scope")
+                        }
+                        IfCondition::Defined(e) => {
+                            if self.var_info.local_info.get_dollar(e).is_some() {
+                                for ss in trueblock.iter().rev() {
+                                    statements.push_front(ss.clone());
+                                }
+                            } else {
+                                for ss in falseblock.iter().rev() {
+                                    statements.push_front(ss.clone());
+                                }
+                            }
                         }
                         IfCondition::Comparison(e1, e2, c) => {
                             if c.cmp_rel(

@@ -353,9 +353,11 @@ Statements
 
 .. frm:statement:: if cond { [statements] } [else { [statements] } ]
                    if match(expr) { [statements] } [else { [statements] } ]
+                   if defined(dollar) { [statements] } [else { [statements] } ]
 
     :param cond: A boolean condition
     :param match(expr): A test to see if an expression matches
+    :param defined(dollar): A test to see if a dollar variable is defined
     :param statements: Statement block to be executed
 
     Only execute if a condition holds. If there is an
@@ -379,6 +381,10 @@ Statements
                 id f(1) = f(2);
             } else {
                 id f(x?) = f(1);
+            }
+
+            if defined($a) {
+                Multiply $a;
             }
 
             if f(1) < f(2) {

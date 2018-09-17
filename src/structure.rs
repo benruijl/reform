@@ -42,6 +42,7 @@ pub struct Program {
 #[derive(Debug, Clone)]
 pub enum IfCondition<ID: Id = VarName> {
     Match(Element<ID>),                             // if match(x?^2)
+    Defined(Element<ID>),                           // if defined($a)
     Comparison(Element<ID>, Element<ID>, Ordering), // if x*y == x*y
 }
 
@@ -49,6 +50,7 @@ impl IfCondition<String> {
     fn to_element(&mut self, var_info: &mut VarInfo) -> IfCondition {
         match self {
             IfCondition::Match(e) => IfCondition::Match(e.to_element(var_info)),
+            IfCondition::Defined(e) => IfCondition::Defined(e.to_element(var_info)),
             IfCondition::Comparison(e1, e2, c) => {
                 IfCondition::Comparison(e1.to_element(var_info), e2.to_element(var_info), c.clone())
             }
@@ -60,6 +62,7 @@ impl fmt::Display for IfCondition {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             IfCondition::Match(e) => write!(f, "match({})", e),
+            IfCondition::Defined(e) => write!(f, "defined({})", e),
             IfCondition::Comparison(e1, e2, c) => write!(f, "{} {} {}", e1, c, e2),
         }
     }
@@ -69,6 +72,7 @@ impl IfCondition {
     pub fn contains_dollar(&self) -> bool {
         match self {
             IfCondition::Match(e) => e.contains_dollar(),
+            IfCondition::Defined(_) => false,
             IfCondition::Comparison(e1, e2, _) => e1.contains_dollar() || e2.contains_dollar(),
         }
     }
@@ -76,6 +80,7 @@ impl IfCondition {
     pub fn replace_dollar(&mut self, map: &HashMap<VarName, DollarVariableTable>) -> ReplaceResult {
         match self {
             IfCondition::Match(e) => e.replace_dollar(map),
+            IfCondition::Defined(_) => ReplaceResult::empty(),
             IfCondition::Comparison(e1, e2, _) => e1.replace_dollar(map) | e2.replace_dollar(map),
         }
     }
@@ -83,6 +88,7 @@ impl IfCondition {
     pub fn replace_elements(&mut self, map: &HashMap<VarName, Element>) -> bool {
         match self {
             IfCondition::Match(e) => e.replace_elements(map),
+            IfCondition::Defined(_) => false,
             IfCondition::Comparison(e1, e2, _) => {
                 e1.replace_elements(map) || e2.replace_elements(map)
             }
@@ -91,7 +97,7 @@ impl IfCondition {
 
     pub fn normalize_inplace(&mut self, var_info: &GlobalVarInfo) {
         match self {
-            IfCondition::Match(e) => {
+            IfCondition::Match(e) | IfCondition::Defined(e) => {
                 e.normalize_inplace(var_info);
             }
             IfCondition::Comparison(e1, e2, _) => {
@@ -110,6 +116,11 @@ impl IfCondition {
         match self {
             IfCondition::Match(e) => {
                 write!(f, "match(")?;
+                e.fmt_output(f, print_mode, var_info)?;
+                write!(f, ")")
+            }
+            IfCondition::Defined(e) => {
+                write!(f, "defined(")?;
                 e.fmt_output(f, print_mode, var_info)?;
                 write!(f, ")")
             }
@@ -212,7 +223,7 @@ impl LocalVarInfo {
         if let Element::Dollar(ref name, ref inds) = dollar {
             self.variables.get(name).and_then(|x| x.get(inds))
         } else {
-            panic!("Not a dollar variable");
+            panic!("{} is not a dollar variable", dollar);
         }
     }
 

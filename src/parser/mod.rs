@@ -547,7 +547,10 @@ fn parse_statement(e: pest::iterators::Pair<Rule>) -> Statement<String> {
                 Rule::bool_function => {
                     let bool_function = bool_statement.into_inner().next().unwrap();
                     match bool_function.as_rule() {
-                        Rule::defined_func => unimplemented!(),
+                        Rule::defined_func => {
+                            let expr = parse_dollar(bool_function.into_inner().next().unwrap());
+                            IfCondition::Defined(expr)
+                        }
                         Rule::match_func => {
                             let expr = parse_expr(bool_function.into_inner().next().unwrap());
                             IfCondition::Match(expr)

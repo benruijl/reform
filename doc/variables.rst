@@ -126,3 +126,16 @@ argument over all the terms. This information can be used in a later module. For
 
 yields ``3*f(30)``. This piece of code stores the maximum value of ``$a`` over all terms (see :frm:st:`maximum`).
 In the next module, ``$a`` will be set to 30.
+
+
+Command line arguments
+----------------------
+
+Dollar variables can be specified on the command line using the `-d` flag. Using the ``$`` is optional and will be
+added automatically.
+
+For example:
+
+.. code-block:: sh
+
+    reform -d $a=5,b=6,c=1+x,d="1 + t^2" test.frm
