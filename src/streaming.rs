@@ -10,7 +10,9 @@ use std::mem;
 
 use normalize::merge_terms;
 use number::Number;
-use structure::{Element, ElementPrinter, GlobalVarInfo, PrintMode, Statement, VarInfo};
+use structure::{
+    Element, ElementPrinter, GlobalVarInfo, PrintMode, PrintObject, Statement, VarInfo,
+};
 
 pub const MAXTERMMEM: usize = 10_000_000; // maximum number of terms allowed in memory
 pub const SMALL_BUFFER: u64 = 100_000; // number of terms before sorting
@@ -217,10 +219,13 @@ impl OutputTermStreamer {
                         a = Element::Fn(false, v.clone(), vec![a]);
                     }
                     Statement::Print(mode, ref es) => {
-                        if es.len() == 0 || es
-                            .iter()
-                            .any(|e| exprname == var_info.global_info.get_name(*e))
-                        {
+                        if es.len() == 0 || es.iter().any(|e| {
+                            if let PrintObject::Special(name) = e {
+                                exprname == var_info.global_info.get_name(*name)
+                            } else {
+                                false
+                            }
+                        }) {
                             print_output = true;
                         }
                         print_mode = mode;
@@ -403,10 +408,13 @@ impl OutputTermStreamer {
                         }
                     }
                     Statement::Print(mode, ref es) => {
-                        if es.len() == 0 || es
-                            .iter()
-                            .any(|e| exprname == var_info.global_info.get_name(*e))
-                        {
+                        if es.len() == 0 || es.iter().any(|e| {
+                            if let PrintObject::Special(name) = e {
+                                exprname == var_info.global_info.get_name(*name)
+                            } else {
+                                false
+                            }
+                        }) {
                             print_output = true;
                         }
                         print_mode = mode;

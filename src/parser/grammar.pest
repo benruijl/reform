@@ -37,6 +37,9 @@ op_logical_or  = { "||" }
 op_logical_and = { "&&" }
 op_logical_not = { "!" }
 
+string_literal = @{ (!"{" ~ !"\"" ~ any)* }
+format_string  = { "\"" ~ (string_literal ~ "{" ~ (dollar | identity) ~ "}")* ~ string_literal ~ "\"" }
+
 program = { soi ~ proc_block* ~ global_statement* ~ eoi }
 
 global_statement     = {
@@ -49,6 +52,7 @@ global_statement     = {
   | for_statement
   | collect_statement
   | for_in_range_statement
+  | print_fmt_statement
   | print_statement
   | mod_block
   | global_if_block
@@ -83,6 +87,8 @@ for_in_range_statement = { ^"for" ~ dollar ~ "in" ~ expression ~ ".." ~ expressi
 print_statement     = { ^"print" ~ print_opt? ~ ((dollar | identity) ~ ("," ~ (dollar | identity))*)? ~ ";" }
 
 print_opt           = { ^"form" | ^"mathematica" }
+
+print_fmt_statement = { ^"print" ~ print_opt? ~ format_string ~ ";" }
 
 matchassign_statement = { ^"matchassign" ~ expression ~ "{" ~ exec_statement* ~ "}" }
 
@@ -120,6 +126,7 @@ exec_statement      = {
   | maximum_statement
   | splitarg_statement
   | symmetrize_statement
+  | print_fmt_statement
   | print_statement
   | id_statement
   | expand_statement

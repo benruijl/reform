@@ -963,28 +963,36 @@ fn do_module_rec(
             );
         }
         Statement::Print(ref mode, ref vars) => {
+            let mut out = String::new();
+
+            let add_newline = vars.iter().all(|e| {
+                if let PrintObject::Literal(..) = e {
+                    false
+                } else {
+                    true
+                }
+            });
+            for v in vars {
+                v.print(&mut out, &input, local_var_info, global_var_info, mode);
+                if add_newline {
+                    out.push('\n');
+                }
+            }
+            if add_newline {
+                print!("{}", out);
+            } else {
+                println!("{}", out);
+            }
+
             if vars.len() == 0 {
                 println!(
-                    "\t+{}",
+                    "{}",
                     ElementPrinter {
                         element: &input,
-                        var_info: &global_var_info,
+                        var_info: global_var_info,
                         print_mode: *mode
                     }
                 );
-            } else {
-                for d in vars {
-                    if let Some(x) = local_var_info.get_dollar_from_name(*d) {
-                        println!(
-                            "{}",
-                            ElementPrinter {
-                                element: x,
-                                var_info: &global_var_info,
-                                print_mode: *mode
-                            }
-                        );
-                    }
-                }
             }
 
             return do_module_rec(
@@ -1663,18 +1671,31 @@ impl Program {
                     }
                 }
                 Statement::Print(ref mode, ref vars) => {
-                    // only print dollar variables at this stage
-                    for d in vars {
-                        if let Some(x) = self.var_info.local_info.get_dollar_from_name(*d) {
-                            println!(
-                                "{}",
-                                ElementPrinter {
-                                    element: x,
-                                    var_info: &self.var_info.global_info,
-                                    print_mode: *mode
-                                }
-                            );
+                    let mut out = String::new();
+
+                    let add_newline = vars.iter().all(|e| {
+                        if let PrintObject::Literal(..) = e {
+                            false
+                        } else {
+                            true
                         }
+                    });
+                    for v in vars {
+                        v.print(
+                            &mut out,
+                            &Element::default(),
+                            &mut self.var_info.local_info,
+                            &self.var_info.global_info,
+                            mode,
+                        );
+                        if add_newline {
+                            out.push('\n');
+                        }
+                    }
+                    if add_newline {
+                        print!("{}", out);
+                    } else {
+                        println!("{}", out);
                     }
 
                     if vars.len() == 0 {

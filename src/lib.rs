@@ -2,6 +2,7 @@ extern crate pest;
 #[macro_use]
 extern crate pest_derive;
 extern crate byteorder; // for serialization
+extern crate chrono;
 extern crate crossbeam;
 extern crate fastdivide;
 extern crate fnv;

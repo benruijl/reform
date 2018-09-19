@@ -1,3 +1,4 @@
+use chrono::prelude::*;
 use num_traits::One;
 use number::Number;
 use poly::polynomial::PolyPrinter;
@@ -6,11 +7,13 @@ use std::cmp;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt;
+use std::fmt::Write;
 use std::mem;
 use streaming::InputTermStreamer;
 
 pub const BUILTIN_FUNCTIONS: &'static [&'static str] = &[
     "delta_", "nargs_", "sum_", "prod_", "rat_", "gcd_", "takearg_", "ifelse_", "term_", "list_",
+    "time_", "date_",
 ];
 pub const FUNCTION_DELTA: VarName = 0;
 pub const FUNCTION_NARGS: VarName = 1;
@@ -22,6 +25,8 @@ pub const FUNCTION_TAKEARG: VarName = 6;
 pub const FUNCTION_IFELSE: VarName = 7;
 pub const FUNCTION_TERM: VarName = 8;
 pub const FUNCTION_LIST: VarName = 9;
+pub const FUNCTION_TIME: VarName = 10; // used for printing
+pub const FUNCTION_DATE: VarName = 11; // used for printing
 
 /// Trait for variable ID. Normally `VarName` or `String`.
 pub trait Id: Ord + fmt::Debug {}
@@ -37,6 +42,77 @@ pub struct Program {
     pub statements: Vec<Statement>,
     pub procedures: Vec<Procedure>,
     pub var_info: VarInfo,
+}
+
+#[derive(Debug, Clone)]
+pub enum PrintObject<ID: Id = VarName> {
+    Literal(String),
+    Variable(Element<ID>),
+    Special(ID),
+}
+
+impl PrintObject<String> {
+    fn to_element(&mut self, var_info: &mut VarInfo) -> PrintObject<VarName> {
+        match self {
+            PrintObject::Literal(x) => PrintObject::Literal(mem::replace(x, String::new())),
+            PrintObject::Variable(id) => PrintObject::Variable(id.to_element(var_info)),
+            PrintObject::Special(id) => PrintObject::Special(var_info.get_name(id)),
+        }
+    }
+}
+
+impl PrintObject<VarName> {
+    fn print_direct(&self) -> String {
+        match self {
+            PrintObject::Literal(x) => x.clone(),
+            PrintObject::Variable(_) => "{var}".to_owned(),
+            PrintObject::Special(_) => "{special_}".to_owned(),
+        }
+    }
+
+    pub fn print(
+        &self,
+        accum: &mut String,
+        element: &Element,
+        local_var_info: &mut LocalVarInfo,
+        global_var_info: &GlobalVarInfo,
+        print_mode: &PrintMode,
+    ) {
+        match self {
+            PrintObject::Literal(x) => write!(accum, "{}", x.clone()).unwrap(),
+            PrintObject::Variable(id) => {
+                if let Some(x) = local_var_info.get_dollar(id) {
+                    write!(
+                        accum,
+                        "{}",
+                        ElementPrinter {
+                            element: x,
+                            var_info: global_var_info,
+                            print_mode: *print_mode
+                        }
+                    ).unwrap();
+                } else {
+                    panic!("Unknown dollar variable in print statement: {}", id);
+                }
+            }
+            PrintObject::Special(id) => match *id {
+                FUNCTION_DATE => {
+                    write!(accum, "{}", Local::now().format("%Y-%m-%d %H:%M:%S%.3f")).unwrap()
+                }
+                FUNCTION_TIME => write!(accum, "{}", Local::now().format("%H:%M:%S%.3f")).unwrap(),
+                FUNCTION_TERM => write!(
+                    accum,
+                    "{}",
+                    ElementPrinter {
+                        element,
+                        var_info: global_var_info,
+                        print_mode: *print_mode
+                    }
+                ).unwrap(),
+                _ => unimplemented!("Expressions in format strings are not supported yet."),
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -496,7 +572,7 @@ pub enum Statement<ID: Id = VarName> {
     ForIn(Element<ID>, Vec<Element<ID>>, Vec<Statement<ID>>),
     ForInRange(Element<ID>, Element<ID>, Element<ID>, Vec<Statement<ID>>),
     Expand,
-    Print(PrintMode, Vec<ID>),
+    Print(PrintMode, Vec<PrintObject<ID>>),
     Multiply(Element<ID>),
     ReplaceBy(Element<ID>),
     Symmetrize(ID),
@@ -1064,20 +1140,15 @@ impl fmt::Display for Statement {
             Statement::IdentityStatement(ref id) => write!(f, "{}", id),
             Statement::SplitArg(ref name) => writeln!(f, "SplitArg {};", name),
             Statement::Expand => writeln!(f, "Expand;"),
-            Statement::Print(ref mode, ref es) => {
+            Statement::Print(ref mode, ref po) => {
                 write!(f, "Print")?;
                 match mode {
                     PrintMode::Form => {} // default
                     PrintMode::Mathematica => write!(f, " Mathematica")?,
                 }
 
-                match es.first() {
-                    Some(x) => write!(f, " {}", x)?,
-                    None => {}
-                }
-
-                for x in es.iter().skip(1) {
-                    write!(f, ",{}", x)?;
+                for x in po {
+                    write!(f, "{}", x.print_direct())?
                 }
                 writeln!(f, ";")
             }
@@ -1898,9 +1969,9 @@ impl Statement<String> {
             Statement::Multiply(ref mut e) => Statement::Multiply(e.to_element(var_info)),
             Statement::ReplaceBy(ref mut e) => Statement::ReplaceBy(e.to_element(var_info)),
             Statement::Expand => Statement::Expand,
-            Statement::Print(ref mode, ref es) => Statement::Print(
+            Statement::Print(ref mode, ref mut pos) => Statement::Print(
                 mode.clone(),
-                es.iter().map(|name| var_info.get_name(name)).collect(),
+                pos.iter_mut().map(|po| po.to_element(var_info)).collect(),
             ),
             Statement::Maximum(ref mut e) => Statement::Maximum(e.to_element(var_info)),
             Statement::Call(ref name, ref mut es) => Statement::Call(

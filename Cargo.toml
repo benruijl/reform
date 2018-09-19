@@ -44,3 +44,4 @@ cpuprofiler = { version = "0.0.3", optional = true }
 fastdivide = "0.2.0"
 fnv = "1.0.3"
 bitflags = "1.0.4"
+chrono = "0.4"

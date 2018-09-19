@@ -495,14 +495,31 @@ Statements
 
         y*(1+x)
 
-.. frm:statement:: print [format] args;
-    
-    :param format: The format for printing. It can either be ``Form`` or ``Mathematica``.
-    :param args: a list of objects to print. If empty, it will print all active terms.
+.. frm:statement:: print [format] [vars];
+.. frm:statement:: print [format] format_string;
 
-    Print the structures listed in ``args``. If the ``Print`` is used in a module block without
-    arguments, it will print the
-    current term. If it is used outside a module without arguments, it will print all active expressions.
+    :param format: Optional format for printing. It can either be ``Form`` or ``Mathematica``.
+    :param vars: A list of variables to print.
+    :param format_string: a list of variables to print
+
+    Print objects or a formatted string to the screen.
+
+    If the ``Print`` statement without arguments ``vars`` or ``format_string`` is used in a module, the
+    current term is printed. If it is used outside a module without these arguments, it will print all active expressions.
+
+    The ``format`` option can be used to format the terms in a way such that it is compatible with other software.
+    The current supported options are ``Form`` (default) and ``Mathematica``.
+
+    If a list of variables ``vars`` is specified, each variable will be printed on a new line.
+    If a format string is specified, the formatted string is printed. Variables and special
+    objects can be printed by putting them between ``{ }`` in the format string.
+    Special objects are:
+
+    - ``{data_}``: print the current date and time
+    - ``{time_}``: print the current time
+    - ``{term_}``: print the current term
+    - ``{$a}``: print the value of ``$a``
+
 
     .. code-block:: reform
 
@@ -510,8 +527,10 @@ Statements
         print mathematica $a;
 
         expr F = 1 + x;
+        print; // print F at the end of the next module
         apply {
-            print;
+            print; // print the current term
+            print "{date_}: current term={term_}, $a={$a}";
         }
 
 .. frm:statement:: procedure name(args; localargs) { [statements] }

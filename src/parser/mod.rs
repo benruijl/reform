@@ -7,7 +7,7 @@ use std::io::prelude::*;
 use std::str::FromStr;
 use structure::{
     Element, FunctionAttributes, IdentityStatement, IdentityStatementMode, IfCondition, Module,
-    Ordering, PrintMode, Procedure, Program, Statement,
+    Ordering, PrintMode, PrintObject, Procedure, Program, Statement,
 };
 
 use pest::Parser;
@@ -471,7 +471,43 @@ fn parse_statement(e: pest::iterators::Pair<Rule>) -> Statement<String> {
             let mut print_opt = PrintMode::Form;
             for d in e.into_inner() {
                 match d.as_rule() {
-                    Rule::dollar | Rule::identity => ds.push(d.into_span().as_str().to_string()),
+                    Rule::dollar => ds.push(PrintObject::Variable(parse_dollar(d))),
+                    Rule::identity => {
+                        ds.push(PrintObject::Special(d.into_span().as_str().to_string()))
+                    }
+                    Rule::print_opt => match d.into_span().as_str().to_lowercase().as_str() {
+                        "mathematica" => print_opt = PrintMode::Mathematica,
+                        _ => {}
+                    },
+                    _ => unreachable!(),
+                }
+            }
+
+            Statement::Print(print_opt, ds)
+        }
+        Rule::print_fmt_statement => {
+            let mut ds = vec![];
+            let mut print_opt = PrintMode::Form;
+            for d in e.into_inner() {
+                match d.as_rule() {
+                    Rule::format_string => {
+                        for dd in d.into_inner() {
+                            match dd.as_rule() {
+                                Rule::string_literal => ds.push(PrintObject::Literal(
+                                    dd.into_span()
+                                        .as_str()
+                                        .to_owned()
+                                        .replace("\\t", "\t")
+                                        .replace("\\n", "\n"),
+                                )),
+                                Rule::dollar => ds.push(PrintObject::Variable(parse_dollar(dd))),
+                                Rule::identity => ds.push(PrintObject::Special(
+                                    dd.into_span().as_str().to_string(),
+                                )),
+                                x => unreachable!("Unexpected {:#?} in format string", x),
+                            }
+                        }
+                    }
                     Rule::print_opt => match d.into_span().as_str().to_lowercase().as_str() {
                         "mathematica" => print_opt = PrintMode::Mathematica,
                         _ => {}
