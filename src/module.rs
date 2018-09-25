@@ -54,18 +54,76 @@ impl Element {
                 t1.extend(t2.iter().cloned());
                 Element::Term(true, mem::replace(t1, vec![]))
             }
+            (x1, Element::Num(false, Number::SmallInt(1))) => x1,
             (Element::Term(_, mut t1), x) => {
                 t1.push(x.clone());
                 Element::Term(true, t1)
             }
+            (Element::Num(false, Number::SmallInt(1)), x2) => x2.clone(),
             (ref x, Element::Term(_, t2)) => {
                 let mut k = t2.clone();
                 k.push(x.clone());
                 Element::Term(true, k)
             }
-            (Element::Num(false, Number::SmallInt(1)), x2) => x2.clone(),
-            (x1, Element::Num(false, Number::SmallInt(1))) => x1,
             (x1, x2) => Element::Term(true, vec![x1, x2.clone()]),
+        }
+    }
+
+    pub fn append_factors_mut(&mut self, other: &Element) {
+        *self = match (&mut *self, other) {
+            (Element::Term(ref mut dirty, ref mut t1), Element::Term(_, t2)) => {
+                t1.extend(t2.iter().cloned());
+                *dirty = true;
+                return;
+            }
+            (Element::Num(false, Number::SmallInt(1)), x2) => x2.clone(),
+            (_, Element::Num(false, Number::SmallInt(1))) => {
+                return;
+            }
+            (Element::Term(ref mut dirty, ref mut t1), x) => {
+                t1.push(x.clone());
+                *dirty = true;
+                return;
+            }
+
+            (ref mut x1, Element::Term(_, t2)) => {
+                let mut k = t2.clone();
+                k.push(mem::replace(x1, Element::default()));
+                Element::Term(true, k)
+            }
+            (x1, x2) => Element::Term(true, vec![mem::replace(x1, Element::default()), x2.clone()]),
+        }
+    }
+
+    pub fn append_factors_mut_move(&mut self, other: Element) {
+        *self = match (&mut *self, other) {
+            (Element::Term(ref mut dirty, ref mut t1), Element::Term(_, ref mut t2)) => {
+                t1.extend(mem::replace(t2, vec![]));
+                *dirty = true;
+                return;
+            }
+            (Element::Num(false, Number::SmallInt(1)), ref mut x2) => {
+                mem::replace(x2, Element::default())
+            }
+            (_, Element::Num(false, Number::SmallInt(1))) => {
+                return;
+            }
+            (Element::Term(ref mut dirty, ref mut t1), ref mut x) => {
+                t1.push(mem::replace(x, Element::default()));
+                *dirty = true;
+                return;
+            }
+            (ref mut x1, Element::Term(_, ref mut t2)) => {
+                t2.push(mem::replace(x1, Element::default()));
+                Element::Term(true, mem::replace(t2, vec![]))
+            }
+            (ref mut x1, ref mut x2) => Element::Term(
+                true,
+                vec![
+                    mem::replace(*x1, Element::default()),
+                    mem::replace(x2, Element::default()),
+                ],
+            ),
         }
     }
 

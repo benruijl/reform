@@ -1200,8 +1200,7 @@ pub struct MatchIterator<'a> {
     target: &'a Element,
     m: MatchObject<'a>,
     used_indices: Vec<usize>,
-    rest: Element,
-    multiplicity: usize,
+    result: Element,
     it: MatchKind<'a>,
     rhsp: usize, // current rhs index,
     hasmatch: bool,
@@ -1210,41 +1209,6 @@ pub struct MatchIterator<'a> {
 
 // iterate over the output terms of a match
 impl<'a> MatchIterator<'a> {
-    pub fn generate_rhs(&self, rhs: &Element) -> Element {
-        let mut res = if self.multiplicity == 1 {
-            rhs.apply_map(&self.m)
-                .into_single()
-                .0
-                .append_factors(&self.rest)
-        } else {
-            // TODO: a potential vector in self.rest can be recycled
-            rhs.apply_map(&self.m)
-                .into_single()
-                .0
-                .pow(Element::Num(
-                    false,
-                    Number::SmallInt(self.multiplicity as isize),
-                )).append_factors(&self.rest)
-        };
-
-        // FIXME: in the current setup, the dollar variable list
-        // handed to the id routines are empty. We have to
-        // replace dollar varialbes that are suddenly replacable
-        // due to index changes elsewhere now
-        if res.contains_dollar() {
-            res.normalize_inplace(self.var_info.global_info);
-            if res
-                .replace_dollar(&self.var_info.local_info.variables)
-                .contains(ReplaceResult::Replaced)
-            {
-                res.normalize_inplace(self.var_info.global_info);
-            }
-        } else {
-            res.normalize_inplace(self.var_info.global_info);
-        }
-        res
-    }
-
     /// Find out how often the pattern fits in the
     /// target term.
     fn find_multiplicity(&self, lhs: &Element, rhs: &Element) -> usize {
@@ -1294,11 +1258,25 @@ impl<'a> MatchIterator<'a> {
                 }
                 1
             }
+            (Element::Wildcard(_, _), Element::Var(_, pow)) => {
+                if let Number::SmallInt(p) = pow {
+                    if *p > 0 {
+                        return *p as usize;
+                    }
+                }
+                1
+            }
             _ => 1,
         }
     }
 
-    fn construct_rest_term(&self, lhs: &Element, rhs: &Element, accum: &mut Vec<Element>) {
+    fn construct_rest_term(
+        &self,
+        lhs: &Element,
+        rhs: &Element,
+        accum: &mut Vec<Element>,
+        multiplicity: usize,
+    ) {
         match (lhs, rhs) {
             (Element::Term(_, ref pts), Element::Term(_, ref tts)) => {
                 for (i, k) in tts.iter().enumerate() {
@@ -1306,14 +1284,19 @@ impl<'a> MatchIterator<'a> {
                     if self.used_indices.len() < tts.len() && !self.used_indices.contains(&i) {
                         accum.push(k.clone())
                     } else {
-                        self.construct_rest_term(&pts[i], k, accum)
+                        self.construct_rest_term(
+                            &pts[self.used_indices.iter().position(|x| *x == i).unwrap()],
+                            k,
+                            accum,
+                            multiplicity,
+                        )
                     }
                 }
             }
             (_, Element::Term(_, ref tts)) => {
                 for (i, k) in tts.iter().enumerate() {
                     if i == self.used_indices[0] {
-                        self.construct_rest_term(lhs, k, accum);
+                        self.construct_rest_term(lhs, k, accum, multiplicity);
                     } else {
                         accum.push(k.clone());
                     }
@@ -1323,11 +1306,11 @@ impl<'a> MatchIterator<'a> {
                 if let Element::Num(_, ref p) = be.1 {
                     if let Element::Num(_, ref p1) = be1.1 {
                         let newpow =
-                            p1.clone() - Number::SmallInt(self.multiplicity as isize) * p.clone();
+                            p1.clone() - Number::SmallInt(multiplicity as isize) * p.clone();
                         if !newpow.is_zero() {
                             accum.push(Element::Pow(
                                 *dirty,
-                                Box::new((be.0.clone(), Element::Num(false, newpow))),
+                                Box::new((be1.0.clone(), Element::Num(false, newpow))),
                             ));
                         }
                     } else {
@@ -1339,7 +1322,7 @@ impl<'a> MatchIterator<'a> {
             }
             (_, Element::Pow(dirty, be)) => {
                 if let Element::Num(_, ref p) = be.1 {
-                    let newpow = p.clone() - Number::SmallInt(self.multiplicity as isize);
+                    let newpow = p.clone() - Number::SmallInt(multiplicity as isize);
                     if !newpow.is_zero() {
                         accum.push(Element::Pow(
                             *dirty,
@@ -1351,8 +1334,13 @@ impl<'a> MatchIterator<'a> {
                 }
             }
             (Element::Var(_, pow), Element::Var(x1, pow1)) => {
-                let newpow =
-                    pow1.clone() - Number::SmallInt(self.multiplicity as isize) * pow.clone();
+                let newpow = pow1.clone() - Number::SmallInt(multiplicity as isize) * pow.clone();
+                if !newpow.is_zero() {
+                    accum.push(Element::Var(*x1, newpow));
+                }
+            }
+            (Element::Wildcard(_, _), Element::Var(x1, pow1)) => {
+                let newpow = pow1.clone() - Number::SmallInt(multiplicity as isize);
                 if !newpow.is_zero() {
                     accum.push(Element::Var(*x1, newpow));
                 }
@@ -1363,22 +1351,22 @@ impl<'a> MatchIterator<'a> {
 
     /// Construct the part of the input that remains in the output.
     /// This takes multiplicity of the pattern into account.
-    fn construct_remaining(&mut self) {
+    fn construct_remaining(&self, target: &Element) -> (usize, Element) {
         // determine the maximimum multiplicity
-        self.multiplicity = if self.mode != IdentityStatementMode::Once {
-            self.find_multiplicity(&self.lhs, &self.target)
+        let multiplicity = if self.mode != IdentityStatementMode::Once {
+            self.find_multiplicity(&self.lhs, target)
         } else {
             1
         };
 
         // construct the rest terms
         let mut e = vec![];
-        self.construct_rest_term(&self.lhs, &self.target, &mut e);
+        self.construct_rest_term(&self.lhs, target, &mut e, multiplicity);
 
         if e.is_empty() {
-            self.rest = Element::Num(false, Number::one());
+            (multiplicity, Element::Num(false, Number::one()))
         } else {
-            self.rest = Element::Term(true, e);
+            (multiplicity, Element::Term(true, e))
         }
     }
 
@@ -1389,9 +1377,52 @@ impl<'a> MatchIterator<'a> {
                     self.it = MatchKind::None;
                 }
 
-                // generate the part of the term that remains
-                self.construct_remaining();
-                printmatch(&self.m);
+                let (mult, mut rem) = self.construct_remaining(self.target);
+
+                self.result = if mult == 1 {
+                    self.rhs.apply_map(&self.m).into_single().0
+                } else {
+                    self.rhs
+                        .apply_map(&self.m)
+                        .into_single()
+                        .0
+                        .pow(Element::Num(false, Number::SmallInt(mult as isize)))
+                };
+
+                // in many-mode we keep on matching on the terms that remain
+                // TODO: support many-all mode
+                if self.mode == IdentityStatementMode::Many {
+                    self.used_indices.clear();
+
+                    let mut r;
+                    loop {
+                        {
+                            let mut m2 = vec![]; // needs to be local to prevent borrow issues
+                            if !MatchKind::from_element(self.lhs, &rem, self.var_info)
+                                .next(&mut m2, &mut self.used_indices)
+                            {
+                                break;
+                            }
+
+                            let (mult, rem1) = self.construct_remaining(&rem);
+
+                            self.result.append_factors_mut_move(if mult == 1 {
+                                self.rhs.apply_map(&m2).into_single().0
+                            } else {
+                                self.rhs
+                                    .apply_map(&m2)
+                                    .into_single()
+                                    .0
+                                    .pow(Element::Num(false, Number::SmallInt(mult as isize)))
+                            });
+
+                            r = rem1;
+                        }
+                        rem = r;
+                    }
+                }
+
+                self.result.append_factors_mut_move(rem);
             } else {
                 if self.hasmatch {
                     return StatementResult::Done;
@@ -1403,23 +1434,34 @@ impl<'a> MatchIterator<'a> {
 
         self.hasmatch = true;
 
-        StatementResult::Executed(match self.rhs {
-            &Element::SubExpr(_, ref x) => {
-                if self.multiplicity > 1 {
-                    self.generate_rhs(&self.rhs)
+        let mut e = match &mut self.result {
+            Element::SubExpr(_, ref mut x) => {
+                if x.len() == 1 {
+                    self.rhsp = 0;
                 } else {
-                    let i = self.rhsp;
-                    let res = self.generate_rhs(&x[i]);
-
-                    self.rhsp += 1;
-                    if self.rhsp == x.len() {
-                        self.rhsp = 0;
-                    }
-                    res
+                    self.rhsp = x.len();
                 }
+                x.pop().unwrap()
             }
-            x => self.generate_rhs(x),
-        })
+            x => mem::replace(x, Element::default()),
+        };
+
+        // FIXME: in the current setup, the dollar variable list
+        // handed to the id routines are empty. We have to
+        // replace dollar variables that are suddenly replacable
+        // due to index changes elsewhere now
+        if e.contains_dollar() {
+            e.normalize_inplace(self.var_info.global_info);
+            if e.replace_dollar(&self.var_info.local_info.variables)
+                .contains(ReplaceResult::Replaced)
+            {
+                e.normalize_inplace(self.var_info.global_info);
+            }
+        } else {
+            e.normalize_inplace(self.var_info.global_info);
+        }
+
+        StatementResult::Executed(e)
     }
 }
 
@@ -1435,8 +1477,7 @@ impl IdentityStatement {
             m: vec![],
             used_indices: vec![],
             mode: self.mode,
-            rest: Element::default(),
-            multiplicity: 0,
+            result: Element::default(),
             lhs: &self.lhs,
             rhs: &self.rhs,
             rhsp: 0,
@@ -1444,13 +1485,4 @@ impl IdentityStatement {
             var_info,
         }
     }
-}
-
-fn printmatch<'a>(m: &MatchObject<'a>) {
-    debug!("MATCH: [ ");
-
-    for &(k, ref v) in m.iter() {
-        debug!("{}={};", k, v);
-    }
-    debug!("]");
 }
