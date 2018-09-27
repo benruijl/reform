@@ -58,8 +58,8 @@ struct ExpandIterator<'a> {
 #[derive(Debug)]
 enum ExpandSubIterator<'a> {
     SubExpr(Vec<ExpandIterator<'a>>, usize, bool),
-    Term(Vec<ExpandIterator<'a>>, Vec<Element>, Vec<usize>),
-    Exp(tools::CombinationsWithReplacement<Element>, usize),
+    Term(Vec<(ExpandIterator<'a>, MatchOpt<'a>)>),
+    Exp(Box<tools::CombinationsWithReplacement<Element>>, usize),
     Yield(Element),
     YieldMultiple(&'a [Element]),
 }
@@ -147,8 +147,10 @@ impl<'a> ExpandIterator<'a> {
                 let mut seqiter = vec![];
                 for x in dyn_part.iter_mut() {
                     match x {
-                        Element::SubExpr(..) => {seqiter.push(ExpandIterator::new(x, var_info, ground_level));}
-                        Element::Pow(..) => {seqiter.push(ExpandIterator::new(x, var_info, ground_level));}
+                        Element::SubExpr(..) => {seqiter.push((ExpandIterator::new(x, var_info, ground_level),
+                         MatchOpt::SingleOwned(Element::default())));}
+                        Element::Pow(..) => {seqiter.push((ExpandIterator::new(x, var_info, ground_level),
+                         MatchOpt::SingleOwned(Element::default())));}
                         _ => unreachable!()
                     }
                 }
@@ -165,23 +167,23 @@ impl<'a> ExpandIterator<'a> {
 
                 // push the static factors onto the back
                 if static_count > 0 {
-                    seqiter.push(
+                    seqiter.push((
                         ExpandIterator {
                             subiter: ExpandSubIterator::YieldMultiple(static_part),
                             var_info,
                             ground_level,
                             done: false,
-                            }
+                            },
+                        MatchOpt::SingleOwned(Element::default()))
                     );
                 }
 
                 // disable all but the first iterator
                 for x in seqiter.iter_mut().skip(1) {
-                    x.done = true;
+                    x.0.done = true;
                 }
 
-                let l = seqiter.len();
-                ExpandSubIterator::Term(seqiter, vec![Element::default(); l], vec![0; l])
+                ExpandSubIterator::Term(seqiter)
             }
             Element::Fn(_dirty, ref name, ref mut args) => {
                 // TODO: don't create new fn
@@ -207,7 +209,7 @@ impl<'a> ExpandIterator<'a> {
                         if let Element::SubExpr(_, ref mut t) = eb {
                             // compute the exponent of a list, without generating double entries
                             let it = tools::CombinationsWithReplacement::new(mem::replace(t, vec![]), n as usize);
-                            ExpandSubIterator::Exp(it, n as usize)
+                            ExpandSubIterator::Exp(Box::new(it), n as usize)
                         }
                         else if let Element::Term(_, t) = eb {
                             //  (x*y)^z -> x^z*y^z
@@ -265,12 +267,12 @@ impl<'a> ExpandIterator<'a> {
                     x.reset();
                 }
             }
-            ExpandSubIterator::Term(ref mut i, ..) => {
+            ExpandSubIterator::Term(ref mut i) => {
                 // only reset the first iterator
-                i[0].reset();
+                i[0].0.reset();
             }
             ExpandSubIterator::Exp(ref mut it, n) => {
-                *it = tools::CombinationsWithReplacement::new(
+                **it = tools::CombinationsWithReplacement::new(
                     mem::replace(it.get_inner(), vec![]),
                     n,
                 );
@@ -286,7 +288,8 @@ impl<'a> ExpandIterator<'a> {
                 MatchOpt::Single(ee) => ee.clone(),
                 MatchOpt::SingleOwned(ee) => ee,
                 MatchOpt::Multiple(es) => Element::Term(false, es.to_vec()),
-            }).collect(),
+            })
+            .collect(),
         );
         e.normalize_inplace(self.var_info);
         e
@@ -372,41 +375,48 @@ impl<'a> Iterator for ExpandIterator<'a> {
                 self.done = true;
                 None
             }
-            ExpandSubIterator::Term(seqiter, state, indices) => {
-                let mut i = seqiter.len() - 1;
+            ExpandSubIterator::Term(seqiter_state) => {
+                let mut i = seqiter_state.len() - 1;
                 loop {
-                    if !seqiter[i].done {
-                        state.truncate(indices[i]);
-
-                        if let Some(x) = seqiter[i]
+                    if !seqiter_state[i].0.done {
+                        if let Some(x) = seqiter_state[i]
+                            .0
                             .next_inline_subexpr()
-                            .or_else(|| seqiter[i].next())
+                            .or_else(|| seqiter_state[i].0.next())
                         {
-                            // TODO: check if the Single or SingleOwned contains a Term? Could happen due to Exp
-                            // TODO: maybe keep a copy of the state partially sorted (or keep the index map for the sort)?
-                            indices[i] = state.len();
-                            match x {
-                                MatchOpt::Single(e) => {
-                                    state.push(e.clone());
-                                }
-                                MatchOpt::SingleOwned(e) => {
-                                    state.push(e);
-                                }
-                                MatchOpt::Multiple(es) => {
-                                    state.extend_from_slice(es);
-                                }
-                            }
+                            seqiter_state[i].1 = x;
 
-                            if i + 1 == seqiter.len() {
-                                let mut nt = Element::Term(true, state.clone());
+                            if i + 1 == seqiter_state.len() {
+                                let size = seqiter_state
+                                    .iter()
+                                    .map(|i| match i.1 {
+                                        MatchOpt::Multiple(es) => es.len(),
+                                        _ => 1,
+                                    })
+                                    .sum();
+                                let mut v = Vec::with_capacity(size);
+                                for x in seqiter_state {
+                                    match x.1 {
+                                        MatchOpt::Single(e) => {
+                                            v.push(e.clone());
+                                        }
+                                        MatchOpt::SingleOwned(ref e) => {
+                                            v.push(e.clone());
+                                        }
+                                        MatchOpt::Multiple(es) => {
+                                            v.extend_from_slice(es);
+                                        }
+                                    }
+                                }
+
+                                let mut nt = Element::Term(true, v);
                                 nt.normalize_inplace(self.var_info);
                                 return Some(MatchOpt::SingleOwned(nt));
                             }
 
                             // reset the next iterator
                             i += 1;
-                            seqiter[i].reset();
-                            indices[i] = state.len();
+                            seqiter_state[i].0.reset();
                             continue;
                         }
                     }
@@ -562,9 +572,11 @@ impl Element {
 
                             r = rnew;
                         }
-                        _ => for rr in &mut r {
-                            *rr = mem::replace(rr, Element::default()).append_factors(&fe);
-                        },
+                        _ => {
+                            for rr in &mut r {
+                                *rr = mem::replace(rr, Element::default()).append_factors(&fe);
+                            }
+                        }
                     }
                 }
 
@@ -623,7 +635,8 @@ impl Element {
                                                 Element::Num(false, Number::SmallInt(n)),
                                             )),
                                         )
-                                    }).collect(),
+                                    })
+                                    .collect(),
                             );
                             e.normalize_inplace(var_info);
                             return e.expand(var_info);
@@ -794,7 +807,8 @@ impl Statement {
                             .flat_map(|x| match *x {
                                 Element::SubExpr(_, ref y) => y.clone(),
                                 _ => vec![x.clone()],
-                            }).collect(),
+                            })
+                            .collect(),
                     )
                 };
 
@@ -810,7 +824,8 @@ impl Statement {
                                 .map(|f| match *f {
                                     Element::Fn(_, ref n, ref a) if *n == *name => subs(n, a),
                                     _ => f.clone(),
-                                }).collect(),
+                                })
+                                .collect(),
                         ),
                         false,
                     ),
@@ -897,7 +912,8 @@ impl Statement {
                                 .map(|f| match *f {
                                     Element::Fn(_, ref n, ref a) if *n == *name => subs(n, a),
                                     _ => f.clone(),
-                                }).collect(),
+                                })
+                                .collect(),
                         ),
                         false,
                     ),
@@ -1521,7 +1537,7 @@ fn do_module_rec(
                                 continue;
                             }
                         }
-
+                    
                         // if the value of a local dollar is different, we change it back
                         if let Some(v) = local_var_info.variables.get_mut(var) {
                             if v != e {
@@ -1763,7 +1779,8 @@ impl Module {
                                         x.normalize(&var_info.global_info);
                                     }
                                     x
-                                }).collect::<Vec<_>>();
+                                })
+                                .collect::<Vec<_>>();
 
                             Module::statements_to_control_flow_stat(
                                 &mut newmod,
@@ -1969,9 +1986,11 @@ impl Program {
                     }
 
                     match e {
-                        Element::SubExpr(_, t) => for x in t {
-                            expr.add_term_input(x);
-                        },
+                        Element::SubExpr(_, t) => {
+                            for x in t {
+                                expr.add_term_input(x);
+                            }
+                        }
                         x => {
                             expr.add_term_input(x);
                         }
