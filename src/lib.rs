@@ -32,6 +32,7 @@ pub mod number;
 
 #[macro_use]
 pub mod structure;
+pub mod expand;
 pub mod id;
 pub mod module;
 pub mod normalize;
