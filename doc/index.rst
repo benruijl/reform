@@ -13,6 +13,7 @@ The developer manual can be generated with ``cargo doc --document-private-items`
    installation
    quickstart
    pattern
+   variables
    api
    reference
 

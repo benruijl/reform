@@ -1,0 +1,203 @@
+newline       = _{ "\n" | "\r\n" }
+comment       = _{ line_comment | block_comment }
+line_comment  = _{ "//" ~ (!newline ~ any)* }
+block_comment = _{ "/*" ~ (!"*/" ~ any)* ~ "*/" }
+whitespace    = _{ " " | "\r" | "\n" | "\t" }
+
+alpha       = _{ 'a'..'z' | 'A'..'Z' }
+dec_digit   = _{ '0'..'9' }
+nonzero_dec = _{ '1'..'9' }
+
+identity  = @{ alpha ~ (alpha | dec_digit | "_")* | "[" ~ (!"]" ~ any)* ~ "]" }
+
+dollar_name = @{ "$" ~ identity}
+dollar    = { dollar_name ~ ("[" ~ func_args ~ "]")? }
+integer   = @{ "0" | nonzero_dec ~ dec_digit* }
+string    = ${ quote_char ~ inner_str ~ quote_char }
+
+inner_str      = @{ (!(quote_char | escape) ~ any)* ~ (escape ~ inner_str)? }
+escape         = @{ escape_char ~ (quote_char | "n") }
+quote_char     = _{ "\"" }
+escape_char    = _{ "\\" }
+
+op_unary_plus  = { "+" }
+op_unary_minus = { "-" }
+op_plus        = { "+" }
+op_minus       = { "-" }
+op_times       = { "*" }
+op_divide      = { "/" }
+op_power       = { "^" }
+op_ge          = { ">=" }
+op_gt          = { ">" }
+op_le          = { "<=" }
+op_lt          = { "<" }
+op_eq          = { "==" }
+op_ne          = { "!=" }
+op_logical_or  = { "||" }
+op_logical_and = { "&&" }
+op_logical_not = { "!" }
+
+string_literal = @{ (!"{" ~ !"\"" ~ any)* }
+format_string  = { "\"" ~ (string_literal ~ "{" ~ (dollar | identity) ~ "}")* ~ string_literal ~ "\"" }
+
+program = { soi ~ proc_block* ~ global_statement* ~ eoi }
+
+global_statement     = {
+    expr_statement
+  | fn_statement
+  | call_statement
+  | assign_statement
+  | inside_statement
+  | attrib_statement
+  | for_statement
+  | collect_statement
+  | for_in_range_statement
+  | print_fmt_statement
+  | print_statement
+  | mod_block
+  | global_if_block
+}
+
+attrib_statement    = { ^"attrib" ~ (dollar | identity) ~ "=" ~ (func_attrib  ~ ("+" ~ func_attrib )*)? ~ ";"}
+
+func_attrib         = { ^"linear" | ^"noncommutative" | ^"symmetric" | ^"nonlocal" }
+
+global_block        = { global_statement | "{" ~ global_statement* ~ "}" }
+
+expr_statement      = { ^"expr" ~ identity ~ "=" ~ expression ~ ";" }
+
+fn_statement        = { ^"fn" ~ identity ~ ("(" ~ fn_def_args ~ ")")? ~ "=" ~ expression ~ ";" }
+
+fn_def_args         = { (identity ~ ("," ~ identity)*)? }
+
+call_statement      = { ^"call" ~ identity ~ ("(" ~ call_args ~ ")")? ~ ";" }
+
+call_args           = { (expression ~ ("," ~ expression)*)? }
+
+assign_statement    = { dollar ~ "=" ~ expression ~ ";" }
+
+inside_statement    = { ^"inside" ~ (dollar ~ ("," ~ dollar)*)? ~ "{" ~ exec_statement* ~ "}" }
+
+argument_statement  = { ^"argument" ~ ((dollar | identity) ~ ("," ~ (dollar | identity))*)? ~ "{" ~ exec_statement* ~ "}" }
+
+for_statement       = { ^"for" ~ dollar ~ "in" ~ (dollar | identity) ~ ("," ~ (dollar | identity))* ~ "{" ~ exec_statement* ~ "}" }
+
+for_in_range_statement = { ^"for" ~ dollar ~ "in" ~ expression ~ ".." ~ expression ~ "{" ~ exec_statement* ~ "}" }
+
+print_statement     = { ^"print" ~ print_opt? ~ ((dollar | identity) ~ ("," ~ (dollar | identity))*)? ~ ";" }
+
+print_opt           = { ^"form" | ^"mathematica" }
+
+print_fmt_statement = { ^"print" ~ print_opt? ~ format_string ~ ";" }
+
+matchassign_statement = { ^"matchassign" ~ expression ~ "{" ~ exec_statement* ~ "}" }
+
+expand_statement    = { ^"expand" ~ ";" }
+
+discard_statement   = { ^"discard" ~ ";" }
+
+collect_statement   = { ^"collect" ~ dollar ~ ";"}
+
+proc_block          = { ^"proc" ~ identity ~ ("(" ~ proc_args ~ (";" ~ proc_args)? ~ ")")?
+                            ~ "{" ~ proc_content ~ "}" }
+
+proc_args           = { (identity ~ ("," ~ identity)*)? }
+
+proc_content        = { global_statement+ | exec_statement* }
+
+mod_block           = { ^"apply" ~ module_name? ~ (^"for" ~ inc_expr_list)? ~ (^"exclude" ~ exc_expr_list)? ~ "{" ~ exec_statement* ~ "}" }
+inc_expr_list       = { (identity ~ ("," ~ identity)*)? }
+exc_expr_list       = { (identity ~ ("," ~ identity)*)? }
+
+module_name         = { identity | string }
+
+global_if_block     = { ^"if" ~ bool_primary ~ global_block ~ (^"else" ~ global_block)? }
+
+exec_statement      = {
+    call_statement
+  | assign_statement
+  | multiply_statement
+  | inside_statement
+  | argument_statement
+  | for_statement
+  | for_in_range_statement
+  | matchassign_statement
+  | replaceby_statement
+  | maximum_statement
+  | splitarg_statement
+  | symmetrize_statement
+  | print_fmt_statement
+  | print_statement
+  | id_statement
+  | expand_statement
+  | discard_statement
+  | repeat_block
+  | if_block
+}
+
+exec_block          = { exec_statement | "{" ~ exec_statement* ~ "}" }
+
+id_statement        = { ^"id" ~ id_mode? ~ term ~ "=" ~ expression ~ ";" }
+
+id_mode             = { ^"all" | ^"once" | ^"many" }
+
+multiply_statement  = { ^"multiply" ~ expression ~ ";" }
+
+replaceby_statement = { ^"replaceby" ~ expression ~ ";" }
+
+maximum_statement   = { ^"maximum" ~ dollar ~ ";" }
+
+splitarg_statement  = { ^"splitarg" ~ identity ~ ";" }
+
+symmetrize_statement = { ^"symmetrize" ~ identity ~ ";" }
+
+repeat_block        = { ^"repeat" ~ exec_block }
+
+if_block            = { ^"if" ~ bool_primary ~ exec_block ~ (^"else" ~ global_block)?}
+
+expression          = { term ~ ((op_plus | op_minus) ~ term)* }
+term                = { factor ~ ((op_times | op_divide) ~ factor)* }
+factor              = { (op_unary_plus | op_unary_minus) ~ factor | power}
+power               = { primary ~ (op_power ~ factor)? }
+primary             = { wildcard 
+                                 | function
+                                 | identity
+                                 | number
+                                 | dollar
+                                 | "(" ~ expression ~ ")" }
+function            = { identity ~ "(" ~ func_args ~ ")" }
+func_args           = { (func_arg ~ ("," ~ func_arg)*)? }
+func_arg            = { wildarg | comparison | expression }
+
+number              = { (op_unary_plus | op_unary_minus)? ~ integer
+                        ~ ("/" ~ integer)? }
+
+wildarg             = { "?" ~ identity }
+wildcard            = { identity ~ "?" ~ constraint? }
+constraint          = { builtin_constraint | set_constraint }
+
+set_constraint = { "{" ~ ((range_constraint | primary)  ~ ("," ~ (range_constraint | primary))*)? ~ "}" }
+range_constraint    = { (op_eq | op_ge | op_gt | op_le | op_lt) ~ number }
+
+builtin_constraint  = {
+    int_set
+  | even_set
+  | odd_set
+}
+
+int_set  = { "int_" }
+even_set = { "even_" }
+odd_set  = { "odd_" }
+
+bool_expression     = { and_expression ~ (op_logical_or ~ and_expression)* }
+and_expression      = { bool_factor ~ (op_logical_and ~ bool_factor)* }
+bool_factor         = { op_logical_not ~ bool_factor | bool_primary }
+bool_primary        = { bool_function | comparison }
+
+comparison          = { expression ~ (op_ge | op_gt | op_le | op_lt | op_eq | op_ne) ~ expression }
+
+bool_function      = { defined_func | match_func }
+
+defined_func       = { ^"defined" ~ "(" ~ dollar ~ ")" }
+
+match_func       = { ^"match" ~ "(" ~ expression ~ ")" }

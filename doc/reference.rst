@@ -7,15 +7,22 @@ Procedures
 
 A procedure is a code block that will be inlined at the call-site.
 
-.. frm:statement:: procedure name(args; localargs) { [statements] }
+.. frm:statement:: proc name(args; localargs) { [statements] }
 
     :param args: arguments to the function
     :param localargs: variables local to the procedure. They will shadow
                       existing variables.
 
+
+    Define a code block that will be placed inline in the code when called
+    with :frm:st:`call`. All variables in the arguments ``args`` are
+    replaced. ``localargs`` will shadow arguments from the outer scope.
+
+    The code block can contain :frm:st:`apply` statements.
+
     .. code-block:: reform
 
-        procedure derivative(x, n) {
+        proc derivative(x, n) {
             for $i in 1..(n+1) {
                 id x^m? = m? * x^(m? - 1);
             }
@@ -31,13 +38,49 @@ A procedure is a code block that will be inlined at the call-site.
 
     .. code-block:: reform
 
-        u^3*20
+        20*u^3
+
+
+User-defined functions
+======================
+
+Users can define their own functions in the global scope with the following
+statement:
+
+.. frm:statement:: fn name(args) = expression;
+
+    :param name: Name of the function
+    :param args: Arguments to the function
+    :param expression: The resulting expression
+
+    Replace the function ``name`` with ``expression``
+    where all occurences of the ``args`` are replaced by
+    the given function arguments.
+
+    .. note::
+
+        Functions in already existing expressions will not be
+        automatically substitued when they are defined as custom
+        functions at a later stage. Use ``id myfunc(?a) = myfunc(?a);``
+        to trigger the substitution.
+
+    .. code-block:: reform
+
+        fn factorial(n) = ifelse_(n > 0, n * factorial(n-1), 1);
+        $a = factorial(10);
+        print $a;
+
+    yields
+
+    .. code-block:: reform
+
+        3628800
 
 
 Statements
 ==========
 
-.. frm:statement:: apply [name for F1,...,F2 excluding F3,...,] { [statements] };
+.. frm:statement:: apply [name for F1,...,F2 exclude F3,...,] { [statements] };
 
     :param name: Optional name of the module
     :param statements: A list of statements that will be applied
@@ -133,7 +176,7 @@ Statements
     :param proc: A procedure
     :param args: Arguments to the procedure
 
-    Call a procedure with arguments.
+    Call a procedure (see `Procedures`_) with arguments.
 
     .. code-block:: reform
 
@@ -180,6 +223,25 @@ Statements
 
         +f(x*4+x^2*6+x^3*4+x^4+1)
 
+.. frm:statement:: discard;
+
+    Discard the current term.
+
+    .. code-block:: reform
+
+        expr F = x + y;
+        apply {
+            if match(x) {
+                Discard;
+            }
+        }
+
+    yields
+
+    .. code-block:: reform
+
+        y
+
 .. frm:statement:: expand;
 
     Expand all structures. For example, ```(1+x)^5```,
@@ -193,7 +255,7 @@ Statements
         }
 
     yields
-    
+
     .. code-block:: reform
 
         +x*y*2
@@ -234,6 +296,12 @@ Statements
 
         (y+1)*x^2+y*z+2+((z+1)*y+1)*x
 
+
+.. frm:statement:: fn name(args) = expression;
+
+    See `User-defined functions`_.
+
+
 .. frm:statement:: for i in lb..ub { [statements] };
                    for i in {s1,s2,...} { [statements] };
 
@@ -256,7 +324,7 @@ Statements
         }
 
     yields
-    
+
     .. code-block:: reform
 
         F = f(2);
@@ -285,33 +353,51 @@ Statements
 
 .. frm:statement:: if cond { [statements] } [else { [statements] } ]
                    if match(expr) { [statements] } [else { [statements] } ]
+                   if defined(dollar) { [statements] } [else { [statements] } ]
 
     :param cond: A boolean condition
     :param match(expr): A test to see if an expression matches
+    :param defined(dollar): A test to see if a dollar variable is defined
     :param statements: Statement block to be executed
 
     Only execute if a condition holds. If there is an
     ``else`` block, that will only be executed if ``cond`` does not hold.
 
-    .. note:
+    The condition can test if a pattern exists (see frm:st:`id`) using the ``match`` option.
+    The condition can also be a comparison of two expressions, i.e.,
+    ``<=, >=, <, >, ==``.
 
-        At the moment, only the ``match`` variant is activated.
+    .. note::
+
+        Inequalities use reFORM's internal ordering which may
+        give unexpected results.
 
     .. code-block:: reform
 
         expr F = f(1);
 
-        if match(f(1)) {
-            id f(1) = f(2);
-        } else {
-            id f(x?) = f(1);
+        apply {
+            if match(f(1)) {
+                id f(1) = f(2);
+            } else {
+                id f(x?) = f(1);
+            }
+
+            if defined($a) {
+                Multiply $a;
+            }
+
+            if f(1) < f(2) {
+                id f(2) = f(3);
+            }
+            print;
         }
 
     yields
-    
+
     .. code-block:: reform
 
-        f(2)
+        f(3)
 
 .. frm:statement:: inside x1,x2,... { [statements] }
 
@@ -330,7 +416,7 @@ Statements
         print $x;
 
     yields
-    
+
     .. code-block:: reform
 
         6 + 5*y
@@ -374,7 +460,7 @@ Statements
 
         $a = 0;
         apply {
-            if (match(f(1))) {
+            if match(f(1)) {
                 $a = 2;
             } else {
                 $a = 1;
@@ -385,7 +471,7 @@ Statements
         print $a;
 
     yields
-    
+
     .. code-block:: reform
 
         2
@@ -404,19 +490,36 @@ Statements
         }
 
     yields
-    
+
     .. code-block:: reform
 
         y*(1+x)
 
-.. frm:statement:: print [format] args;
-    
-    :param format: The format for printing. It can either be ``Form`` or ``Mathematica``.
-    :param args: a list of objects to print. If empty, it will print all active terms.
+.. frm:statement:: print [format] [vars];
+.. frm:statement:: print [format] format_string;
 
-    Print the structures listed in ``args``. If the ``Print`` is used in a module block without
-    arguments, it will print the
-    current term. If it is used outside a module without arguments, it will print all active expressions.
+    :param format: Optional format for printing. It can either be ``Form`` or ``Mathematica``.
+    :param vars: A list of variables to print.
+    :param format_string: a list of variables to print
+
+    Print objects or a formatted string to the screen.
+
+    If the ``Print`` statement without arguments ``vars`` or ``format_string`` is used in a module, the
+    current term is printed. If it is used outside a module without these arguments, it will print all active expressions.
+
+    The ``format`` option can be used to format the terms in a way such that it is compatible with other software.
+    The current supported options are ``Form`` (default) and ``Mathematica``.
+
+    If a list of variables ``vars`` is specified, each variable will be printed on a new line.
+    If a format string is specified, the formatted string is printed. Variables and special
+    objects can be printed by putting them between ``{ }`` in the format string.
+    Special objects are:
+
+    - ``{data_}``: print the current date and time
+    - ``{time_}``: print the current time
+    - ``{term_}``: print the current term
+    - ``{$a}``: print the value of ``$a``
+
 
     .. code-block:: reform
 
@@ -424,9 +527,15 @@ Statements
         print mathematica $a;
 
         expr F = 1 + x;
+        print; // print F at the end of the next module
         apply {
-            print;
+            print; // print the current term
+            print "{date_}: current term={term_}, $a={$a}";
         }
+
+.. frm:statement:: procedure name(args; localargs) { [statements] }
+
+    See `Procedures`_.
 
 .. frm:statement:: repeat { [statements] }
 
@@ -451,10 +560,31 @@ Statements
         }
 
     yields
-    
+
     .. code-block:: reform
 
         F = f(1,x,2*y)
+
+.. frm:statement:: replaceby expr;
+
+    :param expr: An expression
+
+    Replace the current term by ``expr``.
+
+    .. code-block:: reform
+
+        expr F = x*y + y;
+        apply {
+            if match(x) {
+                ReplaceBy z;
+            }
+        }
+
+    yields
+
+    .. code-block:: reform
+
+        y + z
 
 .. frm:statement:: splitarg fn;
 
@@ -472,7 +602,7 @@ Statements
         }
 
     yields
-    
+
     .. code-block:: reform
 
         F = f(1,x,2*y)
@@ -492,7 +622,7 @@ Statements
         }
 
     yields
-    
+
     .. code-block:: reform
 
         f(g(5),y+1,x,2,3)
@@ -514,7 +644,7 @@ Functions
         expr F = delta_(0)*x + delta_(1)*y + delta_(x);
 
     yields
-    
+
     .. code-block:: reform
     
         x + delta_(x)
@@ -534,7 +664,7 @@ Functions
                       100-100*x-90*x^3+90*x^4+12*y-12*x*y+3*x^3*y^2-3*x^4*y^2);
 
     yields
-    
+
     .. code-block:: reform
     
         +x^3*y^2*3
@@ -542,23 +672,54 @@ Functions
         +y*12
         +100
 
-.. frm:function:: mul_(i, lb, ub, expr)
+.. frm:function:: ifelse_(cond, truebranch, falsebranch)
+
+    :param cond: A comparison, i.e., ``$a < 2``
+    :param truebranch: An expression that will be the result of the function if the condition is true
+    :param falsebranch: An expression that will be the result of the function if the condition is false
+
+    Return ``truebranch`` if the condition ``cond`` is true and ``falsebranch`` if it is false.
+    At the moment ``cond`` should be a comparison between expressions.
+    If the expressions are both numbers, all both equality and inequality tests are evaluted.
+    In all other cases, only an equality test will be evaluated.
+
+    .. note::
+
+        The expressions in both branches are not normalized (simplified), since that will take
+        extra work (only one of the branches should be executed) and could cause infinite loops.
+        As a result, pattern matching on the arguments of ``ifelse_`` will likely not work.
+
+    .. code-block:: reform
+
+        expr F = f(5);
+        apply {
+            id f(n?) = ifelse_(n? <= 6, n? + 10, n?);
+        }
+
+    yields
+
+    .. code-block:: reform
+    
+        15
+
+.. frm:function:: list_(i, lb, ub, expr)
 
     :param i: A variable used as a counter
     :param lb: A numeric lower bound for ``i``
     :param ub: A numeric upper bound for ``i``
 
-    Return the product of ``i`` going from ``lb`` to ``ub``.
+    Return a list of ``expr`` with ``i`` going from ``lb`` to (and including) ``ub``.
+    This function will only be replaced when it is a function argument.
 
     .. code-block:: reform
 
-        expr F = mul_($i, 2, 5, $i^2);
+        expr F = f(1,2,list_($i,2,5,$i^2),3,4);
 
     yields
-    
+
     .. code-block:: reform
-    
-        576
+
+        f(1,2,4,9,16,25,3,4)
 
 .. frm:function:: nargs_(a1,...,an)
 
@@ -577,10 +738,28 @@ Functions
         }
 
     yields
-    
+
     .. code-block:: reform
     
         5
+
+.. frm:function:: prod_(i, lb, ub, expr)
+
+    :param i: A variable used as a counter
+    :param lb: A numeric lower bound for ``i``
+    :param ub: A numeric upper bound for ``i``
+
+    Return the product of ``expr`` with ``i`` going from ``lb`` to (and including) ``ub``.
+
+    .. code-block:: reform
+
+        expr F = prod_($i, 2, 5, $i^2);
+
+    yields
+
+    .. code-block:: reform
+
+        14400
 
 .. frm:function:: rat_(num, den)
 
@@ -597,7 +776,7 @@ Functions
         expr F = rat_(x^2+2*x+1,1)*rat_(1,1+x)+rat_(2,1);
 
     yields
-    
+
     .. code-block:: reform
     
         rat_(3+x,1)
@@ -608,17 +787,17 @@ Functions
     :param lb: A numeric lower bound for ``i``
     :param ub: A numeric upper bound for ``i``
 
-    Return the sum of ``i`` going from ``lb`` to ``ub``.
+    Return the sum of ``expr`` with ``i`` going from ``lb`` to (and including) ``ub``.
 
     .. code-block:: reform
 
         expr F = sum_($i, 2, 5, $i^2);
 
     yields
-    
+
     .. code-block:: reform
     
-        29
+        54
 
 .. frm:function:: takearg_(k,a1,...,an)
 
@@ -633,7 +812,7 @@ Functions
         expr F = takearg_(2, x1, x2, x3);
 
     yields
-    
+
     .. code-block:: reform
     
         x2

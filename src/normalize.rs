@@ -4,10 +4,12 @@ use poly::polynomial::{
     rationalpolynomial_add, rationalpolynomial_mul, rationalpolynomial_normalize, Polynomial,
 };
 use sort::split_merge;
+use std::collections::HashMap;
 use std::mem;
 use structure::{
-    Element, FunctionAttributes, GlobalVarInfo, FUNCTION_DELTA, FUNCTION_GCD, FUNCTION_MUL,
-    FUNCTION_NARGS, FUNCTION_RAT, FUNCTION_SUM, FUNCTION_TAKEARG,
+    Element, FunctionAttributes, GlobalVarInfo, Ordering, FUNCTION_DELTA, FUNCTION_GCD,
+    FUNCTION_IFELSE, FUNCTION_LIST, FUNCTION_NARGS, FUNCTION_PROD, FUNCTION_RAT, FUNCTION_SUM,
+    FUNCTION_TAKEARG, FUNCTION_TERM,
 };
 use tools::add_num_poly;
 
@@ -23,6 +25,10 @@ impl Element {
         *self = match *self {
             Element::Fn(_, ref mut n, ref mut a) => {
                 match *n {
+                    FUNCTION_TERM => {
+                        // the term_() should be substituted at an earlier stage
+                        unreachable!("term_() should have been substituted at an earlier stage.")
+                    }
                     FUNCTION_DELTA => {
                         if a.len() == 1 {
                             match a[0] {
@@ -55,7 +61,53 @@ impl Element {
                             return false;
                         }
                     }
-                    FUNCTION_SUM | FUNCTION_MUL => {
+                    FUNCTION_IFELSE => {
+                        if a.len() != 3 {
+                            return false;
+                        }
+
+                        let mut truebranch = false;
+                        if let Element::Comparison(_, ref es, ref c) = a[0] {
+                            // allow == on all elements and <,>, etc on numbers
+                            let mut fullcompare = false;
+                            if let Element::Num(..) = es.0 {
+                                if let Element::Num(..) = es.1 {
+                                    fullcompare = true;
+                                }
+                            }
+
+                            if fullcompare {
+                                if c.cmp_rel(es.0.partial_cmp(&es.1, var_info, false).unwrap()) {
+                                    truebranch = true;
+                                }
+                            } else {
+                                if c == &Ordering::Equal {
+                                    if c.cmp_rel(es.0.partial_cmp(&es.1, var_info, false).unwrap())
+                                    {
+                                        truebranch = true;
+                                    }
+                                } else {
+                                    return false;
+                                }
+                            }
+                        } else {
+                            return false;
+                        }
+
+                        // Select and normalize the correct branch.
+                        // The branches are not normalized by default in the normalization function,
+                        // since this may cause infinite loops for custom functions.
+                        if truebranch {
+                            let mut ee = a.swap_remove(1);
+                            ee.normalize_inplace(var_info);
+                            ee
+                        } else {
+                            let mut ee = a.swap_remove(2);
+                            ee.normalize_inplace(var_info);
+                            ee
+                        }
+                    }
+                    FUNCTION_SUM | FUNCTION_PROD => {
                         if a.len() == 4 {
                             match (&a[1], &a[2]) {
                                 (
@@ -63,7 +115,7 @@ impl Element {
                                     &Element::Num(_, Number::SmallInt(n2)),
                                 ) => {
                                     let mut terms = vec![];
-                                    for i in n1..n2 {
+                                    for i in n1..n2 + 1 {
                                         let mut ne = a[3].clone();
                                         ne.replace(
                                             &a[0],
@@ -72,9 +124,13 @@ impl Element {
                                         terms.push(ne);
                                     }
                                     if *n == FUNCTION_SUM {
-                                        Element::SubExpr(true, terms)
+                                        let mut newe = Element::SubExpr(true, terms);
+                                        newe.normalize_inplace(&var_info);
+                                        newe
                                     } else {
-                                        Element::Term(true, terms)
+                                        let mut newe = Element::Term(true, terms);
+                                        newe.normalize_inplace(&var_info);
+                                        newe
                                     }
                                 }
                                 _ => return false,
@@ -126,7 +182,7 @@ impl Element {
                             // check if the polynomials have integer coefficients
                             for x in a1.poly.coefficients.iter().chain(&a2.poly.coefficients) {
                                 match x {
-                                    Number::SmallRat(..) | Number::BigInt(..) => return false,
+                                    Number::SmallRat(..) | Number::BigRat(..) => return false,
                                     _ => {}
                                 }
                             }
@@ -141,8 +197,28 @@ impl Element {
                             return false;
                         }
                     }
-                    _ => {
-                        return false;
+                    nn => {
+                        // process custom functions
+                        if let Some((argvar, e)) = var_info.user_functions.get(&nn) {
+                            if argvar.len() != a.len() {
+                                return false;
+                            }
+
+                            let mut replace_map = HashMap::new();
+
+                            for (av, aa) in argvar.iter().zip(a) {
+                                replace_map.insert(*av, aa.clone());
+                            }
+
+                            let mut newe = e.clone();
+                            if newe.replace_elements(&replace_map) {
+                                newe.normalize_inplace(&var_info);
+                            }
+
+                            newe
+                        } else {
+                            return false;
+                        }
                     }
                 }
             }
@@ -156,6 +232,7 @@ impl Element {
         match *self {
             Element::Var(_, ref e) => e.is_zero(),
             Element::Num(dirty, ..)
+            | Element::Comparison(dirty, ..)
             | Element::Pow(dirty, ..)
             | Element::Fn(dirty, ..)
             | Element::SubExpr(dirty, ..)
@@ -213,7 +290,7 @@ impl Element {
                         let (a, b) = ts.split_at_mut(i);
                         if !merge_factors(&mut a[lastindex], &mut b[0], var_info) {
                             if lastindex + 1 < i {
-                                a[lastindex + 1] = mem::replace(&mut b[0], DUMMY_ELEM!());
+                                a[lastindex + 1] = mem::replace(&mut b[0], Element::default());
                             }
                             lastindex += 1;
                         }
@@ -249,11 +326,25 @@ impl Element {
                     changed |= num.normalize_inplace()
                 }
             }
+            Element::Comparison(ref mut dirty, ref mut e, _) => {
+                if *dirty {
+                    *dirty = false;
+                    changed |= e.0.normalize_inplace(var_info);
+                    changed |= e.1.normalize_inplace(var_info);
+                }
+            }
             Element::Var(..) => {
                 // x^0 = 1
                 if let Element::Var(_, Number::SmallInt(0)) = self {
                     *self = Element::Num(false, Number::one());
                     return true;
+                }
+            }
+            Element::Dollar(ref _d, ref mut inds) => {
+                // note that the dollar variable cannot be applied here, since
+                // we only have global information
+                for i in inds.iter_mut() {
+                    i.normalize_inplace(var_info);
                 }
             }
             Element::Pow(dirty, ..) => {
@@ -278,7 +369,7 @@ impl Element {
                             }
                             Element::Num(_, Number::SmallInt(1)) => {
                                 // x^1 = x
-                                break mem::replace(b, DUMMY_ELEM!());
+                                break mem::replace(b, Element::default());
                             }
                             Element::Num(_, Number::SmallInt(ref mut n)) if *n > 0 => {
                                 // exponent is a positive integer
@@ -296,7 +387,7 @@ impl Element {
                                     *mutexp *= Number::SmallInt(*n);
                                 }
                                 if downgrade {
-                                    break mem::replace(b, DUMMY_ELEM!());
+                                    break mem::replace(b, Element::default());
                                 }
 
                                 // simplify x^a^b = x^(a*b) where x is a variable
@@ -305,7 +396,7 @@ impl Element {
                                 //   for x = (-1+i), a = 2, b = 3/2,
                                 //   (x^a)^b = - x^(a*b).
                                 // We need to add more detailed conditions for such a reduction.
-                                let mut newbase = DUMMY_ELEM!();
+                                let mut newbase = Element::default();
                                 if let Element::Pow(_, ref mut be1) = *b {
                                     if let Element::Var(_, Number::SmallInt(ee1)) = be1.0 {
                                         if let Element::Num(_, Number::SmallInt(n1)) = be1.1 {
@@ -316,7 +407,7 @@ impl Element {
                                     }
                                 }
 
-                                if newbase != DUMMY_ELEM!() {
+                                if newbase != Element::default() {
                                     *b = newbase;
                                 }
                             }
@@ -336,7 +427,7 @@ impl Element {
                                     *mutexp *= Number::SmallInt(*n);
                                 }
                                 if downgrade {
-                                    break mem::replace(b, DUMMY_ELEM!());
+                                    break mem::replace(b, Element::default());
                                 }
                             }
                             Element::Num(_, ref mut n) => {
@@ -347,7 +438,7 @@ impl Element {
                                     *mutexp *= mem::replace(n, Number::zero());
                                 }
                                 if downgrade {
-                                    break mem::replace(b, DUMMY_ELEM!());
+                                    break mem::replace(b, Element::default());
                                 }
                             }
                             _ => {}
@@ -368,10 +459,63 @@ impl Element {
                     let mut newvalue = None;
 
                     if let Element::Fn(ref mut dirty, ref name, ref mut args) = *self {
-                        for x in args.iter_mut() {
-                            if x.should_normalize() {
-                                changed |= x.normalize_inplace(var_info);
+                        // the ifelse_ function should not normalize its two branches,
+                        // since only one of them will be executed. This saves time and
+                        // prevents infinite loops
+
+                        let mut has_list_arg = false;
+                        if *name == FUNCTION_IFELSE && args.len() == 3 {
+                            if args[0].should_normalize() {
+                                changed |= args[0].normalize_inplace(var_info);
                             }
+                        } else {
+                            for x in args.iter_mut() {
+                                if x.should_normalize() {
+                                    changed |= x.normalize_inplace(var_info);
+                                }
+
+                                if let Element::Fn(false, FUNCTION_LIST, args1) = x {
+                                    if args1.len() == 4 {
+                                        has_list_arg = true;
+                                    }
+                                }
+                            }
+                        }
+
+                        if has_list_arg {
+                            let mut new_args = Vec::with_capacity(args.len());
+
+                            for x in mem::replace(args, vec![]) {
+                                let mut replaced = false;
+                                if let Element::Fn(false, FUNCTION_LIST, ref a) = x {
+                                    if a.len() == 4 {
+                                        if let (
+                                            &Element::Num(_, Number::SmallInt(n1)),
+                                            &Element::Num(_, Number::SmallInt(n2)),
+                                        ) = (&a[1], &a[2])
+                                        {
+                                            for i in n1..n2 + 1 {
+                                                let mut ne = a[3].clone();
+                                                ne.replace(
+                                                    &a[0],
+                                                    &Element::Num(false, Number::SmallInt(i)),
+                                                );
+                                                ne.normalize_inplace(&var_info);
+                                                new_args.push(ne);
+                                                replaced = true;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if !replaced {
+                                    new_args.push(x);
+                                }
+                            }
+
+                            *args = new_args;
+
+                            changed = true;
                         }
 
                         newvalue = loop {
@@ -400,7 +544,7 @@ impl Element {
                                                 if ii != replace_index {
                                                     rest.push(xx.clone());
                                                 } else {
-                                                    rest.push(mem::replace(a, DUMMY_ELEM!()));
+                                                    rest.push(mem::replace(a, Element::default()));
                                                 }
                                             }
 
@@ -474,7 +618,7 @@ impl Element {
                             &|a: &Element, b: &Element| a.partial_cmp(b, var_info, true).unwrap(),
                             &|a: &mut Element, b: &mut Element| merge_terms(a, b, var_info),
                         );
-                        let mut res = Vec::with_capacity(map.len());
+                        let mut res = vec![Element::default(); map.len()];
 
                         if map.len() != ts.len() {
                             changed = true;
@@ -485,7 +629,7 @@ impl Element {
                                 changed = true;
                             }
 
-                            res.push(mem::replace(&mut ts[map[i]], DUMMY_ELEM!()));
+                            mem::swap(&mut res[i], &mut ts[map[i]]);
                         }
                         mem::swap(&mut res, ts);
                     } else {
@@ -498,7 +642,7 @@ impl Element {
                             let (a, b) = ts.split_at_mut(i);
                             if !merge_terms(&mut a[lastindex], &mut b[0], var_info) {
                                 if lastindex + 1 < i {
-                                    a[lastindex + 1] = mem::replace(&mut b[0], DUMMY_ELEM!());
+                                    a[lastindex + 1] = mem::replace(&mut b[0], Element::default());
                                 }
                                 lastindex += 1;
                             }
@@ -518,6 +662,15 @@ impl Element {
             Element::Wildcard(_, ref mut restriction) => for x in restriction {
                 changed |= x.normalize_inplace(var_info);
             },
+            Element::FnWildcard(_, ref mut b) => {
+                let (restriction, args) = &mut **b;
+                for x in restriction {
+                    changed |= x.normalize_inplace(var_info);
+                }
+                for x in args {
+                    changed |= x.normalize_inplace(var_info);
+                }
+            }
             Element::NumberRange(ref mut n1, ..) => {
                 changed |= n1.normalize_inplace();
             }
@@ -613,7 +766,7 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
         *first = Element::Pow(
             true,
             Box::new((
-                mem::replace(first, DUMMY_ELEM!()),
+                mem::replace(first, Element::default()),
                 Element::Num(false, Number::SmallInt(2)),
             )),
         );
@@ -638,14 +791,14 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
                     }
                     (ref mut a1, &mut Element::SubExpr(ref mut d2, ref mut a2)) => {
                         *d2 = true;
-                        a2.push(mem::replace(a1, DUMMY_ELEM!()))
+                        a2.push(mem::replace(a1, Element::default()))
                     }
                     (a, b) => {
                         *b = Element::SubExpr(
                             true,
                             vec![
-                                mem::replace(a, DUMMY_ELEM!()),
-                                mem::replace(b, DUMMY_ELEM!()),
+                                mem::replace(a, Element::default()),
+                                mem::replace(b, Element::default()),
                             ],
                         )
                     }
@@ -665,7 +818,7 @@ pub fn merge_factors(first: &mut Element, sec: &mut Element, var_info: &GlobalVa
                 *e2 = Element::SubExpr(
                     true,
                     vec![
-                        mem::replace(e2, DUMMY_ELEM!()),
+                        mem::replace(e2, Element::default()),
                         Element::Num(false, Number::one()),
                     ],
                 );
@@ -817,7 +970,7 @@ pub fn merge_terms(mut first: &mut Element, sec: &mut Element, _var_info: &Globa
             ***a2 = Element::Term(
                 false,
                 vec![
-                    mem::replace(a2, DUMMY_ELEM!()),
+                    mem::replace(a2, Element::default()),
                     Element::Num(false, Number::SmallInt(2)),
                 ],
             )

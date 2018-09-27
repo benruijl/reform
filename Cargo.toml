@@ -20,6 +20,7 @@ version = "0.2"
 optional = true
 
 [dependencies.cpython]
+git = "https://github.com/dgrunwald/rust-cpython"
 version = "0.2"
 features = ["extension-module"]
 optional = true
@@ -30,7 +31,8 @@ clap = "^2.30.0"
 log = { version = "0.4.1", features = ["release_max_level_warn"] }
 env_logger = "0.5.4"
 rand = "0.5.4"
-combine = "2.5.2"
+pest = "^1.0"
+pest_derive = "^1.0"
 byteorder = "1.1.0"
 crossbeam = "0.4.1"
 rug = { version = "1.0.1", default-features = false, features = ["integer", "rational"] }
@@ -41,3 +43,5 @@ gmp-mpfr-sys = { version = "1.1.4", default-features = false, features = [] }
 cpuprofiler = { version = "0.0.3", optional = true }
 fastdivide = "0.2.0"
 fnv = "1.0.3"
+bitflags = "1.0.4"
+chrono = "0.4"

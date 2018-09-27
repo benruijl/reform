@@ -2,10 +2,9 @@ use num_traits::sign::abs;
 use num_traits::{One, Signed, Zero};
 use number::Number;
 use poly::polynomial::Polynomial;
-use std::cmp::Ordering;
 use std::mem;
 use std::ops::Rem;
-use structure::NumOrder;
+use structure::Ordering;
 
 // a SliceRef has either a borrowed slice,
 // or a vector of borrowed arguments.
@@ -252,44 +251,35 @@ pub fn num_cmp(
     pos1: bool,
     num1: u64,
     den1: u64,
-) -> NumOrder {
+) -> Ordering {
     if pos == pos1 && num == num1 && den == den1 {
-        return NumOrder::Equal;
+        return Ordering::Equal;
     }
     if !pos && pos1 {
-        return NumOrder::Smaller;
+        return Ordering::Smaller;
     }
     if pos && !pos1 {
-        return NumOrder::Greater;
+        return Ordering::Greater;
     }
 
     if den == den1 {
         if num < num1 {
-            return NumOrder::Smaller;
+            return Ordering::Smaller;
         } else {
-            return NumOrder::Greater;
+            return Ordering::Greater;
         }
     }
 
     mul_fractions(&mut pos, &mut num, &mut den, true, den1, num1);
     if (num < den && pos) || (num > den && !pos) {
-        return NumOrder::Smaller; // TODO: check
+        return Ordering::Smaller; // TODO: check
     }
-    NumOrder::Greater
+    Ordering::Greater
 }
 
-pub fn is_number_in_range(num: &Number, num1: &Number, rel: &NumOrder) -> bool {
+pub fn is_number_in_range(num: &Number, num1: &Number, rel: &Ordering) -> bool {
     let rel1 = num.partial_cmp(num1).unwrap();
-    match (rel, rel1) {
-        (&NumOrder::Greater, Ordering::Greater)
-        | (&NumOrder::GreaterEqual, Ordering::Greater)
-        | (&NumOrder::GreaterEqual, Ordering::Equal)
-        | (&NumOrder::Smaller, Ordering::Less)
-        | (&NumOrder::SmallerEqual, Ordering::Less)
-        | (&NumOrder::SmallerEqual, Ordering::Equal)
-        | (&NumOrder::Equal, Ordering::Equal) => true,
-        _ => false,
-    }
+    rel.cmp_rel(rel1)
 }
 
 pub fn ncr(n: u64, mut k: u64) -> u64 {

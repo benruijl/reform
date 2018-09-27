@@ -4,6 +4,7 @@ use rug::ops::Pow;
 use rug::{Integer, Rational};
 use std::cmp::Ordering;
 use std::fmt;
+use std::mem;
 use std::ops::{Add, AddAssign, Div, Mul, MulAssign, Neg, Rem, Sub};
 use tools::GCD;
 
@@ -21,7 +22,8 @@ const DOWNGRADE_LIMIT: isize = 4294967296; // if a bigint is smaller than this n
 ///
 /// The mathematical operations on a number automatically upgrade
 /// and downgrade to bigint/smallint etc.
-#[derive(Debug, Clone)]
+/// TODO: hash should take into account that some bigints can be equal to smallint?
+#[derive(Debug, Clone, Hash)]
 pub enum Number {
     SmallInt(isize),
     BigInt(Integer),
@@ -63,7 +65,7 @@ impl Number {
                 if *r.numer() < DOWNGRADE_LIMIT && *r.numer() > -DOWNGRADE_LIMIT {
                     Number::SmallInt(r.numer().to_isize().expect("Number too large to downgrade"))
                 } else {
-                    Number::BigInt(r.numer().clone()) // TODO: move instead of clone
+                    Number::BigInt(mem::replace(&mut **r, Rational::new()).into_numer_denom().0)
                 }
             }
         };
@@ -160,10 +162,12 @@ impl fmt::Display for Number {
 }
 
 impl Zero for Number {
+    #[inline]
     fn zero() -> Number {
         Number::SmallInt(0)
     }
 
+    #[inline]
     fn is_zero(&self) -> bool {
         match *self {
             Number::SmallInt(i) => i == 0,
@@ -189,10 +193,12 @@ impl GCD for Number {
 }
 
 impl One for Number {
+    #[inline]
     fn one() -> Number {
         Number::SmallInt(1)
     }
 
+    #[inline]
     fn is_one(&self) -> bool {
         match *self {
             Number::SmallInt(i) => i == 1,
@@ -248,7 +254,7 @@ impl PartialOrd for Number {
         use self::Number::*;
         match (self, rhs) {
             (&SmallInt(ref i1), SmallInt(ref i2)) => i1.partial_cmp(i2),
-            (&SmallInt(ref i1), BigInt(ref i2)) => Integer::from(i1.clone()).partial_cmp(i2),
+            (&SmallInt(ref i1), BigInt(ref i2)) => Integer::from(*i1).partial_cmp(i2),
             (&SmallInt(ref i1), SmallRat(n2, d2)) => (i1 * d2).partial_cmp(n2), // TODO: check for overflow
             (&SmallInt(ref i1), BigRat(ref f2)) => Rational::from(*i1).partial_cmp(&**f2),
             (&BigInt(ref i1), SmallInt(i2)) => i1.partial_cmp(i2),
@@ -279,15 +285,14 @@ impl PartialOrd for Number {
 }
 
 impl Ord for Number {
+    #[inline]
     fn cmp(&self, other: &Number) -> Ordering {
         self.partial_cmp(other).unwrap()
     }
 }
 
-impl Add for Number {
-    type Output = Self;
-
-    fn add(self, rhs: Number) -> Number {
+impl Number {
+    fn add_full(self, rhs: Number) -> Number {
         use self::Number::*;
         match (self, rhs) {
             (SmallInt(i1), SmallInt(i2)) => match i1.checked_add(i2) {
@@ -297,18 +302,17 @@ impl Add for Number {
             (SmallInt(i1), BigInt(i2)) | (BigInt(i2), SmallInt(i1)) => {
                 BigInt(Integer::from(i1) + i2)
             }
-            (SmallInt(i1), SmallRat(n2, d2)) | (SmallRat(n2, d2), SmallInt(i1)) => {
-                match i1.checked_mul(d2) {
-                    Some(num1) => match n2.checked_add(num1) {
-                        Some(num) => Number::SmallRat(num, d2).normalized(),
-                        None => Number::BigRat(Box::new(
-                            Rational::from(i1) + Rational::from((n2, d2)),
-                        )).normalized(),
-                    },
+            (SmallInt(i1), SmallRat(n2, d2)) | (SmallRat(n2, d2), SmallInt(i1)) => match i1
+                .checked_mul(d2)
+            {
+                Some(num1) => match n2.checked_add(num1) {
+                    Some(num) => Number::SmallRat(num, d2).normalized(),
                     None => Number::BigRat(Box::new(Rational::from(i1) + Rational::from((n2, d2))))
                         .normalized(),
-                }
-            }
+                },
+                None => Number::BigRat(Box::new(Rational::from(i1) + Rational::from((n2, d2))))
+                    .normalized(),
+            },
             (SmallRat(n1, d1), SmallRat(n2, d2)) => match d2.checked_mul(d1 / GCD::gcd(d1, d2)) {
                 Some(lcm) => match n2.checked_mul(lcm / d2) {
                     Some(num2) => match n1.checked_mul(lcm / d1) {
@@ -354,9 +358,26 @@ impl Add for Number {
     }
 }
 
+impl Add for Number {
+    type Output = Self;
+
+    #[inline]
+    fn add(self, rhs: Number) -> Number {
+        use self::Number::*;
+        match (self, rhs) {
+            (SmallInt(i1), SmallInt(i2)) => match i1.checked_add(i2) {
+                Some(x) => SmallInt(x),
+                None => BigInt(Integer::from(i1) + Integer::from(i2)),
+            },
+            (lhs, rhs1) => lhs.add_full(rhs1),
+        }
+    }
+}
+
 impl Sub for Number {
     type Output = Self;
 
+    #[inline]
     fn sub(self, rhs: Number) -> Number {
         self + (-rhs)
     }
@@ -434,6 +455,7 @@ impl Mul for Number {
 impl Div for Number {
     type Output = Self;
 
+    #[inline]
     fn div(self, rhs: Number) -> Number {
         self * rhs.inv() // TODO: optimize
     }
@@ -446,7 +468,7 @@ impl Rem for Number {
         use self::Number::*;
         match (self, rhs) {
             (SmallInt(i1), SmallInt(i2)) => SmallInt(i1 % i2), // TODO: make positive?
-            (SmallInt(i1), BigInt(i2)) => BigInt(Integer::from(i1.clone()) % i2),
+            (SmallInt(i1), BigInt(i2)) => BigInt(Integer::from(i1) % i2),
             (BigInt(i1), SmallInt(i2)) => BigInt(i1 % Integer::from(i2)),
             (BigInt(i1), BigInt(i2)) => BigInt(i1 % i2),
             (x, y) => unreachable!(format!("Cannot compute remainder {:?} rem {:?}", x, y)),
@@ -478,14 +500,72 @@ impl num_traits::Pow<u32> for Number {
 }
 
 impl MulAssign for Number {
+    #[inline]
     fn mul_assign(&mut self, rhs: Number) {
-        *self = self.clone() * rhs; // TODO: optimize
+        use self::Number::*;
+
+        // work around a borrow checker issue
+        *self = match (&mut *self, rhs) {
+            (SmallInt(ref mut i1), SmallInt(i2)) => match i1.checked_mul(i2) {
+                Some(x) => {
+                    *i1 = x;
+                    return;
+                }
+                None => BigInt(Integer::from(*i1) * Integer::from(i2)),
+            },
+            (SmallInt(ref mut i1), BigInt(ref mut i2)) => {
+                *i2 *= Integer::from(*i1);
+                BigInt(mem::replace(i2, Integer::new()))
+            }
+            (BigInt(ref mut i2), SmallInt(i1)) => {
+                *i2 *= Integer::from(i1);
+                return;
+            }
+            (BigInt(ref mut i1), BigInt(ref mut i2)) => {
+                *i1 *= mem::replace(i2, Integer::new());
+                return;
+            }
+            (BigRat(ref mut f1), BigRat(ref mut f2)) => {
+                **f1 *= mem::replace(&mut **f2, Rational::new());
+                return;
+            }
+            (a, b) => mem::replace(a, Number::one()) * b, // TODO: optimize further
+        };
     }
 }
 
 impl AddAssign for Number {
+    #[inline]
     fn add_assign(&mut self, rhs: Number) {
-        *self = self.clone() + rhs; // TODO: optimize
+        use self::Number::*;
+
+        // work around a borrow checker issue
+        *self = match (&mut *self, rhs) {
+            (SmallInt(ref mut i1), SmallInt(i2)) => match i1.checked_add(i2) {
+                Some(x) => {
+                    *i1 = x;
+                    return;
+                }
+                None => BigInt(Integer::from(*i1) + Integer::from(i2)),
+            },
+            (SmallInt(ref mut i1), BigInt(ref mut i2)) => {
+                *i2 += Integer::from(*i1);
+                BigInt(mem::replace(i2, Integer::new()))
+            }
+            (BigInt(ref mut i2), SmallInt(i1)) => {
+                *i2 += Integer::from(i1);
+                return;
+            }
+            (BigInt(ref mut i1), BigInt(ref mut i2)) => {
+                *i1 += mem::replace(i2, Integer::new());
+                return;
+            }
+            (BigRat(ref mut f1), BigRat(ref mut f2)) => {
+                **f1 += mem::replace(&mut **f2, Rational::new());
+                return;
+            }
+            (a, b) => mem::replace(a, Number::one()) + b, // TODO: optimize further
+        };
     }
 }
 

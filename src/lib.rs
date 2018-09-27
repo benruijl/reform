@@ -1,17 +1,21 @@
+extern crate pest;
 #[macro_use]
-extern crate combine;
-extern crate itertools; // command line argument options
-                        //extern crate rand;
+extern crate pest_derive;
 extern crate byteorder; // for serialization
+extern crate chrono;
 extern crate crossbeam;
 extern crate fastdivide;
 extern crate fnv;
 extern crate gmp_mpfr_sys;
+extern crate itertools; // command line argument options
 extern crate ndarray;
 extern crate num_integer;
 extern crate num_traits;
 extern crate rand;
 extern crate rug; // for gmp and bigint support
+
+#[macro_use]
+extern crate bitflags;
 
 #[cfg(feature = "python_api")]
 #[macro_use]

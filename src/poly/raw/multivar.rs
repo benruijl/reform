@@ -17,7 +17,7 @@ use poly::raw::monomial::Monomial;
 use poly::raw::zp::ufield;
 
 /// Multivariate polynomial with a degree sparse and variable dense representation.
-#[derive(Clone)]
+#[derive(Clone, Hash)]
 pub struct MultivariatePolynomial<R: Ring, E: Exponent> {
     // Data format: the i-th monomial is stored as coefficients[i] and
     // exponents[i * nvars .. (i + 1) * nvars]. Keep coefficients.len() == nterms and

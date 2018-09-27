@@ -1,11 +1,15 @@
 use cpython::PyResult;
+use number::Number;
 use poly::polynomial;
 use poly::polynomial::PolyPrinter;
 use std::cell::RefCell;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 use std::str::FromStr;
 use structure;
-use structure::Element;
+use structure::{
+    BorrowedVarInfo, Element, ElementPrinter, IdentityStatement, IdentityStatementMode, PrintMode,
+    StatementResult,
+};
 
 fn clone_varmap(a: &structure::VarInfo, b: &structure::VarInfo) -> structure::VarInfo {
     if a.global_info.num_vars() > b.global_info.num_vars() {
@@ -24,6 +28,7 @@ py_module_initializer!(reform, initreform, PyInit_reform, |py, m| {
     m.add_class::<VarInfo>(py)?;
     m.add_class::<Polynomial>(py)?;
     m.add_class::<RationalPolynomial>(py)?;
+    m.add_class::<Expression>(py)?;
     Ok(())
 });
 
@@ -193,6 +198,116 @@ py_class!(class RationalPolynomial |py| {
             &mut den1.poly(py).borrow_mut());
 
         RationalPolynomial::create_instance(py, num, den)
+    }
+
+});
+
+py_class!(class Expression |py| {
+    data expr: RefCell<Element>;
+    data var_info: structure::VarInfo;
+    def __new__(_cls, arg: &str, var_info: &VarInfo) -> PyResult<Expression> {
+        let mut e = Element::<String>::from_str(arg).unwrap();
+        let mut ne = e.to_element(&mut var_info.var_info(py).borrow_mut());
+        ne.normalize_inplace(&var_info.var_info(py).borrow().global_info);
+
+        Expression::create_instance(py, RefCell::new(ne), var_info.var_info(py).borrow().clone())
+    }
+
+    def __copy__(&self) -> PyResult<Expression> {
+        Expression::create_instance(py, RefCell::new(self.expr(py).borrow().clone()), self.var_info(py).clone())
+    }
+
+    def __str__(&self) -> PyResult<String> {
+        Ok(format!("{}",  ElementPrinter { element: &self.expr(py).borrow(), var_info: &self.var_info(py).global_info, print_mode: PrintMode::Form }))
+    }
+
+    def __add__(lhs, rhs) -> PyResult<Expression> {
+        let lhsp = lhs.extract::<Expression>(py)?;
+        let rhsp = rhs.extract::<Expression>(py)?;
+
+        let mut r = Element::SubExpr(true, vec![lhsp.expr(py).borrow().clone(), rhsp.expr(py).borrow().clone()]);
+        let vi = clone_varmap(&lhsp.var_info(py), &rhsp.var_info(py));
+        r.normalize_inplace(&vi.global_info);
+
+        Expression::create_instance(py, RefCell::new(r), vi)
+    }
+
+    def __sub__(lhs, rhs) -> PyResult<Expression> {
+        let lhsp = lhs.extract::<Expression>(py)?;
+        let rhsp = rhs.extract::<Expression>(py)?;
+
+        let mut r = Element::SubExpr(true, vec![lhsp.expr(py).borrow().clone(),
+                        Element::Term(true, vec![rhsp.expr(py).borrow().clone(), Element::Num(false, Number::SmallInt(-1))])]);
+        let vi = clone_varmap(&lhsp.var_info(py), &rhsp.var_info(py));
+        r.normalize_inplace(&vi.global_info);
+
+        Expression::create_instance(py, RefCell::new(r), vi)
+    }
+
+    def __mul__(lhs, rhs) -> PyResult<Expression> {
+        let lhsp = lhs.extract::<Expression>(py)?;
+        let rhsp = rhs.extract::<Expression>(py)?;
+
+        let mut r = Element::Term(true, vec![lhsp.expr(py).borrow().clone(), rhsp.expr(py).borrow().clone()]);
+        let vi = clone_varmap(&lhsp.var_info(py), &rhsp.var_info(py));
+        r.normalize_inplace(&vi.global_info);
+
+        Expression::create_instance(py, RefCell::new(r), vi)
+    }
+
+    def __neg__(&self) -> PyResult<Expression> {
+        let mut r = Element::Term(true, vec![self.expr(py).borrow().clone(), Element::Num(false, Number::SmallInt(-1))]);
+        r.normalize_inplace(&self.var_info(py).global_info);
+        Expression::create_instance(py, RefCell::new(r), self.var_info(py).clone())
+    }
+
+    def expand(&self) -> PyResult<Expression> {
+        let r = self.expr(py).borrow().clone().expand(&self.var_info(py).global_info);
+        Expression::create_instance(py, RefCell::new(r), self.var_info(py).clone())
+    }
+
+    def id(&self, lhs: &str, rhs: &str, var_info: &VarInfo) -> PyResult<Expression> {
+        let mut lhs = Element::<String>::from_str(lhs).unwrap().to_element(&mut var_info.var_info(py).borrow_mut());
+        lhs.normalize_inplace(&var_info.var_info(py).borrow().global_info);
+
+        let mut rhs = Element::<String>::from_str(rhs).unwrap().to_element(&mut var_info.var_info(py).borrow_mut());
+        rhs.normalize_inplace(&var_info.var_info(py).borrow().global_info);
+
+        let e = &self.expr(py).borrow();
+
+        let bi = BorrowedVarInfo {
+            global_info: &self.var_info(py).global_info,
+            local_info: &self.var_info(py).local_info
+        } ;
+
+        let v = match **e {
+            Element::SubExpr(_, ref ts) => ts.iter().collect(),
+            _ => vec![&**e]
+        };
+
+
+        let ids = IdentityStatement {
+            mode: IdentityStatementMode::Many,
+            lhs,
+            rhs,
+            contains_dollar: false
+        };
+
+        let mut res = vec![];
+        for term in v {
+            let mut idsi = ids.to_iter(term, &bi);
+            loop {
+                match idsi.next() {
+                    StatementResult::Executed(r) | StatementResult::NotExecuted(r) => res.push(r.clone()),
+                    StatementResult::NoChange => {res.push(term.clone()); break},
+                    StatementResult::Done => {break}
+                }
+            }
+        }
+
+        let mut r = Element::SubExpr(true, res);
+        r.normalize_inplace(&self.var_info(py).global_info);
+        Expression::create_instance(py, RefCell::new(r), var_info.var_info(py).borrow().clone())
     }
 
 });

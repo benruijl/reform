@@ -3,9 +3,7 @@ API
 ===
 
 Certain features of reFORM can be used inside other programs
-and programming languages using its API. At the moment only
-the library for multivariate polynomials is exposed.
-
+and programming languages using its API.
 We expose a `Python API`_ and a `C API`_.
 
 Python API
@@ -25,6 +23,22 @@ or ``libreform.dll`` (Windows) in ``target/release``. Rename this file to ``refo
 	that the Python 3 version that the library supports, is fixed.
 
 An example Python program:
+
+.. code-block:: python
+
+	import reform
+
+	vi = reform.VarInfo()
+	a = reform.Expression("x+y^2", vi)
+	b = reform.Expression("z", vi)
+	c = a * b
+
+	print("c: ", c, ", c expanded: ", c.expand())
+
+	d = c.expand().id("x", "1+w", vi)
+	print("Substituted x->1+w: ", d)
+
+An example Python program showing the polynomial API:
 
 .. code-block:: python
 
