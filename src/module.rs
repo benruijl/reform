@@ -50,7 +50,6 @@ impl TermStreamWrapper {
 #[derive(Debug)]
 struct ExpandIterator<'a> {
     subiter: ExpandSubIterator<'a>,
-    var_info: &'a GlobalVarInfo,
     ground_level: bool,
     done: bool,
 }
@@ -132,7 +131,7 @@ impl<'a> ExpandIterator<'a> {
                     match x {
                         Element::Fn(_dirty, _name, ref mut args) => {
                             for a in args {
-                                *a = ExpandIterator::new(a, var_info, false).to_element();
+                                *a = ExpandIterator::new(a, var_info, false).to_element(var_info);
                             }
                             // TODO: normalize function?
                             static_count += 1;
@@ -159,7 +158,6 @@ impl<'a> ExpandIterator<'a> {
                 if seqiter.is_empty() {
                     return ExpandIterator {
                             subiter: ExpandSubIterator::YieldMultiple(static_part),
-                            var_info,
                             ground_level,
                             done: false,
                             };
@@ -170,7 +168,6 @@ impl<'a> ExpandIterator<'a> {
                     seqiter.push((
                         ExpandIterator {
                             subiter: ExpandSubIterator::YieldMultiple(static_part),
-                            var_info,
                             ground_level,
                             done: false,
                             },
@@ -189,7 +186,7 @@ impl<'a> ExpandIterator<'a> {
                 // TODO: don't create new fn
                 let newargs = args
                     .into_iter()
-                    .map(|x| ExpandIterator::new(x, var_info, false).to_element())
+                    .map(|x| ExpandIterator::new(x, var_info, false).to_element(var_info))
                     .collect();
 
                 let mut f = Element::Fn(true, *name, newargs);
@@ -201,8 +198,8 @@ impl<'a> ExpandIterator<'a> {
 
                 // TODO: in principle expansions in the base and exponent could also be iterator over
                 // instead of collected
-                let (mut eb, ee) = (ExpandIterator::new(b, var_info, false).to_element(),
-                                ExpandIterator::new(e, var_info, false).to_element());
+                let (mut eb, ee) = (ExpandIterator::new(b, var_info, false).to_element(var_info),
+                                ExpandIterator::new(e, var_info, false).to_element(var_info));
 
                 if let Element::Num(_, Number::SmallInt(n)) = ee {
                     if n > 0 {
@@ -251,7 +248,6 @@ impl<'a> ExpandIterator<'a> {
 
         ExpandIterator {
             subiter,
-            var_info,
             ground_level,
             done: false,
         }
@@ -281,17 +277,19 @@ impl<'a> ExpandIterator<'a> {
         }
     }
 
-    fn to_element(&mut self) -> Element {
-        let mut e = Element::SubExpr(
-            true,
-            self.map(|x| match x {
+    fn to_element(&mut self, var_info: &GlobalVarInfo) -> Element {
+        let mut res = vec![];
+
+        while let Some(x) = self.next(var_info) {
+            res.push(match x {
                 MatchOpt::Single(ee) => ee.clone(),
                 MatchOpt::SingleOwned(ee) => ee,
                 MatchOpt::Multiple(es) => Element::Term(false, es.to_vec()),
-            })
-            .collect(),
-        );
-        e.normalize_inplace(self.var_info);
+            });
+        }
+
+        let mut e = Element::SubExpr(true, res);
+        e.normalize_inplace(var_info);
         e
     }
 }
@@ -349,10 +347,8 @@ impl<'a> ExpandIterator<'a> {
     }
 }
 
-impl<'a> Iterator for ExpandIterator<'a> {
-    type Item = MatchOpt<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
+impl<'a> ExpandIterator<'a> {
+    fn next(&mut self, var_info: &GlobalVarInfo) -> Option<MatchOpt<'a>> {
         if self.done {
             return None;
         }
@@ -362,9 +358,9 @@ impl<'a> Iterator for ExpandIterator<'a> {
                 // for subexpressions, yield each iterator one by one
                 while *pos < seqiter.len() {
                     if !seqiter[*pos].done {
-                        if let Some(x) =
-                            seqiter[*pos].next_inline().or_else(|| seqiter[*pos].next())
-                        //.map(|x| MatchOpt::SingleOwned(x)))
+                        if let Some(x) = seqiter[*pos]
+                            .next_inline()
+                            .or_else(|| seqiter[*pos].next(var_info))
                         {
                             return Some(x);
                         }
@@ -382,7 +378,7 @@ impl<'a> Iterator for ExpandIterator<'a> {
                         if let Some(x) = seqiter_state[i]
                             .0
                             .next_inline_subexpr()
-                            .or_else(|| seqiter_state[i].0.next())
+                            .or_else(|| seqiter_state[i].0.next(var_info))
                         {
                             seqiter_state[i].1 = x;
 
@@ -410,7 +406,7 @@ impl<'a> Iterator for ExpandIterator<'a> {
                                 }
 
                                 let mut nt = Element::Term(true, v);
-                                nt.normalize_inplace(self.var_info);
+                                nt.normalize_inplace(var_info);
                                 return Some(MatchOpt::SingleOwned(nt));
                             }
 
@@ -433,7 +429,7 @@ impl<'a> Iterator for ExpandIterator<'a> {
                 Some((c, mut newt)) => {
                     newt.push(Element::Num(false, c));
                     let mut nt = Element::Term(true, newt);
-                    nt.normalize_inplace(self.var_info);
+                    nt.normalize_inplace(var_info);
                     Some(MatchOpt::SingleOwned(nt))
                 }
                 None => {
@@ -736,11 +732,11 @@ enum StatementIter<'a> {
 }
 
 impl<'a> StatementIter<'a> {
-    fn next(&mut self) -> StatementResult<Element> {
+    fn next(&mut self, var_info: &GlobalVarInfo) -> StatementResult<Element> {
         match *self {
             StatementIter::IdentityStatement(ref mut id) => id.next(),
             StatementIter::ExpandIterator(ref mut it) => {
-                match it.next() {
+                match it.next(var_info) {
                     Some(x) => match x {
                         MatchOpt::Single(x) => StatementResult::Executed({ x.clone() }), // FIXME: it is not always executed!
                         MatchOpt::SingleOwned(x) => StatementResult::Executed({ x }),
@@ -833,27 +829,26 @@ impl Statement {
                 }
             }
             Statement::Expand => {
-                StatementIter::ExpandIterator(ExpandIterator::new(
-                    input,
-                    &var_info.global_info,
-                    true,
-                ))
-
-                /*
-                // FIXME: treat ground level differently in the expand routine
-                // don't generate all terms in one go
-                let mut i = mem::replace(input, Element::default());
-                match i.expand(var_info.global_info) {
-                    Element::SubExpr(_, mut f) => {
-                        if f.len() == 1 {
-                            StatementIter::Simple(f.swap_remove(0), false)
-                        } else {
-                            f.reverse(); // the multiple iterator pops from the back, so reverse the array
-                            StatementIter::Multiple(f, true)
+                if true {
+                    StatementIter::ExpandIterator(ExpandIterator::new(
+                        input,
+                        &var_info.global_info,
+                        true,
+                    ))
+                } else {
+                    let mut i = mem::replace(input, Element::default());
+                    match i.expand(var_info.global_info) {
+                        Element::SubExpr(_, mut f) => {
+                            if f.len() == 1 {
+                                StatementIter::Simple(f.swap_remove(0), false)
+                            } else {
+                                f.reverse(); // the multiple iterator pops from the back, so reverse the array
+                                StatementIter::Multiple(f, true)
+                            }
                         }
+                        a => StatementIter::Simple(a, false),
                     }
-                    a => StatementIter::Simple(a, false),
-                }*/
+                }
             }
             Statement::Multiply(ref x) => {
                 // multiply to the right
@@ -1528,7 +1523,7 @@ fn do_module_rec(
 
         let mut it = ns.to_iter(&mut input, &var_info);
         loop {
-            match it.next() {
+            match it.next(global_var_info) {
                 StatementResult::Executed(mut f) => {
                     // make sure every new term has its own local variables
                     /*for (var, e) in &oldvarinfo.variables {
