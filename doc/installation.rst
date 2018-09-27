@@ -11,6 +11,11 @@ The easiest way is to install Rustup, using:
 
 For more information, see the official `Rust installation guide <https://www.rust-lang.org/en-US/install.html>`_.
 
+The latest stable version can then be installed using:
+
+.. code-block:: bash
+
+    cargo install reform
 
 The reFORM source code can be obtained from Bitbucket:
 
@@ -26,4 +31,4 @@ To compile in release mode, use:
 
 You will find the binary ``reform`` in ``target/release``.
 
-To compile the with API support, please see the :doc:`api` section.
+To compile reFORM with API support, please see the :doc:`api` section.

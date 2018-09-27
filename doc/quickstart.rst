@@ -6,19 +6,19 @@ We will start with a simple reFORM program that adds one to an argument of a fun
 
 .. code-block:: reform
 
-	expr F = f(5);
+    expr F = f(5);
 
-	apply {
-	    id f(x?) = f(x? + 1);
-	}
-	print;
+    apply {
+        id f(x?) = f(x? + 1);
+        print;
+    }
 
 This code creates an expression `F`, and applies a list of instructions (a *module*) to every term in the expression.
 This example will yield:
 
 .. code-block:: reform
 
-	F = f(6)
+    f(6)
 
 
 Save the code in a file called ``add.rfm`` and use 

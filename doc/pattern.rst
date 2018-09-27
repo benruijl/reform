@@ -6,6 +6,11 @@ modify a term by its shape and relations instead of by the actual contents.
 We introduce `wildcards`, which are denoted
 as letters followed by a question mark, to match to variables, numbers, and subexpressions.
 
+.. note::
+
+    To see the output for the following examples, either a ``print`` has to be added to the source code,
+    or reFORM must be run with the ``-v`` command line option.
+
 For example:
 
 .. code-block:: reform
@@ -163,6 +168,42 @@ yields
     f(1,2,4,1,2)
 
 Note that ranged wildcards can be empty.
+
+Many-mode
+----------------
+
+The ``many`` option can be used to let reFORM apply a pattern to the input
+as often as possible.
+
+.. code-block:: reform
+
+    expr F = x^2;
+    apply {
+        id many x = 5;
+    }
+
+yields
+
+.. code-block:: reform
+
+    25
+
+A more complicated example is shown below:
+
+.. code-block:: reform
+
+    expr F = x*y^4*z;
+    apply {
+        id many x?*y^2 = f(x?);
+    }
+
+yields
+
+.. code-block:: reform
+
+    f(x)*f(z)
+
+
 
 Obtaining all matches
 ---------------------

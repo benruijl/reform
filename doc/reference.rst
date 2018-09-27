@@ -207,15 +207,20 @@ Statements
     if this statement is called outside the module, it will wrap the entire expression in a function ``fn``.
     The latter is only possible if the expression fits in memory.
 
+    .. note::
+
+        The collect statement must currently be placed before the apply block.
+        This will be fixed in the future.
+
     .. code-block:: reform
 
         expr F = (1+x)^4;
 
+        collect f;
+        print;
         apply {
             expand;
         }
-        collect f;
-        print;
 
     yields
 
@@ -519,6 +524,11 @@ Statements
     - ``{time_}``: print the current time
     - ``{term_}``: print the current term
     - ``{$a}``: print the value of ``$a``
+
+    .. note::
+
+        A print statement for expressions must currently be placed before the apply block.
+        This will be fixed in the future.
 
 
     .. code-block:: reform

@@ -1,5 +1,11 @@
 [package]
 name = "reform"
+description = "A symbolic manipulation toolkit which aims to handle expressions with billions of terms, taking up terabytes of diskspace."
+documentation = "https://readthedocs.org/projects/reform/"
+repository = "https://bitbucket.org/benruyl/reform"
+keywords = ["computer algebra", "symbolic manipulation", "math", "physics"]
+categories = ["science"]
+license = "MIT"
 version = "0.1.0"
 readme = "README.md"
 authors = ["Ben Ruijl <benruyl@gmail.com>"]
