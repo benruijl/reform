@@ -3,7 +3,7 @@ name = "reform"
 description = "A symbolic manipulation toolkit which aims to handle expressions with billions of terms, taking up terabytes of diskspace."
 documentation = "https://readthedocs.org/projects/reform/"
 repository = "https://bitbucket.org/benruyl/reform"
-keywords = ["computer algebra", "symbolic manipulation", "math", "physics"]
+keywords = ["computer algebra", "symbolic manipulation", "mathematics", "physics"]
 categories = ["science"]
 license = "MIT"
 version = "0.1.0"
@@ -26,8 +26,7 @@ version = "0.2"
 optional = true
 
 [dependencies.cpython]
-git = "https://github.com/dgrunwald/rust-cpython"
-version = "0.2"
+version = "^0.2.1"
 features = ["extension-module"]
 optional = true
 
@@ -43,8 +42,8 @@ byteorder = "1.1.0"
 crossbeam = "0.4.1"
 rug = { version = "1.0.1", default-features = false, features = ["integer", "rational"] }
 num-integer = "0.1"
-num-traits = "0.2"
-ndarray = "0.11.0"
+num-traits = "^0.2"
+ndarray = "0.12"
 gmp-mpfr-sys = { version = "1.1.4", default-features = false, features = [] }
 cpuprofiler = { version = "0.0.3", optional = true }
 fastdivide = "0.2.0"

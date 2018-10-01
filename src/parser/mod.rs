@@ -208,9 +208,21 @@ fn parse_factor(e: pest::iterators::Pair<Rule>) -> Element<String> {
     }
 
     let mut ee = e.into_inner();
-    let factor = ee.next().unwrap();
+    let mut factor = ee.next().unwrap();
 
+    let mut minus = false;
     match factor.as_rule() {
+        Rule::op_unary_plus => {
+            factor = ee.next().unwrap().into_inner().next().unwrap();
+        }
+        Rule::op_unary_minus => {
+            minus = true;
+            factor = ee.next().unwrap().into_inner().next().unwrap();
+        }
+        _ => {}
+    }
+
+    let f = match factor.as_rule() {
         Rule::primary => parse_primary(factor),
         Rule::power => {
             let mut pow = factor.into_inner();
@@ -226,6 +238,12 @@ fn parse_factor(e: pest::iterators::Pair<Rule>) -> Element<String> {
             }
         }
         x => unimplemented!("{:?}", x),
+    };
+
+    if minus {
+        Element::Term(true, vec![f, Element::Num(false, Number::SmallInt(-1))])
+    } else {
+        f
     }
 }
 

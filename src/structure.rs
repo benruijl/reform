@@ -1479,8 +1479,17 @@ impl Element {
                 match print_mode {
                     PrintMode::Form => {
                         if let Some(n @ Element::Num(..)) = factors.last() {
-                            n.fmt_output(f, print_mode, var_info)?;
-                            write!(f, "*")?;
+                            if factors.len() > 1 {
+                                if let Element::Num(false, Number::SmallInt(-1)) = n {
+                                    write!(f, "-")?;
+                                } else {
+                                    n.fmt_output(f, print_mode, var_info)?;
+                                    write!(f, "*")?;
+                                }
+                            } else {
+                                n.fmt_output(f, print_mode, var_info)?;
+                                write!(f, "*")?;
+                            }
                         }
                         match factors.first() {
                             Some(s @ &Element::SubExpr(..)) if factors.len() > 1 => {

@@ -290,7 +290,7 @@ impl Element {
                         let (a, b) = ts.split_at_mut(i);
                         if !merge_factors(&mut a[lastindex], &mut b[0], var_info) {
                             if lastindex + 1 < i {
-                                a[lastindex + 1] = mem::replace(&mut b[0], Element::default());
+                                mem::swap(&mut a[lastindex + 1], &mut b[0]);
                             }
                             lastindex += 1;
                         }
@@ -659,9 +659,11 @@ impl Element {
                     unreachable!();
                 }
             }
-            Element::Wildcard(_, ref mut restriction) => for x in restriction {
-                changed |= x.normalize_inplace(var_info);
-            },
+            Element::Wildcard(_, ref mut restriction) => {
+                for x in restriction {
+                    changed |= x.normalize_inplace(var_info);
+                }
+            }
             Element::FnWildcard(_, ref mut b) => {
                 let (restriction, args) = &mut **b;
                 for x in restriction {
