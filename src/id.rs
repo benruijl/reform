@@ -281,9 +281,10 @@ pub enum ElementIter<'a> {
 impl<'a> ElementIterSingle<'a> {
     fn next(&mut self, m: &mut MatchObject<'a>) -> Option<usize> {
         match *self {
-            ElementIterSingle::None(should_pop) => {
-                if should_pop {
+            ElementIterSingle::None(ref mut should_pop) => {
+                if *should_pop {
                     m.pop();
+                    *should_pop = false;
                 }
                 None
             }
@@ -293,10 +294,14 @@ impl<'a> ElementIterSingle<'a> {
             },
             ElementIterSingle::OnceMatch(_, _) => {
                 match mem::replace(self, ElementIterSingle::None(false)) {
-                    ElementIterSingle::OnceMatch(name, target) => {
-                        mem::replace(self, ElementIterSingle::None(true));
-                        push_match(m, name, target)
-                    }
+                    ElementIterSingle::OnceMatch(name, target) => match push_match(m, name, target)
+                    {
+                        Some(n) => {
+                            mem::replace(self, ElementIterSingle::None(n + 1 == m.len()));
+                            Some(n)
+                        }
+                        None => None,
+                    },
                     _ => unreachable!(),
                 }
             }
@@ -772,7 +777,8 @@ impl<'a> FuncIterator<'a> {
             .filter(|x| match **x {
                 Element::VariableArgument { .. } => true,
                 _ => false,
-            }).count();
+            })
+            .count();
         if args.len() - varargcount > target_args.len() {
             return FuncIterator {
                 args: args,
@@ -1011,11 +1017,14 @@ impl<'a> SequenceIter<'a> {
 /// An iterator that matches a pattern of multiple factors to
 /// a subset of a term.
 /// For example:
-/// `IN = f(1,2,3)*g(1,2,3)*g(4,5,6);
+///
+/// ```reform
+/// IN = f(1,2,3)*g(1,2,3)*g(4,5,6);
 /// {
 ///     id all f(?a,n?,?b)*g(?c,n?,?d) = f(n?)*g(n?);
 /// }
-///`
+///```
+///
 /// uses this iterator to match the `g` to one of the `g`s in the input.
 #[derive(Debug)]
 pub struct SubSequenceIter<'a> {

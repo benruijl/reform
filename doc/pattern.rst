@@ -215,7 +215,7 @@ For example:
 
     expr F = f(1,2,f(x1*x2,x3*x4,x5*x6),x1*x3,x3*x5);
     apply {
-        id all f(1,2,f(?a,x1?*x2?,?b),?c,x1?*x3?) = f(x1,x2,x3);
+        id all f(1,2,f(?a,x1?*x2?,?b),?c,x1?*x3?) = f(x1?,x2?,x3?);
     }
 
 yields
