@@ -525,23 +525,17 @@ Statements
     - ``{term_}``: print the current term
     - ``{$a}``: print the value of ``$a``
 
-    .. note::
-
-        A print statement for expressions must currently be placed before the apply block.
-        This will be fixed in the future.
-
-
     .. code-block:: reform
 
         $a = f(x);
         print mathematica $a;
 
         expr F = 1 + x;
-        print; // print F at the end of the next module
         apply {
             print; // print the current term
             print "{date_}: current term={term_}, $a={$a}";
         }
+        print; // print F
 
 .. frm:statement:: procedure name(args; localargs) { [statements] }
 

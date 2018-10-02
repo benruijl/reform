@@ -47,6 +47,7 @@ impl<'a> Eq for ElementStreamTuple<'a> {}
 pub struct InputTermStreamer {
     input: Option<BufReader<File>>,      // the input file
     mem_buffer_input: VecDeque<Element>, // the memory buffer, storing unserialized terms
+    buffer: Element,                     // buffer of one element, used by a term iterator
     termcounter_input: u64,              // input term count
 }
 
@@ -55,6 +56,7 @@ impl InputTermStreamer {
         InputTermStreamer {
             input: source,
             mem_buffer_input: VecDeque::with_capacity(SMALL_BUFFER as usize),
+            buffer: Element::default(),
             termcounter_input: 0,
         }
     }
@@ -92,6 +94,42 @@ impl InputTermStreamer {
 
     pub fn termcount(&self) -> u64 {
         self.termcounter_input
+    }
+
+    pub fn reset(&mut self) {}
+}
+
+#[derive(Debug)]
+pub struct InputTermStreamerIterator<'a> {
+    input: &'a mut InputTermStreamer,
+    count: usize,
+}
+
+impl<'a> InputTermStreamerIterator<'a> {
+    pub fn new(input: &mut InputTermStreamer) -> InputTermStreamerIterator {
+        InputTermStreamerIterator { input, count: 0 }
+    }
+
+    pub fn next(&mut self) -> Option<&Element> {
+        if self.count < self.input.mem_buffer_input.len() {
+            self.count += 1;
+            return Some(&self.input.mem_buffer_input[self.count - 1]);
+        } else {
+            // read from file
+            if let Some(ref mut x) = self.input.input {
+                if let Ok(e) = Element::deserialize(x) {
+                    self.input.buffer = e;
+                    return Some(&self.input.buffer);
+                } else {
+                    // reset file buffer position
+                    x.seek(SeekFrom::Start(0)).unwrap();
+                    mem::replace(&mut self.input.buffer, Element::default());
+                    None
+                }
+            } else {
+                None
+            }
+        }
     }
 }
 

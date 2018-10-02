@@ -16,7 +16,7 @@ use crossbeam::queue::MsQueue;
 use expand::ExpandIterator;
 use id::{MatchIterator, MatchKind, MatchObject, MatchOpt};
 use streaming::MAXTERMMEM;
-use streaming::{InputTermStreamer, OutputTermStreamer};
+use streaming::{InputTermStreamer, InputTermStreamerIterator, OutputTermStreamer};
 use structure::*;
 
 /*
@@ -294,8 +294,7 @@ impl Statement {
                             .flat_map(|x| match *x {
                                 Element::SubExpr(_, ref y) => y.clone(),
                                 _ => vec![x.clone()],
-                            })
-                            .collect(),
+                            }).collect(),
                     )
                 };
 
@@ -311,8 +310,7 @@ impl Statement {
                                 .map(|f| match *f {
                                     Element::Fn(_, ref n, ref a) if *n == *name => subs(n, a),
                                     _ => f.clone(),
-                                })
-                                .collect(),
+                                }).collect(),
                         ),
                         false,
                     ),
@@ -399,8 +397,7 @@ impl Statement {
                                 .map(|f| match *f {
                                     Element::Fn(_, ref n, ref a) if *n == *name => subs(n, a),
                                     _ => f.clone(),
-                                })
-                                .collect(),
+                                }).collect(),
                         ),
                         false,
                     ),
@@ -1266,8 +1263,7 @@ impl Module {
                                         x.normalize(&var_info.global_info);
                                     }
                                     x
-                                })
-                                .collect::<Vec<_>>();
+                                }).collect::<Vec<_>>();
 
                             Module::statements_to_control_flow_stat(
                                 &mut newmod,
@@ -1664,6 +1660,30 @@ impl Program {
                         }
                     });
                     for v in vars {
+                        if let PrintObject::Special(id) = v {
+                            if let Some(i) = self.expressions.iter().position(|ex| *id == ex.0) {
+                                println!(
+                                    "{} =",
+                                    self.var_info.global_info.get_name(self.expressions[i].0)
+                                );
+                                let mut it =
+                                    InputTermStreamerIterator::new(&mut self.expressions[i].1);
+
+                                while let Some(t) = it.next() {
+                                    println!(
+                                        "\t+{}",
+                                        ElementPrinter {
+                                            element: t,
+                                            var_info: &self.var_info.global_info,
+                                            print_mode: *mode
+                                        }
+                                    );
+                                }
+
+                                continue;
+                            }
+                        }
+
                         v.print(
                             &mut out,
                             &Element::default(),
@@ -1682,7 +1702,22 @@ impl Program {
                     }
 
                     if vars.len() == 0 {
-                        sort_statements.push(Statement::Print(mode.clone(), vec![]));
+                        // print all active expressions
+                        for x in &mut self.expressions {
+                            println!("{} =", self.var_info.global_info.get_name(x.0));
+                            let mut it = InputTermStreamerIterator::new(&mut x.1);
+
+                            while let Some(t) = it.next() {
+                                println!(
+                                    "\t+{}",
+                                    ElementPrinter {
+                                        element: t,
+                                        var_info: &self.var_info.global_info,
+                                        print_mode: *mode
+                                    }
+                                );
+                            }
+                        }
                     }
                 }
                 Statement::IfElse(ref mut cond, ref trueblock, ref falseblock) => {
