@@ -1,4 +1,4 @@
-use cpython::PyResult;
+use cpython::{exc, PyErr, PyResult};
 use number::Number;
 use poly::polynomial;
 use poly::polynomial::PolyPrinter;
@@ -44,11 +44,11 @@ py_class!(class Polynomial |py| {
     data poly: RefCell<polynomial::Polynomial>;
     data var_info: structure::VarInfo;
     def __new__(_cls, arg: &str, var_info: &VarInfo) -> PyResult<Polynomial> {
-        let mut e = Element::<String>::from_str(arg).unwrap(); // TODO: convert to PyResult
+        let mut e = Element::<String>::from_str(arg).map_err(|m| PyErr::new::<exc::ValueError, _>(py, m))?;
         let mut ne = e.to_element(&mut var_info.var_info(py).borrow_mut());
         ne.normalize_inplace(&var_info.var_info(py).borrow().global_info);
 
-        let poly = polynomial::Polynomial::from(&ne).unwrap();
+        let poly = polynomial::Polynomial::from(&ne).map_err(|m| PyErr::new::<exc::ValueError, _>(py, m))?;
         Polynomial::create_instance(py, RefCell::new(poly), var_info.var_info(py).borrow().clone())
     }
 
@@ -99,6 +99,14 @@ py_class!(class Polynomial |py| {
     }
 
     def gcd(&self, other: &Polynomial) -> PyResult<Polynomial> {
+        for x in self.poly(py).borrow().poly.coefficients.iter().chain(&other.poly(py).borrow().poly.coefficients) {
+            match x {
+                Number::SmallRat(..) | Number::BigRat(..) =>
+                    return Err(PyErr::new::<exc::ValueError, _>(py, "Cannot take gcd of polynomial with rational coefficients yet. Please have a look at RationalPolynomial.")),
+                _ => {}
+            }
+        }
+
         // FIXME: we are modifying the original polynomials
         if self.poly(py).as_ptr() != other.poly(py).as_ptr() {
             Polynomial::create_instance(py, RefCell::new(self.poly(py).borrow_mut().gcd(&mut other.poly(py).borrow_mut())),
@@ -109,40 +117,46 @@ py_class!(class Polynomial |py| {
                 clone_varmap(&self.var_info(py), &other.var_info(py)))
         }
     }
+
+    def to_expression(&self) -> PyResult<Expression> {
+        let mut ne = self.poly(py).borrow().to_expression();
+        ne.normalize_inplace(&self.var_info(py).global_info);
+        Expression::create_instance(py, RefCell::new(ne), self.var_info(py).clone())
+    }
 });
 
 py_class!(class RationalPolynomial |py| {
     data num: Polynomial;
     data den: Polynomial;
     def __new__(_cls, num: &Polynomial, den: &Polynomial) -> PyResult<RationalPolynomial> {
-        let np = num.__copy__(py).unwrap();
-        let dp = den.__copy__(py).unwrap();
+        let np = num.__copy__(py)?;
+        let dp = den.__copy__(py)?;
         polynomial::rationalpolynomial_normalize(&mut np.poly(py).borrow_mut(), &mut dp.poly(py).borrow_mut());
 
         RationalPolynomial::create_instance(py, np, dp)
     }
 
     def __copy__(&self) -> PyResult<RationalPolynomial> {
-        RationalPolynomial::create_instance(py, self.num(py).__copy__(py).unwrap(), self.den(py).__copy__(py).unwrap())
+        RationalPolynomial::create_instance(py, self.num(py).__copy__(py)?, self.den(py).__copy__(py)?)
     }
 
     def __str__(&self) -> PyResult<String> {
-        Ok(format!("({})/({})", self.num(py).__str__(py).unwrap(), self.den(py).__str__(py).unwrap()))
+        Ok(format!("({})/({})", self.num(py).__str__(py)?, self.den(py).__str__(py)?))
     }
 
     def __neg__(&self) -> PyResult<RationalPolynomial> {
-        let r = self.num(py).clone().__neg__(py).unwrap();
-        RationalPolynomial::create_instance(py, r, self.den(py).__copy__(py).unwrap())
+        let r = self.num(py).clone().__neg__(py)?;
+        RationalPolynomial::create_instance(py, r, self.den(py).__copy__(py)?)
     }
 
     def __mul__(lhs, rhs) -> PyResult<RationalPolynomial> {
         let lhsp = lhs.extract::<RationalPolynomial>(py)?;
         let rhsp = rhs.extract::<RationalPolynomial>(py)?;
 
-        let num = lhsp.num(py).__copy__(py).unwrap();
-        let den = lhsp.den(py).__copy__(py).unwrap();
-        let num1 = rhsp.num(py).__copy__(py).unwrap();
-        let den1 = rhsp.den(py).__copy__(py).unwrap();
+        let num = lhsp.num(py).__copy__(py)?;
+        let den = lhsp.den(py).__copy__(py)?;
+        let num1 = rhsp.num(py).__copy__(py)?;
+        let den1 = rhsp.den(py).__copy__(py)?;
 
         polynomial::rationalpolynomial_mul(&mut num.poly(py).borrow_mut(),
             &mut den.poly(py).borrow_mut(),
@@ -156,10 +170,10 @@ py_class!(class RationalPolynomial |py| {
         let lhsp = lhs.extract::<RationalPolynomial>(py)?;
         let rhsp = rhs.extract::<RationalPolynomial>(py)?;
 
-        let num = lhsp.num(py).__copy__(py).unwrap();
-        let den = lhsp.den(py).__copy__(py).unwrap();
-        let num1 = rhsp.num(py).__copy__(py).unwrap();
-        let den1 = rhsp.den(py).__copy__(py).unwrap();
+        let num = lhsp.num(py).__copy__(py)?;
+        let den = lhsp.den(py).__copy__(py)?;
+        let num1 = rhsp.num(py).__copy__(py)?;
+        let den1 = rhsp.den(py).__copy__(py)?;
 
         polynomial::rationalpolynomial_add(&mut num.poly(py).borrow_mut(),
             &mut den.poly(py).borrow_mut(),
@@ -173,10 +187,10 @@ py_class!(class RationalPolynomial |py| {
         let lhsp = lhs.extract::<RationalPolynomial>(py)?;
         let rhsp = rhs.extract::<RationalPolynomial>(py)?;
 
-        let num = lhsp.num(py).__copy__(py).unwrap();
-        let den = lhsp.den(py).__copy__(py).unwrap();
-        let num1 = rhsp.num(py).__copy__(py).unwrap();
-        let den1 = rhsp.den(py).__copy__(py).unwrap();
+        let num = lhsp.num(py).__copy__(py)?;
+        let den = lhsp.den(py).__copy__(py)?;
+        let num1 = rhsp.num(py).__copy__(py)?;
+        let den1 = rhsp.den(py).__copy__(py)?;
 
         polynomial::rationalpolynomial_sub(&mut num.poly(py).borrow_mut(),
             &mut den.poly(py).borrow_mut(),
@@ -187,10 +201,10 @@ py_class!(class RationalPolynomial |py| {
     }
 
     def div(&self, rhs: &RationalPolynomial) -> PyResult<RationalPolynomial> {
-        let num = self.num(py).__copy__(py).unwrap();
-        let den = self.den(py).__copy__(py).unwrap();
-        let num1 = rhs.num(py).__copy__(py).unwrap();
-        let den1 = rhs.den(py).__copy__(py).unwrap();
+        let num = self.num(py).__copy__(py)?;
+        let den = self.den(py).__copy__(py)?;
+        let num1 = rhs.num(py).__copy__(py)?;
+        let den1 = rhs.den(py).__copy__(py)?;
 
         polynomial::rationalpolynomial_div(&mut num.poly(py).borrow_mut(),
             &mut den.poly(py).borrow_mut(),
@@ -206,7 +220,7 @@ py_class!(class Expression |py| {
     data expr: RefCell<Element>;
     data var_info: structure::VarInfo;
     def __new__(_cls, arg: &str, var_info: &VarInfo) -> PyResult<Expression> {
-        let mut e = Element::<String>::from_str(arg).unwrap();
+        let mut e = Element::<String>::from_str(arg).map_err(|m| PyErr::new::<exc::ValueError, _>(py, m))?;
         let mut ne = e.to_element(&mut var_info.var_info(py).borrow_mut());
         ne.normalize_inplace(&var_info.var_info(py).borrow().global_info);
 
@@ -267,10 +281,14 @@ py_class!(class Expression |py| {
     }
 
     def id(&self, lhs: &str, rhs: &str, var_info: &VarInfo) -> PyResult<Expression> {
-        let mut lhs = Element::<String>::from_str(lhs).unwrap().to_element(&mut var_info.var_info(py).borrow_mut());
+        let mut lhs = Element::<String>::from_str(lhs)
+                        .map_err(|m| PyErr::new::<exc::ValueError, _>(py, m))?
+                        .to_element(&mut var_info.var_info(py).borrow_mut());
         lhs.normalize_inplace(&var_info.var_info(py).borrow().global_info);
 
-        let mut rhs = Element::<String>::from_str(rhs).unwrap().to_element(&mut var_info.var_info(py).borrow_mut());
+        let mut rhs = Element::<String>::from_str(rhs)
+                        .map_err(|m| PyErr::new::<exc::ValueError, _>(py, m))?
+                        .to_element(&mut var_info.var_info(py).borrow_mut());
         rhs.normalize_inplace(&var_info.var_info(py).borrow().global_info);
 
         let e = &self.expr(py).borrow();
@@ -308,6 +326,11 @@ py_class!(class Expression |py| {
         let mut r = Element::SubExpr(true, res);
         r.normalize_inplace(&self.var_info(py).global_info);
         Expression::create_instance(py, RefCell::new(r), var_info.var_info(py).borrow().clone())
+    }
+
+    def to_polynomial(&self) -> PyResult<Polynomial> {
+        let poly = polynomial::Polynomial::from(&self.expr(py).borrow()).map_err(|m| PyErr::new::<exc::ValueError, _>(py, m))?;
+        Polynomial::create_instance(py, RefCell::new(poly), self.var_info(py).clone())
     }
 
 });

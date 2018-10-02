@@ -56,6 +56,9 @@ An example Python program showing the polynomial API:
 	print('ag/bg:', rat)
 	print('gcd:', ag.gcd(bg))
 
+Polynomials can be converted to generic expressions and vice-versa with ``to_expression()`` and ``to_polynomial()``.
+The latter function will fail if the expression is not a polynomial.
+
 
 C API
 ########

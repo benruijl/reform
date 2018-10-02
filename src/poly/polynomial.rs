@@ -170,7 +170,7 @@ impl Polynomial {
         }
     }
 
-    pub fn to_expression(self) -> Element {
+    pub fn to_expression(&self) -> Element {
         let mut terms = vec![];
         for v in self.poly.into_iter() {
             let mut factors = vec![];
