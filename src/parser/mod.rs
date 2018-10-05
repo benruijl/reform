@@ -10,6 +10,7 @@ use structure::{
     Ordering, PrintMode, PrintObject, Procedure, Program, Statement,
 };
 
+use pest::error::Error;
 use pest::Parser;
 
 #[cfg(debug_assertions)]
@@ -711,7 +712,8 @@ fn parse_program(program: pest::iterators::Pair<Rule>) -> Program {
                     statements.push(parse_statement(proc_stat.into_inner().next().unwrap()))
                 }
                 Rule::proc_block => procedures.push(parse_proc(proc_stat)),
-                _ => unreachable!(),
+                Rule::EOI => {}
+                x => unreachable!("Unexpected rule {:?}", x),
             }
         }
     }
@@ -720,7 +722,7 @@ fn parse_program(program: pest::iterators::Pair<Rule>) -> Program {
     Program::new(statements, procedures)
 }
 
-fn custom_error(e: pest::Error<Rule>) -> pest::Error<Rule> {
+fn custom_error(e: Error<Rule>) -> Error<Rule> {
     e.renamed_rules(|rule| match *rule {
         Rule::op_unary_plus => "+".to_owned(),
         Rule::op_unary_minus => "-".to_owned(),

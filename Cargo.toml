@@ -36,8 +36,8 @@ clap = "^2.30.0"
 log = { version = "0.4.1", features = ["release_max_level_warn"] }
 env_logger = "0.5.4"
 rand = "0.5.4"
-pest = "^1.0"
-pest_derive = "^1.0"
+pest = "^2.0"
+pest_derive = "^2.0"
 byteorder = "1.1.0"
 crossbeam = "0.4.1"
 rug = { version = "1.0.1", default-features = false, features = ["integer", "rational"] }

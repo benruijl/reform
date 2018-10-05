@@ -1,21 +1,16 @@
-newline       = _{ "\n" | "\r\n" }
-comment       = _{ line_comment | block_comment }
-line_comment  = _{ "//" ~ (!newline ~ any)* }
-block_comment = _{ "/*" ~ (!"*/" ~ any)* ~ "*/" }
-whitespace    = _{ " " | "\r" | "\n" | "\t" }
+COMMENT       = _{ line_comment | block_comment }
+line_comment  = _{ "//" ~ (!NEWLINE ~ ANY)* }
+block_comment = _{ "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
+WHITESPACE    = _{ " " | NEWLINE | "\t" }
 
-alpha       = _{ 'a'..'z' | 'A'..'Z' }
-dec_digit   = _{ '0'..'9' }
-nonzero_dec = _{ '1'..'9' }
-
-identity  = @{ alpha ~ (alpha | dec_digit | "_")* | "[" ~ (!"]" ~ any)* ~ "]" }
+identity  = @{ ASCII_ALPHA ~ (ASCII_ALPHA | ASCII_DIGIT | "_")* | "[" ~ (!"]" ~ ANY)* ~ "]" }
 
 dollar_name = @{ "$" ~ identity}
 dollar    = { dollar_name ~ ("[" ~ func_args ~ "]")? }
-integer   = @{ "0" | nonzero_dec ~ dec_digit* }
+integer   = @{ "0" | ASCII_NONZERO_DIGIT ~ ASCII_DIGIT* }
 string    = ${ quote_char ~ inner_str ~ quote_char }
 
-inner_str      = @{ (!(quote_char | escape) ~ any)* ~ (escape ~ inner_str)? }
+inner_str      = @{ (!(quote_char | escape) ~ ANY)* ~ (escape ~ inner_str)? }
 escape         = @{ escape_char ~ (quote_char | "n") }
 quote_char     = _{ "\"" }
 escape_char    = _{ "\\" }
@@ -37,10 +32,10 @@ op_logical_or  = { "||" }
 op_logical_and = { "&&" }
 op_logical_not = { "!" }
 
-string_literal = @{ (!"{" ~ !"\"" ~ any)* }
+string_literal = @{ (!"{" ~ !"\"" ~ ANY)* }
 format_string  = { "\"" ~ (string_literal ~ "{" ~ (dollar | identity) ~ "}")* ~ string_literal ~ "\"" }
 
-program = { soi ~ proc_block* ~ global_statement* ~ eoi }
+program = { SOI ~ proc_block* ~ global_statement* ~ EOI }
 
 global_statement     = {
     expr_statement
