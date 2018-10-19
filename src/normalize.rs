@@ -320,6 +320,20 @@ impl Element {
                     unreachable!()
                 }
             }
+            Element::Expression(name) => {
+                // replace an expression by its contents
+                if let Some(x) = var_info.expressions.get(&name) {
+                    let mut it = x.into_iter();
+                    let mut terms = Vec::with_capacity(x.term_count());
+                    while let Some(e) = it.next() {
+                        terms.push(e.clone());
+                    }
+                    let mut e = Element::SubExpr(true, terms);
+                    e.normalize_inplace(var_info);
+                    *self = e;
+                    changed = true;
+                }
+            }
             Element::Num(ref mut dirty, ref mut num) => {
                 if *dirty {
                     *dirty = false;

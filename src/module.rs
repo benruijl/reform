@@ -16,7 +16,9 @@ use crossbeam::queue::MsQueue;
 use expand::ExpandIterator;
 use id::{MatchIterator, MatchKind, MatchObject, MatchOpt};
 use streaming::MAXTERMMEM;
-use streaming::{InputTermStreamer, InputTermStreamerIterator, OutputTermStreamer};
+use streaming::{
+    InputExpression, InputExpressionIterator, InputExpressionWriter, OutputTermStreamer,
+};
 use structure::*;
 
 /*
@@ -294,7 +296,8 @@ impl Statement {
                             .flat_map(|x| match *x {
                                 Element::SubExpr(_, ref y) => y.clone(),
                                 _ => vec![x.clone()],
-                            }).collect(),
+                            })
+                            .collect(),
                     )
                 };
 
@@ -310,7 +313,8 @@ impl Statement {
                                 .map(|f| match *f {
                                     Element::Fn(_, ref n, ref a) if *n == *name => subs(n, a),
                                     _ => f.clone(),
-                                }).collect(),
+                                })
+                                .collect(),
                         ),
                         false,
                     ),
@@ -397,7 +401,8 @@ impl Statement {
                                 .map(|f| match *f {
                                     Element::Fn(_, ref n, ref a) if *n == *name => subs(n, a),
                                     _ => f.clone(),
-                                }).collect(),
+                                })
+                                .collect(),
                         ),
                         false,
                     ),
@@ -1263,7 +1268,8 @@ impl Module {
                                         x.normalize(&var_info.global_info);
                                     }
                                     x
-                                }).collect::<Vec<_>>();
+                                })
+                                .collect::<Vec<_>>();
 
                             Module::statements_to_control_flow_stat(
                                 &mut newmod,
@@ -1282,7 +1288,6 @@ impl Module {
 
     fn execute_module(
         &mut self,
-        expressions: &mut Vec<Expression>,
         var_info: &mut VarInfo,
         procedures: &[Procedure],
         sort_statements: &mut Vec<Statement>,
@@ -1306,10 +1311,23 @@ impl Module {
         debug!("{}", self); // print module code
 
         // execute the module for every expression
-        for &mut (ref name, ref mut input_stream) in expressions {
+        let expression_names: Vec<_> = var_info
+            .global_info
+            .expressions
+            .values()
+            .map(|x| x.name)
+            .collect();
+
+        for expression_name in expression_names {
+            let mut input_stream = var_info
+                .global_info
+                .expressions
+                .remove(&expression_name)
+                .unwrap();
+
             // only process active expressions
-            if (!self.active_exprs.is_empty() && !self.active_exprs.contains(name))
-                || self.exclude_exprs.contains(name)
+            if (!self.active_exprs.is_empty() && !self.active_exprs.contains(&input_stream.name))
+                || self.exclude_exprs.contains(&input_stream.name)
             {
                 continue;
             }
@@ -1349,12 +1367,13 @@ impl Module {
 
                     // TODO: use semaphore or condvar for refills
                     let mut done = false;
+                    let mut input_iter = input_stream.into_iter();
                     while !done {
                         if queue.is_empty() {
                             debug!("Loading new batch");
                             for _ in 0..MAXTERMMEM {
-                                if let Some(x) = input_stream.read_term() {
-                                    queue.push(Some(x));
+                                if let Some(x) = input_iter.next() {
+                                    queue.push(Some(x.clone()));
                                 } else {
                                     // post exist signal to all threads
                                     for _ in 0..num_threads {
@@ -1377,10 +1396,11 @@ impl Module {
             } else {
                 let mut executed = vec![false];
                 let mut output_wrapped = TermStreamWrapper::Single(output);
+                let mut input_iter = input_stream.into_iter();
 
-                while let Some(x) = input_stream.read_term() {
+                while let Some(x) = input_iter.next() {
                     do_module_rec(
-                        x,
+                        x.clone(),
                         &self.statements,
                         &mut var_info.local_info,
                         &var_info.global_info,
@@ -1395,7 +1415,7 @@ impl Module {
                                 "{} -- generated: {}\tterms left: {}",
                                 self.name,
                                 output.termcount(),
-                                input_stream.termcount()
+                                input_stream.term_count()
                             );
                         }
                     }
@@ -1404,17 +1424,22 @@ impl Module {
                 output_wrapped.extract()
             };
 
-            let exprname = var_info.get_str_name(name);
+            let exprname = var_info.get_str_name(&input_stream.name);
             let pre_sort_time = Instant::now();
             output.sort(
                 &exprname,
-                input_stream,
+                InputExpressionWriter::new(&mut input_stream),
                 &self.name,
                 var_info, // TODO: this is not correct in the parallel case
                 sort_statements,
                 verbosity > 0,
                 write_log,
             );
+
+            var_info
+                .global_info
+                .expressions
+                .insert(expression_name, input_stream);
 
             let post_sort_time = Instant::now();
 
@@ -1452,7 +1477,6 @@ impl Program {
 
             match x {
                 Statement::Module(mut m) => m.execute_module(
-                    &mut self.expressions,
                     &mut self.var_info,
                     &self.procedures,
                     &mut sort_statements,
@@ -1461,29 +1485,41 @@ impl Program {
                     num_threads,
                 ),
                 Statement::NewExpression(name, mut e) => {
-                    let mut expr = InputTermStreamer::new(None);
-                    if e.replace_dollar(&self.var_info.local_info.variables)
-                        .contains(ReplaceResult::Replaced)
+                    let mut expr = InputExpression::new(name);
                     {
-                        e.normalize_inplace(&self.var_info.global_info);
-                    }
+                        let mut writer = InputExpressionWriter::new(&mut expr);
+                        if e.replace_dollar(&self.var_info.local_info.variables)
+                            .contains(ReplaceResult::Replaced)
+                        {
+                            e.normalize_inplace(&self.var_info.global_info);
+                        }
 
-                    match e {
-                        Element::SubExpr(_, t) => {
-                            for x in t {
-                                expr.add_term_input(x);
+                        match e {
+                            Element::SubExpr(_, t) => {
+                                for x in t {
+                                    writer.add_term_input(x);
+                                }
+                            }
+                            x => {
+                                writer.add_term_input(x);
                             }
                         }
-                        x => {
-                            expr.add_term_input(x);
+
+                        if self
+                            .var_info
+                            .global_info
+                            .expressions
+                            .keys()
+                            .any(|x| *x == name)
+                        {
+                            panic!("Cannot define the same expression multiple times");
                         }
                     }
 
-                    if self.expressions.iter().any(|(n, ..)| *n == name) {
-                        panic!("Cannot define the same expression multiple times");
-                    }
-
-                    self.expressions.push((name, expr));
+                    self.var_info
+                        .global_info
+                        .expressions
+                        .insert(name, expr.clone());
                 }
                 Statement::NewFunction(name, args, mut e) => {
                     self.var_info
@@ -1661,25 +1697,24 @@ impl Program {
                     });
                     for v in vars {
                         if let PrintObject::Special(id) = v {
-                            if let Some(i) = self.expressions.iter().position(|ex| *id == ex.0) {
-                                println!(
-                                    "{} =",
-                                    self.var_info.global_info.get_name(self.expressions[i].0)
-                                );
-                                let mut it =
-                                    InputTermStreamerIterator::new(&mut self.expressions[i].1);
+                            if let Some(mut i) = self.var_info.global_info.expressions.remove(id) {
+                                println!("{} =", self.var_info.global_info.get_name(*id));
+                                {
+                                    let mut it = InputExpressionIterator::new(&mut i);
 
-                                while let Some(t) = it.next() {
-                                    println!(
-                                        "\t+{}",
-                                        ElementPrinter {
-                                            element: t,
-                                            var_info: &self.var_info.global_info,
-                                            print_mode: *mode
-                                        }
-                                    );
+                                    while let Some(t) = it.next() {
+                                        println!(
+                                            "\t+{}",
+                                            ElementPrinter {
+                                                element: t,
+                                                var_info: &self.var_info.global_info,
+                                                print_mode: *mode
+                                            }
+                                        );
+                                    }
                                 }
 
+                                self.var_info.global_info.expressions.insert(*id, i);
                                 continue;
                             }
                         }
@@ -1703,9 +1738,9 @@ impl Program {
 
                     if vars.len() == 0 {
                         // print all active expressions
-                        for x in &mut self.expressions {
-                            println!("{} =", self.var_info.global_info.get_name(x.0));
-                            let mut it = InputTermStreamerIterator::new(&mut x.1);
+                        for x in &mut self.var_info.global_info.expressions.values() {
+                            println!("{} =", self.var_info.global_info.get_name(x.name));
+                            let mut it = InputExpressionIterator::new(x);
 
                             while let Some(t) = it.next() {
                                 println!(
