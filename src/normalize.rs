@@ -326,7 +326,7 @@ impl Element {
                     let mut it = x.into_iter();
                     let mut terms = Vec::with_capacity(x.term_count());
                     while let Some(e) = it.next() {
-                        terms.push(e.clone());
+                        terms.push(e.to_element());
                     }
                     let mut e = Element::SubExpr(true, terms);
                     e.normalize_inplace(var_info);

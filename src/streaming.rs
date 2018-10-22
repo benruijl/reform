@@ -7,6 +7,7 @@ use std::fs::OpenOptions;
 use std::io::prelude::*;
 use std::io::{BufReader, BufWriter, SeekFrom};
 use std::mem;
+use id::MatchOpt;
 
 use normalize::merge_terms;
 use number::Number;
@@ -69,7 +70,6 @@ impl InputExpression {
                 .as_ref()
                 .map(|x| BufReader::new(File::open(x).unwrap())),
             count: 0,
-            buffer: Element::default(),
         }
     }
 
@@ -81,7 +81,6 @@ impl InputExpression {
 #[derive(Debug)]
 pub struct InputExpressionIterator<'a> {
     it: &'a InputExpression,
-    buffer: Element, // buffer for element read from file
     file: Option<BufReader<File>>,
     count: usize,
 }
@@ -95,31 +94,32 @@ impl<'a> InputExpressionIterator<'a> {
                 .as_ref()
                 .map(|x| BufReader::new(File::open(x).unwrap())),
             count: 0,
-            buffer: Element::default(),
         }
     }
 
-    pub fn next(&mut self) -> Option<&Element> {
+    pub fn next(&mut self) -> Option<MatchOpt<'a>> {
         if self.count < self.it.mem_buffer.len() {
             self.count += 1;
-            return Some(&self.it.mem_buffer[self.count - 1]);
+            return Some(MatchOpt::Single(&self.it.mem_buffer[self.count - 1]));
         } else {
             // read from file
             if let Some(ref mut x) = self.file {
                 if let Ok(e) = Element::deserialize(x) {
-                    self.buffer = e;
-                    return Some(&self.buffer);
+                    return Some(MatchOpt::SingleOwned(e));
                 } else {
-                    // reset file buffer position
-                    // TODO: not needed, we have our own bufreader and file
-                    x.seek(SeekFrom::Start(0)).unwrap();
-                    mem::replace(&mut self.buffer, Element::default());
-                    None
+                    panic!("Could not read element");
                 }
             } else {
                 None
             }
         }
+    }
+
+    pub fn reset(&mut self) {
+        if let Some(ref mut x) = self.file {
+            x.seek(SeekFrom::Start(0)).unwrap();
+        }
+        self.count = 0;
     }
 }
 

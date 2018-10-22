@@ -12,6 +12,7 @@ authors = ["Ben Ruijl <benruyl@gmail.com>"]
 
 [profile.release]
 codegen-units = 1
+lto = "fat"
 
 [features]
 python_api = ["cpython"]

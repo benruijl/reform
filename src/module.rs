@@ -1373,7 +1373,7 @@ impl Module {
                             debug!("Loading new batch");
                             for _ in 0..MAXTERMMEM {
                                 if let Some(x) = input_iter.next() {
-                                    queue.push(Some(x.clone()));
+                                    queue.push(Some(x.to_element()));
                                 } else {
                                     // post exist signal to all threads
                                     for _ in 0..num_threads {
@@ -1400,7 +1400,7 @@ impl Module {
 
                 while let Some(x) = input_iter.next() {
                     do_module_rec(
-                        x.clone(),
+                        x.to_element(),
                         &self.statements,
                         &mut var_info.local_info,
                         &var_info.global_info,
@@ -1706,7 +1706,7 @@ impl Program {
                                         println!(
                                             "\t+{}",
                                             ElementPrinter {
-                                                element: t,
+                                                element: t.as_ref(),
                                                 var_info: &self.var_info.global_info,
                                                 print_mode: *mode
                                             }
@@ -1746,7 +1746,7 @@ impl Program {
                                 println!(
                                     "\t+{}",
                                     ElementPrinter {
-                                        element: t,
+                                        element: t.as_ref(),
                                         var_info: &self.var_info.global_info,
                                         print_mode: *mode
                                     }

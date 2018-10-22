@@ -25,6 +25,22 @@ pub enum MatchOptOwned {
 }
 
 impl<'a> MatchOpt<'a> {
+    pub fn to_element(self) -> Element {
+        match self {
+            MatchOpt::Single(x) => x.clone(),
+            MatchOpt::SingleOwned(x) => x,
+            MatchOpt::Multiple(x) => panic!("Cannot convert array {:?} to element", x),
+        }
+    }
+
+    pub fn as_ref(&self) -> &Element {
+        match self {
+            MatchOpt::Single(x) => x,
+            MatchOpt::SingleOwned(x) => &x,
+            MatchOpt::Multiple(x) => panic!("Cannot convert array {:?} to element", x),
+        }
+    }
+
     fn to_owned(&self) -> MatchOptOwned {
         match *self {
             MatchOpt::Single(x) => MatchOptOwned::Single(x.clone(), true),

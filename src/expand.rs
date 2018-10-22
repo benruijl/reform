@@ -2,6 +2,7 @@ use id::MatchOpt;
 use number::Number;
 use std::cmp::Ordering;
 use std::mem;
+use streaming::InputExpressionIterator;
 use structure::*;
 use tools::{ncr, CombinationsWithReplacement};
 
@@ -19,6 +20,7 @@ enum ExpandSubIterator<'a> {
     Exp(Box<CombinationsWithReplacement<Element>>, usize),
     Yield(Element),
     YieldMultiple(&'a [Element]),
+    Expression(InputExpressionIterator<'a>),
 }
 
 enum ExpandIteratorOption<T> {
@@ -151,11 +153,14 @@ impl<'a> ExpandIterator<'a> {
                 f.normalize_inplace(var_info);
                 ExpandSubIterator::Yield(f)
             }
+            Element::Expression(ref name) => {
+                ExpandSubIterator::Expression(InputExpressionIterator::new(var_info.expressions.get(name).unwrap()))
+            }
             Element::Pow(_, be) => {
                 let (b, e) = &mut **be;
 
-                // TODO: in principle expansions in the base and exponent could also be iterator over
-                // instead of collected
+                // TODO: we need to use an iterator for the base or exponent if it contains an expression
+                // that does not fit into memory
                 let (mut eb, ee) = (ExpandIterator::new(b, var_info, false).to_element(var_info),
                                 ExpandIterator::new(e, var_info, false).to_element(var_info));
 
@@ -227,6 +232,9 @@ impl<'a> ExpandIterator<'a> {
             }
             ExpandSubIterator::Exp(ref mut it, n) => {
                 **it = CombinationsWithReplacement::new(mem::replace(it.get_inner(), vec![]), n);
+            }
+            ExpandSubIterator::Expression(ref mut it) => {
+                it.reset();
             }
             _ => {}
         }
@@ -400,6 +408,13 @@ impl<'a> ExpandIterator<'a> {
                 self.done = true;
                 Some(MatchOpt::Multiple(ee))
             }
+            ExpandSubIterator::Expression(ee) => match ee.next() {
+                Some(x) => Some(x),
+                None => {
+                    self.done = true;
+                    None
+                }
+            },
         }
     }
 }

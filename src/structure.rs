@@ -443,30 +443,27 @@ impl Program {
     #[cfg(test)]
     pub fn get_result(&mut self, name: &str) -> String {
         let exprname = self.var_info.get_name(name);
-        for mut input in &mut self.expressions {
-            if input.name == exprname {
-                let mut it = input.into_iter();
-                let mut terms = Vec::new();
-                while let Some(x) = it.next() {
-                    terms.push(x.clone());
-                }
-                if terms.is_empty() {
-                    return "0".to_string();
-                } else {
-                    let terms = if terms.len() == 1 {
-                        terms.pop().unwrap()
-                    } else {
-                        Element::SubExpr(true, terms)
-                    };
-                    let printer = ElementPrinter {
-                        element: &terms,
-                        var_info: &self.var_info.global_info,
-                        print_mode: PrintMode::Form,
-                    };
-                    return printer.to_string();
-                }
+        if let Some(input) = self.var_info.global_info.expressions.get(&exprname) {
+            let mut it = input.into_iter();
+            let mut terms = Vec::new();
+            while let Some(x) = it.next() {
+                terms.push(x.to_element());
             }
-            break;
+            if terms.is_empty() {
+                return "0".to_string();
+            } else {
+                let terms = if terms.len() == 1 {
+                    terms.pop().unwrap()
+                } else {
+                    Element::SubExpr(true, terms)
+                };
+                let printer = ElementPrinter {
+                    element: &terms,
+                    var_info: &self.var_info.global_info,
+                    print_mode: PrintMode::Form,
+                };
+                return printer.to_string();
+            }
         }
         unreachable!("Could not find expression {}", name);
     }
@@ -1779,24 +1776,24 @@ impl Element {
         changed
     }
 
-    pub fn replace_expression(&mut self, map: &HashMap<VarName, InputExpression>) -> ReplaceResult {
+    /// Identify which variables are actually expressions
+    pub fn identify_expressions(
+        &mut self,
+        map: &HashMap<VarName, InputExpression>,
+    ) -> ReplaceResult {
         let mut changed = ReplaceResult::empty();
         *self = match *self {
             Element::Var(name, ref mut pow) => {
-                if let Some(x) = map.get(&name) {
-                    let mut it = x.into_iter();
-                    let mut terms = Vec::with_capacity(x.term_count());
-                    while let Some(e) = it.next() {
-                        terms.push(e.clone());
-                    }
-                    let mut e = Element::SubExpr(true, terms);
-
+                if map.contains_key(&name) {
                     if *pow == Number::one() {
-                        e
+                        Element::Expression(name)
                     } else {
                         Element::Pow(
                             true,
-                            Box::new((e, Element::Num(false, mem::replace(pow, Number::one())))),
+                            Box::new((
+                                Element::Expression(name),
+                                Element::Num(false, mem::replace(pow, Number::one())),
+                            )),
                         )
                     }
                 } else {
@@ -1806,40 +1803,40 @@ impl Element {
             Element::FnWildcard(_, ref mut b) => {
                 let (restrictions, args) = &mut **b;
                 for x in restrictions.iter_mut().chain(args) {
-                    changed |= x.replace_expression(map);
+                    changed |= x.identify_expressions(map);
                 }
                 return changed;
             }
             Element::Comparison(ref mut dirty, ref mut e, _) => {
-                changed |= e.0.replace_expression(map);
-                changed |= e.1.replace_expression(map);
+                changed |= e.0.identify_expressions(map);
+                changed |= e.1.identify_expressions(map);
                 *dirty |= changed.contains(ReplaceResult::Replaced);
                 return changed;
             }
             Element::Wildcard(_, ref mut restrictions) => {
                 for x in restrictions {
-                    changed |= x.replace_expression(map);
+                    changed |= x.identify_expressions(map);
                 }
                 return changed;
             }
             Element::Pow(ref mut dirty, ref mut be) => {
                 let (ref mut b, ref mut e) = *&mut **be;
-                changed |= b.replace_expression(map);
-                changed |= e.replace_expression(map);
+                changed |= b.identify_expressions(map);
+                changed |= e.identify_expressions(map);
                 *dirty |= changed.contains(ReplaceResult::Replaced);
                 return changed;
             }
             Element::Term(ref mut dirty, ref mut f)
             | Element::SubExpr(ref mut dirty, ref mut f) => {
                 for x in f {
-                    changed |= x.replace_expression(map);
+                    changed |= x.identify_expressions(map);
                 }
                 *dirty |= changed.contains(ReplaceResult::Replaced);
                 return changed;
             }
             Element::Fn(ref mut dirty, _, ref mut args) => {
                 for x in args {
-                    changed |= x.replace_expression(map);
+                    changed |= x.identify_expressions(map);
                 }
                 *dirty |= changed.contains(ReplaceResult::Replaced);
                 return changed;
@@ -1943,7 +1940,7 @@ impl Element {
         true
     }
 
-    // replace a (sub)element that appears literally by a new element
+    /// replace a (sub)element that appears literally by a new element
     pub fn replace(&mut self, orig: &Element, new: &Element) -> bool {
         if self == orig {
             *self = new.clone();
@@ -2424,7 +2421,7 @@ impl Statement {
                 e.normalize_inplace(var_info);
             }
             Statement::Assign(ref mut d, ref mut e) => {
-                e.replace_expression(&var_info.expressions);
+                e.identify_expressions(&var_info.expressions);
 
                 d.normalize_inplace(var_info);
                 e.normalize_inplace(var_info);
@@ -2472,7 +2469,7 @@ impl Statement {
             }
             Statement::NewExpression(_, ref mut rhs)
             | Statement::NewFunction(_, _, ref mut rhs) => {
-                rhs.replace_expression(&var_info.expressions);
+                rhs.identify_expressions(&var_info.expressions);
                 rhs.normalize_inplace(var_info);
             }
             _ => {}
