@@ -90,7 +90,8 @@ impl PrintObject<VarName> {
                             var_info: global_var_info,
                             print_mode: *print_mode
                         }
-                    ).unwrap();
+                    )
+                    .unwrap();
                 } else {
                     panic!("Unknown dollar variable in print statement: {}", id);
                 }
@@ -108,7 +109,8 @@ impl PrintObject<VarName> {
                         var_info: global_var_info,
                         print_mode: *print_mode
                     }
-                ).unwrap(),
+                )
+                .unwrap(),
                 _ => unimplemented!("Expressions in format strings are not supported yet."),
             },
         }
@@ -397,19 +399,19 @@ impl Program {
         };
 
         // convert all the names to IDs
-/*
-        let mut parsed_input = input.to_element(&mut prog.var_info);
-        parsed_input.normalize_inplace(&prog.var_info.global_info);
+        /*
+                let mut parsed_input = input.to_element(&mut prog.var_info);
+                parsed_input.normalize_inplace(&prog.var_info.global_info);
 
-        match parsed_input {
-            Element::SubExpr(_, t) => for mut x in t {
-                prog.input.add_term_input(x);
-            },
-            x => {
-                prog.input.add_term_input(x);
-            }
-        }
-*/
+                match parsed_input {
+                    Element::SubExpr(_, t) => for mut x in t {
+                        prog.input.add_term_input(x);
+                    },
+                    x => {
+                        prog.input.add_term_input(x);
+                    }
+                }
+        */
 
         let parsed_statements = statements
             .iter_mut()
@@ -428,7 +430,8 @@ impl Program {
                         let mut ns = s.to_element(&mut prog.var_info);
                         ns.normalize_inplace(&prog.var_info.global_info);
                         ns
-                    }).collect(),
+                    })
+                    .collect(),
                 local_args: m
                     .local_args
                     .iter_mut()
@@ -436,7 +439,8 @@ impl Program {
                         let mut ns = s.to_element(&mut prog.var_info);
                         ns.normalize_inplace(&prog.var_info.global_info);
                         ns
-                    }).collect(),
+                    })
+                    .collect(),
                 statements: m
                     .statements
                     .iter_mut()
@@ -615,7 +619,7 @@ impl PartialEq for Element {
     Fn(bool, Func),                        // f(...)
     Term(bool, Vec<Element>),
     SubExpr(bool, Vec<Element>),
-    Num(bool, bool, u64, u64),  
+    Num(bool, bool, u64, u64),
      }
 }*/
 
@@ -650,21 +654,27 @@ impl Element {
             }
             (Element::Var(..), &Element::Num(..)) => Some(cmp::Ordering::Less),
             (Element::Num(..), &Element::Var(..)) => Some(cmp::Ordering::Greater),
-            (&Element::Num(_, ref n1), &Element::Num(_, ref n2)) => if ground_level {
-                Some(cmp::Ordering::Equal)
-            } else {
-                n1.partial_cmp(n2)
-            },
-            (&Element::RationalPolynomialCoefficient(..), &Element::Num(..)) => if ground_level {
-                Some(cmp::Ordering::Equal)
-            } else {
-                Some(cmp::Ordering::Less)
-            },
-            (&Element::Num(..), &Element::RationalPolynomialCoefficient(..)) => if ground_level {
-                Some(cmp::Ordering::Equal)
-            } else {
-                Some(cmp::Ordering::Less)
-            },
+            (&Element::Num(_, ref n1), &Element::Num(_, ref n2)) => {
+                if ground_level {
+                    Some(cmp::Ordering::Equal)
+                } else {
+                    n1.partial_cmp(n2)
+                }
+            }
+            (&Element::RationalPolynomialCoefficient(..), &Element::Num(..)) => {
+                if ground_level {
+                    Some(cmp::Ordering::Equal)
+                } else {
+                    Some(cmp::Ordering::Less)
+                }
+            }
+            (&Element::Num(..), &Element::RationalPolynomialCoefficient(..)) => {
+                if ground_level {
+                    Some(cmp::Ordering::Equal)
+                } else {
+                    Some(cmp::Ordering::Less)
+                }
+            }
             (_, &Element::Num(..)) => Some(cmp::Ordering::Less),
             (&Element::Num(..), _) => Some(cmp::Ordering::Greater),
             //(&Element::SubExpr(..), &Element::SubExpr(..)) => None,
@@ -885,56 +895,58 @@ impl Element {
                 };
                 return Some(cmp::Ordering::Equal);
                 /*
-                let mut tai = ta.iter();
-                let mut tbi = tb.iter();
+                                let mut tai = ta.iter();
+                                let mut tbi = tb.iter();
 
-                loop {
-                    match (tai.next(), tbi.next()) {
-                        (Some(taa), Some(tbb)) => {
-                            // since we keep ground_level the check of the coeff will yield equal
-                            let k = taa
-                                .simple_partial_cmp(tbb, var_info, ground_level)
-                                .or_else(|| taa.partial_cmp(tbb, var_info, ground_level));
+                                loop {
+                                    match (tai.next(), tbi.next()) {
+                                        (Some(taa), Some(tbb)) => {
+                                            // since we keep ground_level the check of the coeff will yield equal
+                                            let k = taa
+                                                .simple_partial_cmp(tbb, var_info, ground_level)
+                                                .or_else(|| taa.partial_cmp(tbb, var_info, ground_level));
 
-                            match k {
-                                Some(cmp::Ordering::Equal) => {}
-                                _ => return k,
-                            }
-                        }
-                        (Some(taa), None) => {
-                            if ground_level {
-                                match taa {
-                                    Element::Num(..)
-                                    | Element::RationalPolynomialCoefficient(..) => {
-                                        return Some(cmp::Ordering::Equal);
+                                            match k {
+                                                Some(cmp::Ordering::Equal) => {}
+                                                _ => return k,
+                                            }
+                                        }
+                                        (Some(taa), None) => {
+                                            if ground_level {
+                                                match taa {
+                                                    Element::Num(..)
+                                                    | Element::RationalPolynomialCoefficient(..) => {
+                                                        return Some(cmp::Ordering::Equal);
+                                                    }
+                                                    _ => {}
+                                                }
+                                            }
+                                            return Some(cmp::Ordering::Greater);
+                                        }
+                                        (None, Some(tbb)) => {
+                                            if ground_level {
+                                                match tbb {
+                                                    Element::Num(..)
+                                                    | Element::RationalPolynomialCoefficient(..) => {
+                                                        return Some(cmp::Ordering::Equal);
+                                                    }
+                                                    _ => {}
+                                                }
+                                            }
+                                            return Some(cmp::Ordering::Less);
+                                        }
+                                        (None, None) => return Some(cmp::Ordering::Equal),
                                     }
-                                    _ => {}
                                 }
-                            }
-                            return Some(cmp::Ordering::Greater);
-                        }
-                        (None, Some(tbb)) => {
-                            if ground_level {
-                                match tbb {
-                                    Element::Num(..)
-                                    | Element::RationalPolynomialCoefficient(..) => {
-                                        return Some(cmp::Ordering::Equal);
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            return Some(cmp::Ordering::Less);
-                        }
-                        (None, None) => return Some(cmp::Ordering::Equal),
-                    }
-                }
-*/
+                */
             }
-            (&Element::Num(_, ref n1), &Element::Num(_, ref n2)) => if ground_level {
-                Some(cmp::Ordering::Equal)
-            } else {
-                n1.partial_cmp(n2)
-            },
+            (&Element::Num(_, ref n1), &Element::Num(_, ref n2)) => {
+                if ground_level {
+                    Some(cmp::Ordering::Equal)
+                } else {
+                    n1.partial_cmp(n2)
+                }
+            }
             (_, &Element::Term(_, ref t)) => match self
                 .simple_partial_cmp(&t[0], var_info, false)
                 .or_else(|| self.partial_cmp(&t[0], var_info, false))
@@ -971,16 +983,20 @@ impl Element {
                 }
                 x => x,
             },
-            (&Element::RationalPolynomialCoefficient(..), &Element::Num(..)) => if ground_level {
-                Some(cmp::Ordering::Equal)
-            } else {
-                Some(cmp::Ordering::Less)
-            },
-            (&Element::Num(..), &Element::RationalPolynomialCoefficient(..)) => if ground_level {
-                Some(cmp::Ordering::Equal)
-            } else {
-                Some(cmp::Ordering::Less)
-            },
+            (&Element::RationalPolynomialCoefficient(..), &Element::Num(..)) => {
+                if ground_level {
+                    Some(cmp::Ordering::Equal)
+                } else {
+                    Some(cmp::Ordering::Less)
+                }
+            }
+            (&Element::Num(..), &Element::RationalPolynomialCoefficient(..)) => {
+                if ground_level {
+                    Some(cmp::Ordering::Equal)
+                } else {
+                    Some(cmp::Ordering::Less)
+                }
+            }
             (&Element::Fn(_, ref namea, ref argsa), &Element::Fn(_, ref nameb, ref argsb)) => {
                 let k = namea.partial_cmp(nameb);
                 match k {
@@ -1163,17 +1179,19 @@ impl fmt::Display for Statement {
                 }
                 writeln!(f, "")
             }
-            Statement::Repeat(ref ss) => if ss.len() == 1 {
-                write!(f, "repeat {}", ss[0])
-            } else {
-                writeln!(f, "repeat;")?;
+            Statement::Repeat(ref ss) => {
+                if ss.len() == 1 {
+                    write!(f, "repeat {}", ss[0])
+                } else {
+                    writeln!(f, "repeat;")?;
 
-                for s in ss {
-                    write!(f, "\t{}", s)?;
+                    for s in ss {
+                        write!(f, "\t{}", s)?;
+                    }
+
+                    writeln!(f, "endrepeat;")
                 }
-
-                writeln!(f, "endrepeat;")
-            },
+            }
             Statement::Argument(ref ff, ref ss) => {
                 writeln!(f, "argument ")?;
 
@@ -1200,24 +1218,26 @@ impl fmt::Display for Statement {
 
                 writeln!(f, "endinside;")
             }
-            Statement::IfElse(ref cond, ref m, ref nm) => if nm.len() == 0 && m.len() == 1 {
-                write!(f, "if {} {};", cond, m[0])
-            } else {
-                writeln!(f, "if (match({}));", cond)?;
+            Statement::IfElse(ref cond, ref m, ref nm) => {
+                if nm.len() == 0 && m.len() == 1 {
+                    write!(f, "if {} {};", cond, m[0])
+                } else {
+                    writeln!(f, "if (match({}));", cond)?;
 
-                for s in m {
-                    writeln!(f, "\t{}", s)?;
-                }
-
-                if nm.len() > 0 {
-                    writeln!(f, "else;")?;
                     for s in m {
                         writeln!(f, "\t{}", s)?;
                     }
-                }
 
-                writeln!(f, "endif;")
-            },
+                    if nm.len() > 0 {
+                        writeln!(f, "else;")?;
+                        for s in m {
+                            writeln!(f, "\t{}", s)?;
+                        }
+                    }
+
+                    writeln!(f, "endif;")
+                }
+            }
             Statement::ForIn(ref d, ref l, ref m) => {
                 write!(f, "for {} in {{", d)?;
 
@@ -1352,21 +1372,23 @@ impl Element {
                 write!(f, "?")?;
                 fmt_varname(name, f, var_info)
             }
-            &Element::Wildcard(ref name, ref restriction) => if restriction.len() == 0 {
-                fmt_varname(name, f, var_info)?;
-                write!(f, "?")
-            } else {
-                fmt_varname(name, f, var_info)?;
-                write!(f, "?{{")?;
-                match restriction.first() {
-                    Some(x) => x.fmt_output(f, print_mode, var_info)?,
-                    None => {}
+            &Element::Wildcard(ref name, ref restriction) => {
+                if restriction.len() == 0 {
+                    fmt_varname(name, f, var_info)?;
+                    write!(f, "?")
+                } else {
+                    fmt_varname(name, f, var_info)?;
+                    write!(f, "?{{")?;
+                    match restriction.first() {
+                        Some(x) => x.fmt_output(f, print_mode, var_info)?,
+                        None => {}
+                    }
+                    for t in restriction.iter().skip(1) {
+                        t.fmt_output(f, print_mode, var_info)?
+                    }
+                    write!(f, "}}")
                 }
-                for t in restriction.iter().skip(1) {
-                    t.fmt_output(f, print_mode, var_info)?
-                }
-                write!(f, "}}")
-            },
+            }
             &Element::Var(ref name, ref e) => {
                 if !e.is_one() {
                     fmt_varname(name, f, var_info)?;
@@ -2129,9 +2151,11 @@ impl Statement {
                     *contains_dollar = changed.contains(ReplaceResult::NotReplaced);
                 }
             }
-            Statement::Repeat(ref mut ss) => for s in ss {
-                changed |= s.replace_dollar(map);
-            },
+            Statement::Repeat(ref mut ss) => {
+                for s in ss {
+                    changed |= s.replace_dollar(map);
+                }
+            }
             Statement::MatchAssign(ref mut e, ref mut ss) => {
                 changed |= e.replace_dollar(map);
                 for s in ss {
@@ -2150,9 +2174,11 @@ impl Statement {
             Statement::Multiply(ref mut e) | Statement::ReplaceBy(ref mut e) => {
                 changed |= e.replace_dollar(map);
             }
-            Statement::Call(_, ref mut es) => for s in es {
-                changed |= s.replace_dollar(map);
-            },
+            Statement::Call(_, ref mut es) => {
+                for s in es {
+                    changed |= s.replace_dollar(map);
+                }
+            }
             Statement::Assign(ref mut d, ref mut e) => {
                 if let Element::Dollar(_id, ref mut inds) = d {
                     for i in inds {
@@ -2216,9 +2242,11 @@ impl Statement {
                 changed |= lhs.replace_elements(map);
                 changed |= rhs.replace_elements(map);
             }
-            Statement::Repeat(ref mut ss) => for s in ss {
-                changed |= s.replace_elements(map);
-            },
+            Statement::Repeat(ref mut ss) => {
+                for s in ss {
+                    changed |= s.replace_elements(map);
+                }
+            }
             Statement::MatchAssign(ref mut e, ref mut ss) => {
                 changed |= e.replace_elements(map);
                 for s in ss {
@@ -2259,9 +2287,11 @@ impl Statement {
             Statement::Multiply(ref mut e) | Statement::ReplaceBy(ref mut e) => {
                 changed |= e.replace_elements(map);
             }
-            Statement::Call(_, ref mut es) => for s in es {
-                changed |= s.replace_elements(map);
-            },
+            Statement::Call(_, ref mut es) => {
+                for s in es {
+                    changed |= s.replace_elements(map);
+                }
+            }
             Statement::Assign(ref mut d, ref mut e) => {
                 if let Element::Dollar(_id, ref mut inds) = d {
                     for i in inds {
@@ -2347,12 +2377,16 @@ impl Statement {
                     s.normalize(var_info);
                 }
             }
-            Statement::Inside(_, ref mut ss) => for s in ss {
-                s.normalize(var_info);
-            },
-            Statement::Call(_, ref mut ss) => for s in ss {
-                s.normalize_inplace(var_info);
-            },
+            Statement::Inside(_, ref mut ss) => {
+                for s in ss {
+                    s.normalize(var_info);
+                }
+            }
+            Statement::Call(_, ref mut ss) => {
+                for s in ss {
+                    s.normalize_inplace(var_info);
+                }
+            }
             Statement::ForIn(ref mut d, ref mut l, ref mut ss) => {
                 d.normalize_inplace(var_info);
                 for e in l {

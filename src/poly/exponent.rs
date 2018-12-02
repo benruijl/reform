@@ -1,12 +1,12 @@
-use std::ops::Sub;
+use num_traits::cast::{AsPrimitive, FromPrimitive};
 use num_traits::{CheckedAdd, One, Zero};
-use num_traits::cast::{FromPrimitive, AsPrimitive};
-use std::hash::Hash;
 use std::fmt::{Debug, Display};
+use std::hash::Hash;
+use std::ops::Sub;
 
 /// Trait for exponents in polynomials.
-pub trait Exponent
-    : Hash
+pub trait Exponent:
+    Hash
     + Zero
     + Debug
     + Display
@@ -16,21 +16,22 @@ pub trait Exponent
     + CheckedAdd
     + Sub<Output = Self>
     + Ord
-    + Clone {
+    + Clone
+{
 }
 
 impl<
-    T: Hash
-        + Zero
-        + Debug
-        + Display
-        + One
-        + FromPrimitive
-        + AsPrimitive<u32>
-        + CheckedAdd
-        + Sub<Output = Self>
-        + Ord
-        + Clone,
-> Exponent for T
+        T: Hash
+            + Zero
+            + Debug
+            + Display
+            + One
+            + FromPrimitive
+            + AsPrimitive<u32>
+            + CheckedAdd
+            + Sub<Output = Self>
+            + Ord
+            + Clone,
+    > Exponent for T
 {
 }

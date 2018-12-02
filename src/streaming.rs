@@ -209,12 +209,12 @@ impl OutputTermStreamer {
     /*
     pub fn print_info(&self, element: &Element, write_log: bool) {
         if write_log {
-			// FIXME: filename
-			let mut f = File::create("test.log").expect(&format!("Unable to create file {:?}", "test.log"));
-        	writeln!(f, "{} -- \t terms in: {}\tgenerated: {}\tterms out: {}", module.name,
-            	inpcount, genterms, outterms).unwrap();
-        	writeln!(f, "{}", program.input).unwrap();
-		}
+            // FIXME: filename
+            let mut f = File::create("test.log").expect(&format!("Unable to create file {:?}", "test.log"));
+            writeln!(f, "{} -- \t terms in: {}\tgenerated: {}\tterms out: {}", module.name,
+                inpcount, genterms, outterms).unwrap();
+            writeln!(f, "{}", program.input).unwrap();
+        }
     }*/
 
     /*
@@ -257,13 +257,15 @@ impl OutputTermStreamer {
                         a = Element::Fn(false, v.clone(), vec![a]);
                     }
                     Statement::Print(mode, ref es) => {
-                        if es.len() == 0 || es.iter().any(|e| {
-                            if let PrintObject::Special(name) = e {
-                                exprname == var_info.global_info.get_name(*name)
-                            } else {
-                                false
-                            }
-                        }) {
+                        if es.len() == 0
+                            || es.iter().any(|e| {
+                                if let PrintObject::Special(name) = e {
+                                    exprname == var_info.global_info.get_name(*name)
+                                } else {
+                                    false
+                                }
+                            })
+                        {
                             print_output = true;
                         }
                         print_mode = mode;
@@ -446,13 +448,15 @@ impl OutputTermStreamer {
                         }
                     }
                     Statement::Print(mode, ref es) => {
-                        if es.len() == 0 || es.iter().any(|e| {
-                            if let PrintObject::Special(name) = e {
-                                exprname == var_info.global_info.get_name(*name)
-                            } else {
-                                false
-                            }
-                        }) {
+                        if es.len() == 0
+                            || es.iter().any(|e| {
+                                if let PrintObject::Special(name) = e {
+                                    exprname == var_info.global_info.get_name(*name)
+                                } else {
+                                    false
+                                }
+                            })
+                        {
                             print_output = true;
                         }
                         print_mode = mode;

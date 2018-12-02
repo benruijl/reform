@@ -1352,7 +1352,8 @@ where
                         .collect::<Vec<_>>();
                     tight_bounds[*var] = MultivariatePolynomial::<Number, E>::get_gcd_var_bound(
                         &ap, &bp, &vvars, *var,
-                    ).as_();
+                    )
+                    .as_();
                 }
                 break;
             } else {
@@ -1721,6 +1722,7 @@ impl<E: Exponent> PolynomialGCD for MultivariatePolynomial<FiniteField, E> {
             } else {
                 a.coefficients[0].p
             }),
-        ).unwrap()
+        )
+        .unwrap()
     }
 }
