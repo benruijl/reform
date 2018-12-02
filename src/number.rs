@@ -222,14 +222,16 @@ impl Neg for Number {
                 }
             }
             Number::BigInt(i) => Number::BigInt(-i),
-            Number::SmallRat(n, d) => if n == isize::min_value() {
-                Number::BigRat(Box::new(Rational::from((
-                    -Integer::from(n),
-                    Integer::from(d),
-                ))))
-            } else {
-                Number::SmallRat(-n, d)
-            },
+            Number::SmallRat(n, d) => {
+                if n == isize::min_value() {
+                    Number::BigRat(Box::new(Rational::from((
+                        -Integer::from(n),
+                        Integer::from(d),
+                    ))))
+                } else {
+                    Number::SmallRat(-n, d)
+                }
+            }
             Number::BigRat(f) => Number::BigRat(Box::new(-*f)),
         }
     }
@@ -401,19 +403,23 @@ impl Mul for Number {
                 d2 /= gcd;
 
                 match n2.checked_mul(i1 / gcd) {
-                    Some(x) => if d2 == 1 {
-                        Number::SmallInt(x)
-                    } else {
-                        Number::SmallRat(x, d2).normalized()
-                    },
-                    None => if d2 == 1 {
-                        Number::BigInt(Integer::from(n2) * Integer::from(i1 / gcd))
-                    } else {
-                        Number::BigRat(Box::new(Rational::from((
-                            Integer::from(n2) * Integer::from(i1 / gcd),
-                            d2,
-                        ))))
-                    },
+                    Some(x) => {
+                        if d2 == 1 {
+                            Number::SmallInt(x)
+                        } else {
+                            Number::SmallRat(x, d2).normalized()
+                        }
+                    }
+                    None => {
+                        if d2 == 1 {
+                            Number::BigInt(Integer::from(n2) * Integer::from(i1 / gcd))
+                        } else {
+                            Number::BigRat(Box::new(Rational::from((
+                                Integer::from(n2) * Integer::from(i1 / gcd),
+                                d2,
+                            ))))
+                        }
+                    }
                 }
             }
             (SmallRat(n1, d1), SmallRat(n2, d2)) => {

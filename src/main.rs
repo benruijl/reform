@@ -29,36 +29,42 @@ fn main() -> Result<(), Box<std::error::Error>> {
                 .value_name("FILE")
                 .help("Sets a custom config file")
                 .takes_value(true),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("log")
                 .short("l")
                 .long("log")
                 .help("Create a log file with the output"),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("workers")
                 .short("w")
                 .long("workers")
                 .help("Number of workers (threads)")
                 .default_value("1")
                 .takes_value(true),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("dollars")
                 .short("d")
                 .long("dollars")
                 .help("Define dollar variables in a list as $a=x,b=\"1 + x\"")
                 .takes_value(true),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("INPUT")
                 .help("Sets the input file to use")
                 .required(true)
                 .default_value("test.frm")
                 .index(1),
-        ).arg(
+        )
+        .arg(
             Arg::with_name("v")
                 .short("v")
                 .multiple(true)
                 .help("Sets the level of verbosity"),
-        ).get_matches();
+        )
+        .get_matches();
 
     // parse the program
     let mut program = reform::parser::parse_file(matches.value_of("INPUT").unwrap());

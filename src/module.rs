@@ -294,7 +294,8 @@ impl Statement {
                             .flat_map(|x| match *x {
                                 Element::SubExpr(_, ref y) => y.clone(),
                                 _ => vec![x.clone()],
-                            }).collect(),
+                            })
+                            .collect(),
                     )
                 };
 
@@ -310,7 +311,8 @@ impl Statement {
                                 .map(|f| match *f {
                                     Element::Fn(_, ref n, ref a) if *n == *name => subs(n, a),
                                     _ => f.clone(),
-                                }).collect(),
+                                })
+                                .collect(),
                         ),
                         false,
                     ),
@@ -397,7 +399,8 @@ impl Statement {
                                 .map(|f| match *f {
                                     Element::Fn(_, ref n, ref a) if *n == *name => subs(n, a),
                                     _ => f.clone(),
-                                }).collect(),
+                                })
+                                .collect(),
                         ),
                         false,
                     ),
@@ -1021,7 +1024,7 @@ fn do_module_rec(
                                 continue;
                             }
                         }
-                    
+
                         // if the value of a local dollar is different, we change it back
                         if let Some(v) = local_var_info.variables.get_mut(var) {
                             if v != e {
@@ -1263,7 +1266,8 @@ impl Module {
                                         x.normalize(&var_info.global_info);
                                     }
                                     x
-                                }).collect::<Vec<_>>();
+                                })
+                                .collect::<Vec<_>>();
 
                             Module::statements_to_control_flow_stat(
                                 &mut newmod,
