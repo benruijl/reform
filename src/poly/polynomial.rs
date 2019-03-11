@@ -1,9 +1,9 @@
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use hashbrown::hash_map::Entry;
+use hashbrown::HashMap;
 use num_traits::{One, Zero};
 use number::Number;
 use poly::raw::MultivariatePolynomial;
-use std::collections::hash_map::Entry;
-use std::collections::HashMap;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::io::{Error, Read, Write};

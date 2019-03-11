@@ -5,8 +5,8 @@ extern crate byteorder; // for serialization
 extern crate chrono;
 extern crate crossbeam;
 extern crate fastdivide;
-extern crate fnv;
 extern crate gmp_mpfr_sys;
+extern crate hashbrown;
 extern crate itertools; // command line argument options
 extern crate ndarray;
 extern crate num_integer;

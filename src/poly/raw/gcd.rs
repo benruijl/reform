@@ -4,7 +4,8 @@ use std::mem;
 use poly::exponent::Exponent;
 use poly::ring::Ring;
 
-use fnv::FnvHashMap;
+use hashbrown::hash_map::Entry;
+use hashbrown::HashMap;
 use number;
 use number::Number;
 use poly::raw::finitefield::FiniteField;
@@ -18,7 +19,6 @@ use rand;
 use rand::distributions::{Distribution, Uniform};
 use rand::Rng;
 use std::cmp::{max, min};
-use std::collections::hash_map::Entry;
 use tools::GCD;
 
 use ndarray::{arr1, Array};
@@ -134,13 +134,10 @@ fn construct_new_image<E: Exponent>(
     // the sampling_polynomial routine will set the power to 0 after use.
     // If the exponent is small enough, we use a vec, otherwise we use a hashmap.
     let (mut tm, mut tm_fixed) = if has_small_exp {
-        (
-            FnvHashMap::with_hasher(Default::default()),
-            vec![0; var_bound],
-        )
+        (HashMap::with_hasher(Default::default()), vec![0; var_bound])
     } else {
         (
-            FnvHashMap::with_capacity_and_hasher(INITIAL_POW_MAP_SIZE, Default::default()),
+            HashMap::with_capacity_and_hasher(INITIAL_POW_MAP_SIZE, Default::default()),
             vec![],
         )
     };
@@ -703,7 +700,7 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
         p: &FastModulus,
         r: &[(usize, ufield)],
         cache: &mut [Vec<ufield>],
-        tm: &mut FnvHashMap<E, ufield>,
+        tm: &mut HashMap<E, ufield>,
     ) -> MultivariatePolynomial<FiniteField, E> {
         for mv in self.into_iter() {
             let mut c = mv.coefficient.n;
@@ -816,8 +813,15 @@ impl<E: Exponent> MultivariatePolynomial<FiniteField, E> {
         // the gcd of the content in the last variable should be 1
         let c = MultivariatePolynomial::multivariate_content_gcd(a, b, lastvar);
         if !c.is_one() {
-            debug!("Content in last variable is not 1, but {}!", c);
-            return None;
+            debug!("Content in last variable is not 1, but {}", c);
+            // TODO: we assume that a content of -1 is also allowed
+            // like in the special case gcd_(-x0*x1,-x0-x0*x1)
+            if c != MultivariatePolynomial::from_constant_with_nvars(
+                FiniteField::from_i64(-1, p.value()),
+                a.nvars,
+            ) {
+                return None;
+            }
         }
 
         let gamma = MultivariatePolynomial::univariate_gcd(
@@ -1206,7 +1210,7 @@ where
 
         // store a power map for the univariate polynomials that will be sampled
         // the sampling_polynomial routine will set the power to 0 after use
-        let mut tm = FnvHashMap::with_capacity_and_hasher(INITIAL_POW_MAP_SIZE, Default::default());
+        let mut tm = HashMap::with_capacity_and_hasher(INITIAL_POW_MAP_SIZE, Default::default());
 
         // generate random numbers for all non-leading variables
         // TODO: apply a Horner scheme to speed up the substitution?
@@ -1352,7 +1356,8 @@ where
                         .collect::<Vec<_>>();
                     tight_bounds[*var] = MultivariatePolynomial::<Number, E>::get_gcd_var_bound(
                         &ap, &bp, &vvars, *var,
-                    ).as_();
+                    )
+                    .as_();
                 }
                 break;
             } else {
@@ -1721,6 +1726,7 @@ impl<E: Exponent> PolynomialGCD for MultivariatePolynomial<FiniteField, E> {
             } else {
                 a.coefficients[0].p
             }),
-        ).unwrap()
+        )
+        .unwrap()
     }
 }
