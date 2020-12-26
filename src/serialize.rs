@@ -8,6 +8,7 @@ use rug::{Integer, Rational};
 use std::cmp::Ordering;
 use std::io::Cursor;
 use std::io::{Error, Read, Seek, SeekFrom, Write};
+use std::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut};
 use std::os::raw::c_void;
 use structure::*;
@@ -131,15 +132,13 @@ fn deserialize_integer(buffer: &mut Read) -> Result<Integer, Error> {
     let sign = buffer.read_u8()?;
     let count = buffer.read_u64::<LittleEndian>()? as usize;
 
-    let mut res = gmp::mpz_t {
-        alloc: 0,
-        size: 0,
-        d: 0 as *mut u64,
-    };
-
     let mut numbuffer = vec![0u8; count];
     buffer.read(&mut numbuffer)?;
     unsafe {
+        let mut res = MaybeUninit::uninit();
+        gmp::mpz_init(res.as_mut_ptr());
+        let mut res = res.assume_init();
+
         gmp::mpz_import(
             &mut res,
             count,
