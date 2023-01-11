@@ -1,3 +1,5 @@
+**DISCONTINUED** - check out [Symbolica](https://github.com/benruijl/symbolica) (in early development) or [FORM](https://github.com/vermaseren/form) for an alternative.
+
 reFORM
 ---------
 
